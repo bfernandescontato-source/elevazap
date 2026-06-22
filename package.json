@@ -1,0 +1,14 @@
+{
+  "name": "elevazap-whatsapp-ops",
+  "private": true,
+  "workspaces": [
+    "web",
+    "whatsapp-service"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace web run dev",
+    "dev:service": "npm --workspace whatsapp-service run dev",
+    "test": "npm --workspaces run test",
+    "build": "npm --workspaces run build"
+  }
+}
