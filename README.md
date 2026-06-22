@@ -42,7 +42,7 @@ Status `incerto` existe porque não há exactly-once perfeito em WhatsApp: se o 
 
 `claim_token` impede envio de item pausado, cancelado ou alterado enquanto ainda estava em buffer local. Antes de `sendMessage`, o serviço só move para `processando` se `status = enfileirado` e `claim_token` bater.
 
-A fila é global, única e serial. Boas-vindas e testes têm prioridade alta; grupos têm prioridade normal. Prioridade muda ordem, não cria concorrência. O serviço usa buffer pequeno e não pré-enfileira lote inteiro.
+A fila é global, única e serial. Boas-vindas e testes têm prioridade alta; grupos têm prioridade normal. Prioridade muda ordem, não cria concorrência. O serviço usa buffer pequeno e não pré-enfileira lote inteiro. Em lotes de grupo, o primeiro disparo sai assim que o item é processado e os seguintes respeitam o intervalo global.
 
 ## Supabase
 
@@ -77,7 +77,7 @@ openssl rand -base64 32
 Defaults recomendados no serviço:
 
 ```env
-GLOBAL_SEND_THROTTLE_MS=1000
+GLOBAL_SEND_THROTTLE_MS=2000
 LOCK_TTL_SECONDS=60
 WELCOME_UNCERTAIN_POLICY=manual
 ```

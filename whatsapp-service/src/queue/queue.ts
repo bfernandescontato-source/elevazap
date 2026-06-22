@@ -105,7 +105,7 @@ export class GlobalSendQueue {
     try {
       const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - this.lastSendAt));
       if (throttleWait) await sleep(throttleWait);
-      await sleep(item.kind === "envio" ? random(3000, 8000) : random(20_000, 45_000));
+      if (item.kind === "envio") await sleep(random(3000, 8000));
       if (item.kind === "envio") await this.sendWelcome(row);
       else await this.sendGroup(row);
       this.lastSendAt = Date.now();
