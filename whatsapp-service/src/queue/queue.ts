@@ -9,6 +9,7 @@ type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "norm
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const backoff = (attempts: number) => attempts <= 1 ? 60_000 : attempts === 2 ? 5 * 60_000 : null;
+const isEmptyCompositeResult = (error: any) => error?.code === "22P02" && String(error?.message || "").includes('uuid: "null"');
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
@@ -52,10 +53,10 @@ export class GlobalSendQueue {
 
   private async claimNext() {
     const { data: envio, error: envioError } = await supabase.rpc("claim_next_envio");
-    if (envioError) throw envioError;
+    if (envioError && !isEmptyCompositeResult(envioError)) throw envioError;
     if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
     const { data: grupo, error: grupoError } = await supabase.rpc("claim_next_envio_grupo");
-    if (grupoError) throw grupoError;
+    if (grupoError && !isEmptyCompositeResult(grupoError)) throw grupoError;
     if (grupo) this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
   }
 
