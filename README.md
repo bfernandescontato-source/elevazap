@@ -104,7 +104,7 @@ WELCOME_UNCERTAIN_POLICY=manual
 
 - `/conexao`: escaneie o QR Code e acompanhe status do socket.
 - `/mensagem`: edite `welcome_message` com suporte a `{{nome}}`; o teste cria job pendente, não envia pela Vercel.
-- `/grupos`: atualize grupos próprios, organize grupos em campanhas e crie lote com texto, imagem, vídeo, áudio, áudio de voz ou documento.
+- `/grupos`: organize grupos em campanhas, gerencie modelos de mensagem em pastas e crie disparos por campanha com texto, imagem, vídeo, áudio ou documento.
 - Upload de mídia é direto do browser para Supabase Storage via signed upload URL; arquivo não passa por API route do Next e não usa base64.
 - `/lotes`: pause, retome ou cancele pendentes.
 - `/envios` e `/envios-grupo`: acompanhe histórico e erros.
