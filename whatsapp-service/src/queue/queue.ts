@@ -3,13 +3,13 @@ import { supabase } from "../supabase.js";
 import { downloadMedia, buildBaileysMessage, convertVoiceToOpus } from "../utils/media.js";
 import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import type { WhatsAppRuntime } from "../whatsapp.js";
+import { randomUUID } from "crypto";
 
 type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const backoff = (attempts: number) => attempts <= 1 ? 60_000 : attempts === 2 ? 5 * 60_000 : null;
-const isEmptyCompositeResult = (error: any) => error?.code === "22P02" && String(error?.message || "").includes('uuid: "null"');
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
@@ -52,12 +52,42 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
-    const { data: envio, error: envioError } = await supabase.rpc("claim_next_envio");
-    if (envioError && !isEmptyCompositeResult(envioError)) throw envioError;
+    const envio = await this.claimTableItem("envios");
     if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
-    const { data: grupo, error: grupoError } = await supabase.rpc("claim_next_envio_grupo");
-    if (grupoError && !isEmptyCompositeResult(grupoError)) throw grupoError;
-    if (grupo) this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+    const grupo = await this.claimTableItem("envios_grupo");
+    if (grupo) {
+      await supabase.from("envios_grupo_lotes")
+        .update({ status: "processando", started_at: grupo.started_at, updated_at: new Date().toISOString() })
+        .eq("id", grupo.lote_id)
+        .in("status", ["pendente", "processando"]);
+      await supabase.rpc("recalc_lote_counts", { p_lote_id: grupo.lote_id });
+      this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+    }
+  }
+
+  private async claimTableItem(table: "envios" | "envios_grupo") {
+    const now = new Date().toISOString();
+    const { data: job, error: selectError } = await supabase.from(table)
+      .select("*")
+      .eq("status", "pendente")
+      .lte("scheduled_at", now)
+      .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
+      .order("scheduled_at", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (selectError) throw selectError;
+    if (!job) return null;
+
+    const claimToken = randomUUID();
+    const { data: claimed, error: updateError } = await supabase.from(table)
+      .update({ status: "enfileirado", claimed_at: now, claim_token: claimToken, updated_at: now })
+      .eq("id", job.id)
+      .eq("status", "pendente")
+      .select("*")
+      .maybeSingle();
+    if (updateError) throw updateError;
+    return claimed;
   }
 
   private async process(item: QueueItem) {
