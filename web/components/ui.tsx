@@ -182,7 +182,7 @@ export function Toast({ message }: { message: string }) {
 }
 
 export function ConnectionStatusCard({ status, qr }: { status?: string; qr?: string }) {
-  return <div className="rounded-lg border border-line bg-panel p-6 shadow-soft"><div className="flex items-center justify-between"><div><div className="text-sm text-muted">WhatsApp</div><div className="mt-1 text-lg font-semibold text-ink">{status || "desconectado"}</div></div><StatusBadge status={status} /></div>{qr ? <div className="mt-6 rounded-lg bg-wash p-5 text-center font-mono text-xs break-all">{qr}</div> : null}</div>;
+  return <div className="rounded-lg border border-line bg-panel p-6 shadow-soft"><div className="flex items-center justify-between"><div><div className="text-sm text-muted">WhatsApp</div><div className="mt-1 text-lg font-semibold text-ink">{status || "desconectado"}</div></div><StatusBadge status={status} /></div>{qr ? <div className="mt-6 flex justify-center rounded-lg bg-wash p-5"><img src={qr} alt="QR Code do WhatsApp" className="h-72 w-72 rounded-lg bg-white p-3" /></div> : null}</div>;
 }
 
 export function UncertainStatusCard({ critical, item, onAction }: { critical?: boolean; item: any; onAction?: (action: string, item: any) => void }) {
