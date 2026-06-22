@@ -51,3 +51,8 @@ export const createLoteSchema = z.object({
     file_size_bytes: z.number().int().positive()
   }).optional()
 });
+
+export const createCampanhaSchema = z.object({
+  nome: z.string().trim().min(1).max(120),
+  group_jids: z.array(z.string()).min(1)
+});

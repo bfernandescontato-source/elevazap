@@ -47,7 +47,7 @@ A fila é global, única e serial. Boas-vindas e testes têm prioridade alta; gr
 ## Supabase
 
 1. Crie um projeto Supabase.
-2. Aplique `supabase/migrations/001_whatsapp_ops.sql`.
+2. Aplique os arquivos de `supabase/migrations/` em ordem numérica.
 3. Confirme que RLS está habilitado em todas as tabelas.
 4. Não crie policies permissivas para `anon`; o acesso a dados é server-side com service role.
 5. Crie bucket privado `whatsapp-media`.
@@ -104,7 +104,7 @@ WELCOME_UNCERTAIN_POLICY=manual
 
 - `/conexao`: escaneie o QR Code e acompanhe status do socket.
 - `/mensagem`: edite `welcome_message` com suporte a `{{nome}}`; o teste cria job pendente, não envia pela Vercel.
-- `/grupos`: atualize grupos próprios, selecione grupos e crie lote com texto, imagem, vídeo, áudio, áudio de voz ou documento.
+- `/grupos`: atualize grupos próprios, organize grupos em campanhas e crie lote com texto, imagem, vídeo, áudio, áudio de voz ou documento.
 - Upload de mídia é direto do browser para Supabase Storage via signed upload URL; arquivo não passa por API route do Next e não usa base64.
 - `/lotes`: pause, retome ou cancele pendentes.
 - `/envios` e `/envios-grupo`: acompanhe histórico e erros.
