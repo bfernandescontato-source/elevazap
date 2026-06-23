@@ -50,7 +50,7 @@ export const createLoteSchema = z.object({
     file_name: z.string(),
     mime_type: z.string(),
     file_size_bytes: z.number().int().positive()
-  }).optional()
+  }).nullable().optional()
 });
 
 export const createCampanhaSchema = z.object({

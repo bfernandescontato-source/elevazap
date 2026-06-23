@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "admin_action_ip");
   if (guard) return guard;
   const parsed = createLoteSchema.safeParse(await request.json());
-  if (!parsed.success) return NextResponse.json({ error: "Lote inválido." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Lote inválido." }, { status: 400 });
   const body = parsed.data;
   if (body.group_jids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
   if (body.scheduled_at && new Date(body.scheduled_at).getTime() < Date.now() - 60000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
