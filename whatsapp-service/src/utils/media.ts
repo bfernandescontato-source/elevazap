@@ -29,12 +29,12 @@ export async function convertVoiceToOpus(input: Buffer) {
   }
 }
 
-export function buildBaileysMessage(item: any, media?: Buffer) {
+export function buildBaileysMessage(item: any, media?: Buffer, mentions: string[] = []) {
   const caption = item.legenda || item.texto || undefined;
-  if (item.tipo === "texto") return { text: item.texto || "" };
+  if (item.tipo === "texto") return { text: item.texto || "", mentions };
   if (!media) throw new Error("Mídia ausente.");
-  if (item.tipo === "imagem") return { image: media, caption };
-  if (item.tipo === "video") return { video: media, caption };
+  if (item.tipo === "imagem") return { image: media, caption, mentions };
+  if (item.tipo === "video") return { video: media, caption, mentions };
   if (item.tipo === "audio") return { audio: media, mimetype: item.mime_type || "audio/mpeg" };
   if (item.tipo === "audio_voz") return { audio: media, mimetype: "audio/ogg; codecs=opus", ptt: true };
   return { document: media, mimetype: item.mime_type || "application/octet-stream", fileName: item.file_name || "documento" };

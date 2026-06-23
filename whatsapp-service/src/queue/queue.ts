@@ -129,9 +129,18 @@ export class GlobalSendQueue {
       media = await downloadMedia(row.media_bucket, row.media_path);
       if (row.tipo === "audio_voz") media = await convertVoiceToOpus(media);
     }
-    const result = await this.runtime.sock.sendMessage(row.group_jid, buildBaileysMessage(row, media));
+    const mentions = row.mention_all ? await this.getGroupMentions(row.group_jid) : [];
+    const result = await this.runtime.sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions));
     await supabase.from("envios_grupo").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: result?.key?.id || null, updated_at: new Date().toISOString() }).eq("id", row.id);
     await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
+  }
+
+  private async getGroupMentions(groupJid: string) {
+    const metadata = await this.runtime.sock.groupMetadata(groupJid);
+    const ownId = String(this.runtime.sock.user?.id || "").split(":")[0];
+    return (metadata.participants || [])
+      .map((participant: any) => participant.id)
+      .filter((jid: string) => jid && !jid.startsWith(`${ownId}@`));
   }
 
   private async markFailure(table: string, row: any, message: string) {

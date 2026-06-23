@@ -71,6 +71,7 @@ export default function GruposPage() {
   const [tipo, setTipo] = useState<MessageKind>("texto");
   const [texto, setTexto] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [mentionAll, setMentionAll] = useState(false);
   const [scheduled, setScheduled] = useState("");
   const [confirm, setConfirm] = useState(false);
 
@@ -235,6 +236,7 @@ export default function GruposPage() {
         tipo: activeTipo,
         texto: activeText,
         legenda: activeTipo === "imagem" || activeTipo === "video" ? activeText : undefined,
+        mention_all: mentionAll,
         scheduled_at: scheduled ? new Date(scheduled).toISOString() : undefined,
         media
       })
@@ -419,6 +421,13 @@ export default function GruposPage() {
           </div>}
 
           <div className="mt-3"><DateTimePicker value={scheduled} onChange={(e) => setScheduled(e.target.value)} /></div>
+          <label className="mt-3 flex items-start gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
+            <input type="checkbox" className="mt-1" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} />
+            <span>
+              <span className="block font-medium text-ink">Mencionar todos os participantes</span>
+              <span className="block text-muted">Quando ativado, cada grupo do disparo recebe a mensagem mencionando seus membros.</span>
+            </span>
+          </label>
           <ActionButton icon={<Send size={16} />} disabled={!selected.length || (messageSource === "modelo" && !selectedModeloId)} onClick={() => setConfirm(true)} className="mt-4 w-full bg-accent text-white">Enviar ou agendar</ActionButton>
         </div>
       </section>

@@ -42,6 +42,7 @@ export const createLoteSchema = z.object({
   tipo: z.enum(["texto", "imagem", "video", "audio", "audio_voz", "documento"]),
   texto: z.string().optional(),
   legenda: z.string().optional(),
+  mention_all: z.boolean().optional(),
   scheduled_at: z.string().datetime().optional(),
   media: z.object({
     bucket: z.string(),
