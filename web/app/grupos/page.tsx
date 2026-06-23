@@ -57,8 +57,10 @@ export default function GruposPage() {
   const [toast, setToast] = useState("");
 
   const [campaignName, setCampaignName] = useState("");
+  const [campaignGroupQuery, setCampaignGroupQuery] = useState("");
+  const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
   const [newCampaignGroups, setNewCampaignGroups] = useState<string[]>([]);
-  const [addGroupByCampaign, setAddGroupByCampaign] = useState<Record<string, string>>({});
+  const [addGroupsByCampaign, setAddGroupsByCampaign] = useState<Record<string, string[]>>({});
 
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [campaignTarget, setCampaignTarget] = useState<CampaignTarget>("all");
@@ -114,6 +116,10 @@ export default function GruposPage() {
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId), [campaigns, selectedCampaignId]);
   const selectedCampaignGroups = selectedCampaign?.grupos || [];
   const selectedCampaignJids = selectedCampaignGroups.map((group) => group.group_jid);
+  const campaignFilteredGroups = useMemo(() => groups.filter((group) => {
+    const text = `${group.nome || ""} ${group.group_jid}`.toLowerCase();
+    return text.includes(campaignGroupQuery.toLowerCase());
+  }), [groups, campaignGroupQuery]);
   const modelosByFolder = useMemo(() => {
     const grouped = new Map<string, Modelo[]>();
     modelos.forEach((modelo) => {
@@ -140,6 +146,7 @@ export default function GruposPage() {
     if (!response.ok) throw new Error(data.error || "Falha ao criar campanha.");
     setCampaignName("");
     setNewCampaignGroups([]);
+    setCreateCampaignOpen(false);
     setToast("Campanha criada.");
     await loadCampaigns();
   }
@@ -154,17 +161,34 @@ export default function GruposPage() {
     await loadCampaigns();
   }
 
-  async function addGroupToCampaign(campaign: Campanha) {
-    const jid = addGroupByCampaign[campaign.id];
-    if (!jid) return;
-    await updateCampaignGroups(campaign, [...campaign.grupos.map((group) => group.group_jid), jid]);
-    setAddGroupByCampaign((current) => ({ ...current, [campaign.id]: "" }));
-    setToast("Grupo adicionado.");
+  function toggleGroupToAdd(campaignId: string, jid: string, checked: boolean) {
+    setAddGroupsByCampaign((current) => {
+      const list = current[campaignId] || [];
+      const next = checked ? Array.from(new Set([...list, jid])) : list.filter((item) => item !== jid);
+      return { ...current, [campaignId]: next };
+    });
+  }
+
+  async function addGroupsToCampaign(campaign: Campanha) {
+    const jids = addGroupsByCampaign[campaign.id] || [];
+    if (!jids.length) return;
+    await updateCampaignGroups(campaign, [...campaign.grupos.map((group) => group.group_jid), ...jids]);
+    setAddGroupsByCampaign((current) => ({ ...current, [campaign.id]: [] }));
+    setToast("Grupos adicionados.");
   }
 
   async function removeGroupFromCampaign(campaign: Campanha, jid: string) {
     await updateCampaignGroups(campaign, campaign.grupos.map((group) => group.group_jid).filter((item) => item !== jid));
     setToast("Grupo removido da campanha.");
+  }
+
+  async function deleteCampaign(campaignId: string) {
+    const response = await fetch("/api/campanhas", { method: "DELETE", body: JSON.stringify({ id: campaignId }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Falha ao excluir campanha.");
+    if (selectedCampaignId === campaignId) applyCampaign("");
+    setToast("Campanha excluída.");
+    await loadCampaigns();
   }
 
   function applyCampaign(campaignId: string) {
@@ -327,29 +351,33 @@ export default function GruposPage() {
       <div className="rounded-lg border border-line bg-panel p-4 shadow-soft">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="flex-1">
-            <label className="text-sm font-medium text-ink">Nome da campanha</label>
-            <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Ex: Lançamento turma 1" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" />
+            <label className="text-sm font-medium text-ink">Pesquisar grupos</label>
+            <input value={campaignGroupQuery} onChange={(e) => setCampaignGroupQuery(e.target.value)} placeholder="Buscar por nome ou JID" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" />
           </div>
           <ActionButton icon={<RefreshCw size={16} />} className="border border-line bg-panel text-ink" onClick={() => loadGroups().catch(showError)}>Atualizar grupos</ActionButton>
-          <ActionButton icon={<FolderPlus size={16} />} disabled={!campaignName.trim() || !newCampaignGroups.length} onClick={() => createCampaign().catch(showError)}>Criar campanha</ActionButton>
+          <ActionButton icon={<FolderPlus size={16} />} disabled={!newCampaignGroups.length} onClick={() => setCreateCampaignOpen(true)}>Criar nova campanha</ActionButton>
         </div>
         <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-line p-3">
-          {groups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 py-1 text-sm">
+          {campaignFilteredGroups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 py-1 text-sm">
             <input type="checkbox" className="mt-1" checked={newCampaignGroups.includes(group.group_jid)} onChange={(e) => toggleNewCampaignGroup(group.group_jid, e.target.checked)} />
             <span>{group.nome || group.group_jid}</span>
           </label>)}
+          {!campaignFilteredGroups.length ? <div className="py-4 text-center text-sm text-muted">Nenhum grupo encontrado.</div> : null}
         </div>
+        <div className="mt-3 text-sm text-muted">{newCampaignGroups.length} grupo(s) selecionado(s) para a nova campanha.</div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2">
         {campaigns.map((campaign) => {
           const availableGroups = groups.filter((group) => !campaign.grupos.some((item) => item.group_jid === group.group_jid));
+          const addSelection = addGroupsByCampaign[campaign.id] || [];
           return <section key={campaign.id} className="min-w-80 rounded-lg border border-line bg-panel p-4 shadow-soft">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-ink">{campaign.nome}</h2>
                 <div className="text-sm text-muted">{campaign.grupos.length} grupo(s)</div>
               </div>
+              <button title="Excluir campanha" className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => deleteCampaign(campaign.id).catch(showError)}><Trash2 size={16} /></button>
             </div>
             <div className="space-y-2">
               {campaign.grupos.length ? campaign.grupos.map((group) => <div key={group.group_jid} className="flex items-start justify-between gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
@@ -360,12 +388,16 @@ export default function GruposPage() {
                 <button title="Remover grupo" className="rounded-lg p-1 text-muted hover:bg-panel hover:text-ink" onClick={() => removeGroupFromCampaign(campaign, group.group_jid).catch(showError)}><X size={15} /></button>
               </div>) : <div className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">Nenhum grupo vinculado.</div>}
             </div>
-            <div className="mt-4 flex gap-2">
-              <select value={addGroupByCampaign[campaign.id] || ""} onChange={(e) => setAddGroupByCampaign((current) => ({ ...current, [campaign.id]: e.target.value }))} className="focus-ring h-10 min-w-0 flex-1 rounded-lg border border-line px-2 text-sm">
-                <option value="">Adicionar grupo</option>
-                {availableGroups.map((group) => <option key={group.group_jid} value={group.group_jid}>{group.nome || group.group_jid}</option>)}
-              </select>
-              <button className="grid h-10 w-10 place-items-center rounded-lg bg-accent text-white disabled:opacity-50" disabled={!addGroupByCampaign[campaign.id]} onClick={() => addGroupToCampaign(campaign).catch(showError)} title="Adicionar"><Plus size={18} /></button>
+            <div className="mt-4 rounded-lg border border-line p-3">
+              <div className="mb-2 text-sm font-medium text-ink">Adicionar grupos</div>
+              <div className="max-h-40 space-y-2 overflow-y-auto">
+                {availableGroups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={addSelection.includes(group.group_jid)} onChange={(e) => toggleGroupToAdd(campaign.id, group.group_jid, e.target.checked)} />
+                  <span>{group.nome || group.group_jid}</span>
+                </label>)}
+                {!availableGroups.length ? <div className="text-sm text-muted">Todos os grupos já estão nesta campanha.</div> : null}
+              </div>
+              <button className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-white disabled:opacity-50" disabled={!addSelection.length} onClick={() => addGroupsToCampaign(campaign).catch(showError)}><Plus size={16} />Adicionar selecionados</button>
             </div>
           </section>;
         })}
@@ -504,6 +536,12 @@ export default function GruposPage() {
       </aside>
     </div> : null}
 
+    <ConfirmModal open={createCampaignOpen} title="Criar campanha" onCancel={() => setCreateCampaignOpen(false)} onConfirm={() => createCampaign().catch(showError)}>
+      <div className="space-y-3">
+        <div>Informe o nome da campanha para os {newCampaignGroups.length} grupo(s) selecionado(s).</div>
+        <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Nome da campanha" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" />
+      </div>
+    </ConfirmModal>
     <ConfirmModal open={confirm} title="Confirmar disparo" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}>Serão criados {selected.length} itens para a campanha selecionada.</ConfirmModal>
     <Toast message={toast} />
   </AppShell>;

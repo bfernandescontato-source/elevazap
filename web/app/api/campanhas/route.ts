@@ -74,3 +74,13 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(request: NextRequest) {
+  const guard = await guardAdminMutation(request, "campanhas_ip");
+  if (guard) return guard;
+  const { id } = await request.json();
+  if (!id) return NextResponse.json({ error: "Campanha inválida." }, { status: 400 });
+  const { error } = await supabaseAdmin().from("campanhas").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
