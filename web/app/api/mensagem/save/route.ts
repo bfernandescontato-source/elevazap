@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardAdminMutation } from "@/lib/security";
+import { env } from "@/lib/env";
+import { guardAdminMutation, requireAdmin } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
+import { defaultApprovedPurchaseMessage } from "@/lib/message-template";
+
+export async function GET() {
+  const guard = await requireAdmin();
+  if (guard) return guard;
+  const { data, error } = await supabaseAdmin().from("config").select("welcome_message").limit(1).maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({
+    welcome_message: data?.welcome_message || defaultApprovedPurchaseMessage,
+    webhook_url: `${env().NEXT_PUBLIC_APP_URL}/api/webhook/elevapay`,
+    webhook_header: "x-elevapay-token"
+  });
+}
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "admin_action_ip");

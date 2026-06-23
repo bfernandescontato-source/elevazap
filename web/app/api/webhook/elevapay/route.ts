@@ -4,6 +4,7 @@ import { maskPhone, normalizeBrazilianPhone } from "@/lib/phone";
 import { clientIp, persistentRateLimit } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { webhookPayloadSchema } from "@/lib/schemas";
+import { defaultApprovedPurchaseMessage, renderApprovedPurchaseMessage } from "@/lib/message-template";
 
 export async function POST(request: NextRequest) {
   const e = env();
@@ -19,7 +20,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, invalid_phone: true });
   }
   const { data: config } = await supabaseAdmin().from("config").select("welcome_message").limit(1).maybeSingle();
-  const message = (config?.welcome_message || "Olá {{nome}}, bem-vindo(a)!").replaceAll("{{nome}}", payload.nome);
+  const message = renderApprovedPurchaseMessage(config?.welcome_message || defaultApprovedPurchaseMessage, {
+    nome: payload.nome,
+    produto: payload.produto,
+    email: payload.email,
+    telefone: phone,
+    order_id: payload.order_id,
+    transaction_id: payload.transaction_id
+  });
   const { data, error } = await supabaseAdmin().rpc("create_envio_from_webhook", {
     p_source: "elevapay",
     p_event: payload.event,

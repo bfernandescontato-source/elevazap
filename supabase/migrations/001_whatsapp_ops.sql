@@ -25,7 +25,7 @@ create table if not exists whatsapp_auth_keys (
 
 create table if not exists config (
   id uuid primary key default gen_random_uuid(),
-  welcome_message text not null default 'Olá {{nome}}, sua compra foi aprovada. Bem-vindo(a)!',
+  welcome_message text not null default 'Olá {{nome}}, sua compra de {{produto}} foi aprovada. Bem-vindo(a)!',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
