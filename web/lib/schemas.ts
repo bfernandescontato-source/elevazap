@@ -10,6 +10,13 @@ export const webhookPayloadSchema = z.object({
   email: z.string().email()
 });
 
+export const sendFlowWebhookPayloadSchema = z.object({
+  apiKey: z.string().optional(),
+  phoneNumber: z.string().min(8),
+  name: z.string().min(1),
+  email: z.string().email()
+}).passthrough();
+
 export const mediaKindSchema = z.enum(["imagem", "video", "audio", "audio_voz", "documento"]);
 
 const mediaRules = {

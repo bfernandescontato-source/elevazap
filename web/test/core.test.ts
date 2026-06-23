@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { maskPhone, normalizeBrazilianPhone, phoneToWhatsAppJid, validateGroupJid } from "../lib/phone";
-import { validateMedia, webhookPayloadSchema } from "../lib/schemas";
+import { sendFlowWebhookPayloadSchema, validateMedia, webhookPayloadSchema } from "../lib/schemas";
 import { canMoveToProcessing, nextQueueKind, recoverStuckStatus, shouldAutoRetry } from "../lib/state-machine";
 
 describe("telefone e JID", () => {
@@ -29,6 +29,15 @@ describe("webhook e mídia", () => {
       nome: "Fulano",
       telefone: "5511999999999",
       produto: "Shop Lab",
+      email: "fulano@email.com"
+    }).success).toBe(true);
+  });
+
+  it("valida payload ElevaPay no formato SendFlow", () => {
+    expect(sendFlowWebhookPayloadSchema.safeParse({
+      apiKey: "secret",
+      phoneNumber: "5511999999999",
+      name: "Fulano",
       email: "fulano@email.com"
     }).success).toBe(true);
   });
