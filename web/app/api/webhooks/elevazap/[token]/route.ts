@@ -66,6 +66,9 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
   }
 
   const normalized = normalizeWebhookPayload(body);
+  if (normalized.event_type === "unknown" && (rule.selected_event_types || []).length === 1) {
+    normalized.event_type = rule.selected_event_types[0];
+  }
   const idempotencyKey = buildIdempotencyKey(rule.id, normalized, rawPayload);
   const base = {
     webhook_rule_id: rule.id,
