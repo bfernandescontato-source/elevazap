@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { maskPhone, normalizeBrazilianPhone, phoneToWhatsAppJid, validateGroupJid } from "../lib/phone";
 import { sendFlowWebhookPayloadSchema, validateMedia, webhookPayloadSchema } from "../lib/schemas";
 import { canMoveToProcessing, nextQueueKind, recoverStuckStatus, shouldAutoRetry } from "../lib/state-machine";
+import { buildIdempotencyKey, normalizeWebhookPayload, renderAutomationTemplate } from "../lib/webhook-automation";
 
 describe("telefone e JID", () => {
   it("normaliza telefones brasileiros", () => {
@@ -46,6 +47,33 @@ describe("webhook e mídia", () => {
     expect(validateMedia("imagem", "image/png", 1024).ok).toBe(true);
     expect(validateMedia("imagem", "video/mp4", 1024).ok).toBe(false);
     expect(validateMedia("video", "video/mp4", 30 * 1024 * 1024).ok).toBe(false);
+  });
+
+  it("normaliza payload genérico de webhook", () => {
+    const payload = normalizeWebhookPayload({
+      event: "approved",
+      customer: { name: "Maria", email: "maria@email.com", phone: "11999999999" },
+      product: { id: "prod_1", name: "Shop Lab" },
+      offer: { id: "offer_1", name: "Aula" },
+      order: { id: "ord_1", amount: 990 }
+    });
+    expect(payload.event_type).toBe("order.paid");
+    expect(payload.customer.name).toBe("Maria");
+    expect(payload.product_name).toBe("Shop Lab");
+    expect(payload.amount).toContain("9,90");
+  });
+
+  it("renderiza template com variáveis normais, caminho bruto e fixa", () => {
+    const raw = { customer: { name: "Maria" }, data: { user: { phoneNumber: "5511999999999" } } };
+    const normalized = normalizeWebhookPayload({ event: "order.paid", ...raw, product_name: "Shop Lab" });
+    const result = renderAutomationTemplate("Oi {{name}} {{data.user.phoneNumber}} {{group_link}} {{missing}}", normalized, raw, { group_link: "https://grupo" });
+    expect(result.rendered).toContain("Oi Maria 5511999999999 https://grupo");
+    expect(result.warnings).toContain("Variável sem valor: missing");
+  });
+
+  it("gera chave de idempotência estável", () => {
+    const normalized = normalizeWebhookPayload({ event: "order.paid", order_id: "ord_1" });
+    expect(buildIdempotencyKey("rule_1", normalized, {})).toBe("rule_1:order.paid:ord_1");
   });
 });
 

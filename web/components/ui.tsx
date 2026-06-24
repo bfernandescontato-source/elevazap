@@ -25,6 +25,7 @@ import {
   Shield,
   Upload,
   Users,
+  Webhook,
   X
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -33,6 +34,7 @@ const nav = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/conexao", label: "Conexão", icon: QrCode },
   { href: "/mensagem", label: "Mensagem", icon: MessageCircle },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/grupos", label: "Grupos", icon: Users },
   { href: "/lotes", label: "Lotes", icon: Clipboard },
   { href: "/envios", label: "Envios", icon: Send },
