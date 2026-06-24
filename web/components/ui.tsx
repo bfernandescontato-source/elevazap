@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
+  Bot,
   Check,
   ChevronRight,
   Clipboard,
@@ -40,6 +41,7 @@ const nav = [
   { href: "/envios", label: "Envios", icon: Send },
   { href: "/envios-grupo", label: "Envios em grupo", icon: Inbox },
   { href: "/incertos", label: "Incertos", icon: HelpCircle },
+  { href: "/suporte", label: "Suporte IA", icon: Bot },
   { href: "/configuracoes", label: "Configurações", icon: Cog }
 ];
 

@@ -2,8 +2,6 @@ import { initAuthCreds, proto, type AuthenticationCreds, type SignalDataSet } fr
 import { BufferJSON } from "@whiskeysockets/baileys";
 import { supabase } from "../supabase.js";
 
-const sessionName = "default";
-
 function serialize(data: unknown) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
 }
@@ -12,7 +10,7 @@ function deserialize<T>(data: unknown): T {
   return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
 }
 
-export async function useSupabaseAuthState() {
+export async function useSupabaseAuthState(sessionName = "default") {
   const { data } = await supabase.from("whatsapp_auth_creds").select("creds").eq("session_name", sessionName).maybeSingle();
   let creds: AuthenticationCreds = data?.creds ? deserialize(data.creds) : initAuthCreds();
 

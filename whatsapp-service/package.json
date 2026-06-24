@@ -15,6 +15,7 @@
     "@whiskeysockets/baileys": "6.7.23",
     "axios": "1.18.0",
     "express": "4.22.2",
+    "openai": "^6.44.0",
     "pino": "9.5.0",
     "qrcode": "1.5.4",
     "uuid": "11.1.1",

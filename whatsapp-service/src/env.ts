@@ -9,7 +9,13 @@ const schema = z.object({
   GLOBAL_SEND_THROTTLE_MS: z.coerce.number().default(1000),
   INSTANCE_ID: z.string().default(randomUUID()),
   LOCK_TTL_SECONDS: z.coerce.number().default(60),
-  WELCOME_UNCERTAIN_POLICY: z.string().default("manual")
+  WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
+  LLM_PROVIDER: z.enum(["openai", "anthropic"]).default("openai"),
+  OPENAI_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ELEVAPAY_API_URL: z.string().url().optional(),
+  ELEVAPAY_API_KEY: z.string().optional(),
+  SUPPORT_NOTIFY_JID: z.string().optional()
 });
 
 export const env = schema.parse(process.env);
