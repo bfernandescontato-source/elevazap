@@ -1,7 +1,7 @@
 "use client";
 
 import { ActionButton, AppShell, Toast } from "@/components/ui";
-import { Check, Clipboard, Send, Upload } from "lucide-react";
+import { Check, Clipboard, Phone, Send, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const sample = {
@@ -21,6 +21,13 @@ type BulkClient = {
   order_id?: string;
   transaction_id?: string;
   error?: string;
+};
+
+type Sender = {
+  id: string;
+  label: string;
+  session_name: string;
+  status?: string;
 };
 
 function renderPreview(template: string) {
@@ -89,8 +96,11 @@ export default function MensagemPage() {
   const [toast, setToast] = useState("");
   const [bulkClients, setBulkClients] = useState<BulkClient[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [senders, setSenders] = useState<Sender[]>([]);
+  const [selectedSenderId, setSelectedSenderId] = useState("");
   const preview = useMemo(() => renderPreview(message), [message]);
   const validBulkClients = useMemo(() => bulkClients.filter((client) => !client.error), [bulkClients]);
+  const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);
 
   useEffect(() => {
     fetch("/api/mensagem/save")
@@ -99,6 +109,10 @@ export default function MensagemPage() {
         if (data.welcome_message) setMessage(data.welcome_message);
         if (data.webhook_url) setWebhookUrl(data.webhook_url);
       })
+      .catch(() => undefined);
+    fetch("/api/whatsapp/senders")
+      .then((r) => r.json())
+      .then((data) => setSenders(data.senders || []))
       .catch(() => undefined);
   }, []);
 
@@ -134,7 +148,7 @@ export default function MensagemPage() {
     try {
       const response = await fetch("/api/mensagem/bulk", {
         method: "POST",
-        body: JSON.stringify({ mensagem: message, clientes: validBulkClients })
+        body: JSON.stringify({ mensagem: message, clientes: validBulkClients, whatsapp_sender_id: selectedSenderId || undefined })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao enfileirar disparos.");
@@ -175,7 +189,15 @@ export default function MensagemPage() {
 
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
           <h2 className="font-semibold text-ink">Disparo em massa 1x1</h2>
-          <p className="mt-1 text-sm text-muted">Suba uma lista CSV de clientes para enviar a mensagem acima pela fila do WhatsApp principal.</p>
+          <p className="mt-1 text-sm text-muted">Suba uma lista CSV de clientes e escolha qual número conectado vai fazer o disparo.</p>
+          <div className="mt-4 rounded-lg border border-line bg-wash p-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-ink"><Phone size={16} /> Número responsável pelo disparo</label>
+            <select value={selectedSenderId} onChange={(e) => setSelectedSenderId(e.target.value)} className="focus-ring mt-3 h-11 w-full rounded-lg border border-line bg-panel px-3 text-sm">
+              <option value="">Número principal conectado</option>
+              {senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label} ({sender.status || "desconectado"})</option>)}
+            </select>
+            <div className="mt-2 text-xs text-muted">{selectedSender ? `A planilha será disparada pelo número "${selectedSender.label}".` : "Sem seleção extra: usa o número principal da página Conexão."}</div>
+          </div>
           <div className="mt-4 rounded-lg border border-dashed border-line bg-wash p-5">
             <label className="flex cursor-pointer flex-col items-center justify-center text-center">
               <Upload className="text-muted" />

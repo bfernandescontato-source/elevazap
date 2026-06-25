@@ -48,10 +48,8 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
-    if (this.runtime.getStatus() === "connected") {
-      const envio = await this.claimTableItem("envios");
-      if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
-    }
+    const envio = await this.claimTableItem("envios", { onlyWithSender: this.runtime.getStatus() !== "connected" });
+    if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
     const grupo = await this.claimTableItem("envios_grupo");
     if (grupo) {
       await supabase.from("envios_grupo_lotes")
@@ -63,17 +61,20 @@ export class GlobalSendQueue {
     }
   }
 
-  private async claimTableItem(table: "envios" | "envios_grupo") {
+  private async claimTableItem(table: "envios" | "envios_grupo", options: { onlyWithSender?: boolean } = {}) {
     const now = new Date().toISOString();
-    const { data: job, error: selectError } = await supabase.from(table)
+    let query = supabase.from(table)
       .select("*")
       .eq("status", "pendente")
       .lte("scheduled_at", now)
       .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
       .order("scheduled_at", { ascending: true })
       .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    if (options.onlyWithSender) query = query.not("whatsapp_session_name", "is", null);
+
+    const { data: job, error: selectError } = await query.maybeSingle();
+    if (selectError?.code === "42703" && options.onlyWithSender) return null;
     if (selectError) throw selectError;
     if (!job) return null;
 
@@ -113,12 +114,13 @@ export class GlobalSendQueue {
   }
 
   private async sendWelcome(row: any) {
-    if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
+    const sock = row.whatsapp_session_name ? getSenderSock(row.whatsapp_session_name) : this.runtime.sock;
+    if (!sock) throw new Error(row.whatsapp_session_name ? "Número responsável pelo disparo está desconectado." : "Número principal desconectado.");
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
-    const jid = await this.resolveWhatsAppContact(this.runtime.sock, row);
+    const jid = await this.resolveWhatsAppContact(sock, row);
     if (!jid) return;
-    const result = await this.runtime.sock.sendMessage(jid, { text: row.mensagem_enviada });
+    const result = await sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
     if (!waMessageId) {
       await this.markUncertain("envios", row, "WhatsApp aceitou a chamada, mas não retornou ID da mensagem.");
