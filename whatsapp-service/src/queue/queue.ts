@@ -123,12 +123,10 @@ export class GlobalSendQueue {
       if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
       sock = this.runtime.sock;
     }
-    if (!sock?.user) throw new Error(`Sessão [${sessionLabel}] conectada mas não autenticada ainda.`);
-    console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel, sockUser: sock.user?.id });
+    console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel });
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
-    const jid = await this.resolveWhatsAppContact(sock, row);
-    if (!jid) return;
+    const jid = phoneToWhatsAppJid(row.telefone);
     console.log("[queue] sendMessage", { id: row.id, jid });
     const result = await sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
@@ -139,24 +137,6 @@ export class GlobalSendQueue {
     }
     console.log("[queue] welcome-sent sucesso", { id: row.id, jid, waMessageId });
     await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
-  }
-
-  private async resolveWhatsAppContact(sock: any, row: any) {
-    const fallbackJid = phoneToWhatsAppJid(row.telefone);
-    if (typeof sock.onWhatsApp !== "function") return fallbackJid;
-
-    try {
-      const result = await sock.onWhatsApp(fallbackJid);
-      const match = (result || []).find((item: any) => item?.exists && item?.jid);
-      if (match?.jid) {
-        console.log("whatsapp-contact-found", { id: row.id, jid: match.jid });
-        return match.jid;
-      }
-      console.warn("whatsapp-contact-unconfirmed", { id: row.id, jid: fallbackJid });
-    } catch (error) {
-      console.warn("whatsapp-contact-check-failed", { id: row.id, jid: fallbackJid, error });
-    }
-    return fallbackJid;
   }
 
   private async sendGroup(row: any) {
@@ -195,6 +175,19 @@ export class GlobalSendQueue {
   }
 
   private async markFailure(table: string, row: any, message: string) {
+    if (message.includes("desconectado") || message.includes("conectada mas não autenticada")) {
+      await supabase.from(table).update({
+        status: "pendente",
+        erro: message,
+        claim_token: null,
+        last_attempt_at: new Date().toISOString(),
+        next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+        updated_at: new Date().toISOString()
+      }).eq("id", row.id);
+      if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
+      return;
+    }
+
     const attempts = (row.attempts || 0) + 1;
     const next = backoff(attempts);
     const status = next ? "pendente" : "erro";
