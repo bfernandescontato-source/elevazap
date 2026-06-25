@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
-import axios from "axios";
-import { env } from "@/lib/env";
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const guard = await guardAdminMutation(request);
@@ -33,7 +31,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   // Approve: trigger real refund via ElevaPay
-  const e = env();
   const elevapayUrl = process.env.ELEVAPAY_API_URL;
   const elevapayKey = process.env.ELEVAPAY_API_KEY;
 
@@ -42,11 +39,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   try {
-    await axios.post(
-      `${elevapayUrl}/orders/${refund.elevapay_order_id}/refund`,
-      { reason: refund.reason, amount: refund.amount },
-      { headers: { Authorization: `Bearer ${elevapayKey}` }, timeout: 15_000 }
-    );
+    const resp = await fetch(`${elevapayUrl}/orders/${refund.elevapay_order_id}/refund`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${elevapayKey}` },
+      body: JSON.stringify({ reason: refund.reason, amount: refund.amount }),
+      signal: AbortSignal.timeout(15_000)
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`ElevaPay retornou ${resp.status}: ${text}`);
+    }
 
     await supabase.from("refund_request").update({
       status: "processed",
