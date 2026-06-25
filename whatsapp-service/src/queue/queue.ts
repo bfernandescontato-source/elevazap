@@ -116,7 +116,8 @@ export class GlobalSendQueue {
     if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
-    const jid = phoneToWhatsAppJid(row.telefone);
+    const jid = await this.resolveWhatsAppContact(this.runtime.sock, row);
+    if (!jid) return;
     const result = await this.runtime.sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
     if (!waMessageId) {
@@ -125,6 +126,22 @@ export class GlobalSendQueue {
     }
     console.log("welcome-sent", { id: row.id, jid, waMessageId });
     await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
+  }
+
+  private async resolveWhatsAppContact(sock: any, row: any) {
+    const fallbackJid = phoneToWhatsAppJid(row.telefone);
+    if (typeof sock.onWhatsApp !== "function") return fallbackJid;
+
+    const phone = fallbackJid.replace("@s.whatsapp.net", "");
+    const result = await sock.onWhatsApp(phone, fallbackJid);
+    const match = (result || []).find((item: any) => item?.exists && item?.jid);
+    if (match?.jid) {
+      console.log("whatsapp-contact-found", { id: row.id, phone, jid: match.jid });
+      return match.jid;
+    }
+
+    await this.markPermanentFailure("envios", row, "Telefone não encontrado no WhatsApp. Confira se o número está correto e tem WhatsApp ativo.");
+    return null;
   }
 
   private async sendGroup(row: any) {
@@ -167,6 +184,19 @@ export class GlobalSendQueue {
       claim_token: null,
       last_attempt_at: new Date().toISOString(),
       next_attempt_at: next ? new Date(Date.now() + next).toISOString() : null,
+      updated_at: new Date().toISOString()
+    }).eq("id", row.id);
+    if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
+  }
+
+  private async markPermanentFailure(table: string, row: any, message: string) {
+    await supabase.from(table).update({
+      status: "erro",
+      attempts: (row.attempts || 0) + 1,
+      erro: message,
+      claim_token: null,
+      last_attempt_at: new Date().toISOString(),
+      next_attempt_at: null,
       updated_at: new Date().toISOString()
     }).eq("id", row.id);
     if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
