@@ -121,6 +121,7 @@ export class GlobalSendQueue {
 
   private async sendWelcome(row: any) {
     let sock: any;
+    const sessionLabel = row.whatsapp_session_name || "principal";
     if (row.whatsapp_session_name) {
       sock = getSenderSock(row.whatsapp_session_name);
       if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
@@ -128,17 +129,21 @@ export class GlobalSendQueue {
       if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
       sock = this.runtime.sock;
     }
+    if (!sock?.user) throw new Error(`Sessão [${sessionLabel}] conectada mas não autenticada ainda.`);
+    console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel, sockUser: sock.user?.id });
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
     const jid = await this.resolveWhatsAppContact(sock, row);
     if (!jid) return;
+    console.log("[queue] sendMessage", { id: row.id, jid, mensagem: row.mensagem_enviada?.slice(0, 40) });
     const result = await sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
+    console.log("[queue] sendMessage result", { id: row.id, waMessageId, resultKey: result?.key });
     if (!waMessageId) {
       await this.markUncertain("envios", row, "WhatsApp aceitou a chamada, mas não retornou ID da mensagem.");
       return;
     }
-    console.log("welcome-sent", { id: row.id, jid, waMessageId });
+    console.log("[queue] welcome-sent sucesso", { id: row.id, jid, waMessageId });
     await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
   }
 
@@ -147,7 +152,7 @@ export class GlobalSendQueue {
     if (typeof sock.onWhatsApp !== "function") return fallbackJid;
 
     const phone = fallbackJid.replace("@s.whatsapp.net", "");
-    const result = await sock.onWhatsApp(phone, fallbackJid);
+    const result = await sock.onWhatsApp(phone);
     const match = (result || []).find((item: any) => item?.exists && item?.jid);
     if (match?.jid) {
       console.log("whatsapp-contact-found", { id: row.id, phone, jid: match.jid });
