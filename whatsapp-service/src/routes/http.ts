@@ -35,7 +35,7 @@ export function createHttpServer(runtime: WhatsAppRuntime, queue: GlobalSendQueu
   app.get("/health", (_req, res) => res.json({ ok: true }));
   app.get("/status", async (_req, res) => res.json({ status: runtime.getStatus(), queue: queue.stats(), lock: "active", ffmpeg: await ffmpegStatus() }));
   app.get("/qr", (_req, res) => res.json({ qr: runtime.getQr() }));
-  app.post("/restart", async (_req, res) => { await runtime.start(); res.json({ ok: true }); });
+  app.post("/restart", async (_req, res) => { await runtime.restart(); res.json({ ok: true }); });
   app.post("/logout", async (_req, res) => { await runtime.logout(); res.json({ ok: true }); });
   app.get("/groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));
   app.post("/refresh-groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));

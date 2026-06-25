@@ -8,15 +8,21 @@ import { useSupabaseAuthState } from "./auth/supabase-auth-state.js";
 export type WhatsAppRuntime = Awaited<ReturnType<typeof createWhatsAppRuntime>>;
 
 export async function createWhatsAppRuntime() {
-  const auth = await useSupabaseAuthState();
+  let auth = await useSupabaseAuthState();
   let sock: any = null;
   let status: "connected" | "disconnected" | "connecting" = "connecting";
   let currentQr = "";
   let starting = false;
 
-  async function start() {
+  async function start(fresh = false) {
     if (starting) return;
     starting = true;
+    status = "connecting";
+    currentQr = "";
+    if (fresh) {
+      await auth.clearAuth();
+      auth = await useSupabaseAuthState();
+    }
     const { version } = await fetchLatestBaileysVersion();
     sock?.end(undefined);
     sock = makeWASocket({
@@ -45,9 +51,18 @@ export async function createWhatsAppRuntime() {
     await sock?.logout().catch(() => undefined);
     sock?.end(undefined);
     await auth.clearAuth();
+    auth = await useSupabaseAuthState();
     status = "connecting";
     currentQr = "";
-    setTimeout(start, 500);
+    starting = false;
+    setTimeout(() => start(), 500);
+  }
+
+  async function restart() {
+    await sock?.logout().catch(() => undefined);
+    sock?.end(undefined);
+    starting = false;
+    await start(true);
   }
 
   async function refreshGroups() {
@@ -71,6 +86,7 @@ export async function createWhatsAppRuntime() {
 
   return {
     start,
+    restart,
     logout,
     refreshGroups,
     get sock() { return sock; },
