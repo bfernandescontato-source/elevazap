@@ -1,7 +1,7 @@
 import { supabase } from "../supabase.js";
 import { env } from "../env.js";
 import { callLLM, type LLMMessage } from "./llm.js";
-import { SUPPORT_TOOLS, executeTool, type ToolContext } from "./tools.js";
+import { SUPPORT_TOOLS, executeTool, type ToolContext, type ToolSideEffect } from "./tools.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -229,7 +229,7 @@ async function processAggregation(conversationId: string, agentId: string, sock:
 
   let currentMessages = [...llmMessages];
   let finalText: string | null = null;
-  let sideEffect: { type: string } | undefined;
+  let sideEffect: ToolSideEffect | undefined;
 
   try {
     for (let turn = 0; turn < 5; turn++) {
@@ -256,6 +256,11 @@ async function processAggregation(conversationId: string, agentId: string, sock:
           tool_call_id: tc.id,
           name: tc.name
         });
+      }
+
+      if (sideEffect?.type === "refund_requested") {
+        finalText = sideEffect.message;
+        break;
       }
 
       if (sideEffect?.type === "escalate" || sideEffect?.type === "close") {

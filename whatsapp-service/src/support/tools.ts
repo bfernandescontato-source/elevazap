@@ -28,14 +28,16 @@ export const SUPPORT_TOOLS: LLMTool[] = [
   },
   {
     name: "solicitar_reembolso",
-    description: "Abre uma solicitação de reembolso pendente de aprovação humana. NÃO processa o estorno automaticamente.",
+    description: "Registra uma solicitação de reembolso pendente de aprovação humana. Use somente depois de coletar nome completo e e-mail da compra. NÃO processa o estorno automaticamente.",
     parameters: {
       type: "object",
       properties: {
-        order_id: { type: "string", description: "ID do pedido" },
-        motivo: { type: "string", description: "Motivo do reembolso descrito pelo cliente" }
+        nome_completo: { type: "string", description: "Nome completo usado na compra" },
+        email: { type: "string", description: "E-mail usado na compra" },
+        order_id: { type: "string", description: "ID do pedido, se o aluno informou" },
+        motivo: { type: "string", description: "Motivo do reembolso descrito pelo cliente, se informado" }
       },
-      required: ["order_id", "motivo"]
+      required: ["nome_completo", "email"]
     }
   },
   {
@@ -78,7 +80,8 @@ export type ToolContext = {
 
 export type ToolSideEffect =
   | { type: "escalate" }
-  | { type: "close" };
+  | { type: "close" }
+  | { type: "refund_requested"; message: string };
 
 export async function executeTool(
   name: string,
@@ -108,30 +111,40 @@ export async function executeTool(
       }
 
       case "solicitar_reembolso": {
+        const nomeCompleto = String(args.nome_completo || "");
+        const email = String(args.email || "");
         const orderId = String(args.order_id || "");
         const motivo = String(args.motivo || "");
         let amount: number | null = null;
-        try {
-          const data = await elevapayGet(`/orders/${encodeURIComponent(orderId)}`);
-          amount = data?.amount ?? null;
-        } catch {}
+        if (orderId) {
+          try {
+            const data = await elevapayGet(`/orders/${encodeURIComponent(orderId)}`);
+            amount = data?.amount ?? null;
+          } catch {}
+        }
 
         await supabase.from("refund_request").insert({
           conversation_id: ctx.conversationId,
           contact_jid: ctx.contactJid,
-          elevapay_order_id: orderId,
+          customer_name: nomeCompleto,
+          customer_email: email,
+          elevapay_order_id: orderId || null,
           amount,
-          reason: motivo,
+          reason: motivo || "Solicitação de reembolso pelo atendimento IA",
           status: "pending"
         });
 
         if (ctx.notifyJid && ctx.sock) {
           await ctx.sock.sendMessage(ctx.notifyJid, {
-            text: `⚠️ Nova solicitação de reembolso pendente de aprovação.\nPedido: ${orderId}\nMotivo: ${motivo}`
+            text: `⚠️ Nova solicitação de reembolso pendente de aprovação.\nNome: ${nomeCompleto}\nE-mail: ${email}${orderId ? `\nPedido: ${orderId}` : ""}${motivo ? `\nMotivo: ${motivo}` : ""}`
           }).catch(() => undefined);
         }
 
-        return { result: "Solicitação de reembolso registrada com sucesso e enviada para aprovação da equipe. Você receberá um retorno em breve." };
+        const confirmation = "Ok, seu reembolso foi solicitado. Se estiver dentro do prazo de 7 dias, ele será aprovado. Caso não esteja dentro dos 7 dias, será rejeitado.";
+        return {
+          result: confirmation,
+          sideEffect: { type: "refund_requested", message: confirmation }
+        };
       }
 
       case "escalar_humano": {

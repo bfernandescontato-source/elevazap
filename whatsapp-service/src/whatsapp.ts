@@ -12,9 +12,13 @@ export async function createWhatsAppRuntime() {
   let sock: any = null;
   let status: "connected" | "disconnected" | "connecting" = "connecting";
   let currentQr = "";
+  let starting = false;
 
   async function start() {
+    if (starting) return;
+    starting = true;
     const { version } = await fetchLatestBaileysVersion();
+    sock?.end(undefined);
     sock = makeWASocket({
       version,
       auth: auth.state,
@@ -28,18 +32,22 @@ export async function createWhatsAppRuntime() {
       if (update.connection === "open") { status = "connected"; currentQr = ""; }
       if (update.connection === "connecting") status = "connecting";
       if (update.connection === "close") {
+        starting = false;
         status = "disconnected";
         const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
         if (code !== DisconnectReason.loggedOut) setTimeout(start, 5000);
       }
     });
+    starting = false;
   }
 
   async function logout() {
     await sock?.logout().catch(() => undefined);
+    sock?.end(undefined);
     await auth.clearAuth();
-    status = "disconnected";
+    status = "connecting";
     currentQr = "";
+    setTimeout(start, 500);
   }
 
   async function refreshGroups() {

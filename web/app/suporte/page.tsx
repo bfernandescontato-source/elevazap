@@ -27,7 +27,7 @@ type Message = {
 };
 type RefundRequest = {
   id: string; contact_jid: string; elevapay_order_id: string; amount: number | null; reason: string;
-  status: string; created_at: string;
+  status: string; created_at: string; customer_name?: string | null; customer_email?: string | null;
   support_conversation: { contact_name: string; contact_jid: string } | null;
 };
 
@@ -649,10 +649,13 @@ function RefundsTab({ notify }: { notify: (m: string) => void }) {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-ink">{r.support_conversation?.contact_name || r.contact_jid || "—"}</span>
+                  <span className="font-medium text-ink">{r.customer_name || r.support_conversation?.contact_name || r.contact_jid || "—"}</span>
                   <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${refundStatusColor[r.status] || "bg-zinc-100 text-zinc-700 border-zinc-200"}`}>
                     {r.status}
                   </span>
+                </div>
+                <div className="mt-1 text-sm text-muted">
+                  E-mail: <span className="font-mono">{r.customer_email || "—"}</span>
                 </div>
                 <div className="mt-1 text-sm text-muted">
                   Pedido: <span className="font-mono">{r.elevapay_order_id || "—"}</span>
