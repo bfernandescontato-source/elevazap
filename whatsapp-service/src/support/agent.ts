@@ -34,7 +34,7 @@ function extractText(msg: any): string {
 }
 
 function isIgnorable(jid: string): boolean {
-  return jid.endsWith("@g.us") || jid === "status@broadcast" || jid.includes("@newsletter") || jid.includes("@lid");
+  return jid.endsWith("@g.us") || jid === "status@broadcast" || jid.includes("@newsletter");
 }
 
 function isInBusinessHours(businessHours: any): boolean {
@@ -316,6 +316,7 @@ export async function handleIncomingMessages(
       if (!waMessageId) continue;
 
       const isFromMe = msg.key?.fromMe === true;
+      console.log(`[support] message received jid=${jid} fromMe=${isFromMe} id=${waMessageId}`);
 
       if (isFromMe) {
         // Human takeover detection: fromMe message NOT sent by AI
@@ -353,7 +354,10 @@ export async function handleIncomingMessages(
       }
 
       const text = extractText(msg);
-      if (!text) continue;
+      if (!text) {
+        console.log(`[support] ignored empty message jid=${jid} id=${waMessageId}`);
+        continue;
+      }
 
       const pushName = msg.pushName || "";
       const conv = await getOrCreateConversation(agentId, jid, pushName);
@@ -362,6 +366,7 @@ export async function handleIncomingMessages(
       // Save with idempotency (UNIQUE wa_message_id)
       const saved = await saveIncomingMessage(conv.id, waMessageId, text);
       if (!saved) continue; // already processed
+      console.log(`[support] incoming saved conversation=${conv.id} jid=${jid}`);
 
       // Update last_message_at
       await supabase.from("support_conversation")
