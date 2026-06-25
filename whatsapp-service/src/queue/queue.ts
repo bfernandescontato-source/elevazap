@@ -103,7 +103,7 @@ export class GlobalSendQueue {
     try {
       const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - this.lastSendAt));
       if (throttleWait) await sleep(throttleWait);
-      if (item.kind === "envio") await sleep(random(3000, 8000));
+      if (item.kind === "envio" && row.source !== "massa_manual") await sleep(random(3000, 8000));
       if (item.kind === "envio") await this.sendWelcome(row);
       else await this.sendGroup(row);
       this.lastSendAt = Date.now();
@@ -118,7 +118,13 @@ export class GlobalSendQueue {
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
     const jid = phoneToWhatsAppJid(row.telefone);
     const result = await this.runtime.sock.sendMessage(jid, { text: row.mensagem_enviada });
-    await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: result?.key?.id || null, updated_at: new Date().toISOString() }).eq("id", row.id);
+    const waMessageId = result?.key?.id || null;
+    if (!waMessageId) {
+      await this.markUncertain("envios", row, "WhatsApp aceitou a chamada, mas não retornou ID da mensagem.");
+      return;
+    }
+    console.log("welcome-sent", { id: row.id, jid, waMessageId });
+    await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
   }
 
   private async sendGroup(row: any) {
@@ -132,7 +138,13 @@ export class GlobalSendQueue {
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const result = await sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions));
-    await supabase.from("envios_grupo").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: result?.key?.id || null, updated_at: new Date().toISOString() }).eq("id", row.id);
+    const waMessageId = result?.key?.id || null;
+    if (!waMessageId) {
+      await this.markUncertain("envios_grupo", row, "WhatsApp aceitou a chamada, mas não retornou ID da mensagem.");
+      return;
+    }
+    console.log("group-sent", { id: row.id, groupJid: row.group_jid, waMessageId });
+    await supabase.from("envios_grupo").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
     await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
   }
 
@@ -155,6 +167,17 @@ export class GlobalSendQueue {
       claim_token: null,
       last_attempt_at: new Date().toISOString(),
       next_attempt_at: next ? new Date(Date.now() + next).toISOString() : null,
+      updated_at: new Date().toISOString()
+    }).eq("id", row.id);
+    if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
+  }
+
+  private async markUncertain(table: string, row: any, message: string) {
+    await supabase.from(table).update({
+      status: "incerto",
+      erro: message,
+      claim_token: null,
+      sent_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }).eq("id", row.id);
     if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });

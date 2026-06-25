@@ -138,7 +138,7 @@ export default function MensagemPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao enfileirar disparos.");
-      setToast(`${data.enfileirados} disparo(s) enfileirado(s). ${data.erros || 0} linha(s) com erro.`);
+      setToast(`${data.enfileirados} cliente(s) colocados na fila. Acompanhe a entrega na tela Envios. ${data.erros || 0} linha(s) com erro.`);
     } finally {
       setBulkLoading(false);
     }
