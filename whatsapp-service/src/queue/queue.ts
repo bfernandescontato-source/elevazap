@@ -36,12 +36,6 @@ export class GlobalSendQueue {
   private async loop() {
     while (this.running) {
       try {
-        // If main session is down and buffer has items needing it, return them to pending
-        if (this.runtime.getStatus() !== "connected" && this.buffer.length > 0) {
-          await this.returnQueuedToPending();
-          await sleep(3000);
-          continue;
-        }
         if (this.buffer.length < 1) await this.claimNext();
         const item = this.buffer.shift();
         if (item) await this.process(item);
@@ -135,7 +129,7 @@ export class GlobalSendQueue {
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
     const jid = await this.resolveWhatsAppContact(sock, row);
     if (!jid) return;
-    console.log("[queue] sendMessage", { id: row.id, jid, mensagem: row.mensagem_enviada?.slice(0, 40) });
+    console.log("[queue] sendMessage", { id: row.id, jid });
     const result = await sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
     console.log("[queue] sendMessage result", { id: row.id, waMessageId, resultKey: result?.key });
@@ -151,16 +145,18 @@ export class GlobalSendQueue {
     const fallbackJid = phoneToWhatsAppJid(row.telefone);
     if (typeof sock.onWhatsApp !== "function") return fallbackJid;
 
-    const phone = fallbackJid.replace("@s.whatsapp.net", "");
-    const result = await sock.onWhatsApp(phone);
-    const match = (result || []).find((item: any) => item?.exists && item?.jid);
-    if (match?.jid) {
-      console.log("whatsapp-contact-found", { id: row.id, phone, jid: match.jid });
-      return match.jid;
+    try {
+      const result = await sock.onWhatsApp(fallbackJid);
+      const match = (result || []).find((item: any) => item?.exists && item?.jid);
+      if (match?.jid) {
+        console.log("whatsapp-contact-found", { id: row.id, jid: match.jid });
+        return match.jid;
+      }
+      console.warn("whatsapp-contact-unconfirmed", { id: row.id, jid: fallbackJid });
+    } catch (error) {
+      console.warn("whatsapp-contact-check-failed", { id: row.id, jid: fallbackJid, error });
     }
-
-    await this.markPermanentFailure("envios", row, "Telefone não encontrado no WhatsApp. Confira se o número está correto e tem WhatsApp ativo.");
-    return null;
+    return fallbackJid;
   }
 
   private async sendGroup(row: any) {
@@ -209,19 +205,6 @@ export class GlobalSendQueue {
       claim_token: null,
       last_attempt_at: new Date().toISOString(),
       next_attempt_at: next ? new Date(Date.now() + next).toISOString() : null,
-      updated_at: new Date().toISOString()
-    }).eq("id", row.id);
-    if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
-  }
-
-  private async markPermanentFailure(table: string, row: any, message: string) {
-    await supabase.from(table).update({
-      status: "erro",
-      attempts: (row.attempts || 0) + 1,
-      erro: message,
-      claim_token: null,
-      last_attempt_at: new Date().toISOString(),
-      next_attempt_at: null,
       updated_at: new Date().toISOString()
     }).eq("id", row.id);
     if (table === "envios_grupo") await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
