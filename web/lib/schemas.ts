@@ -17,6 +17,20 @@ export const sendFlowWebhookPayloadSchema = z.object({
   email: z.string().email()
 }).passthrough();
 
+export const bulkMensagemClienteSchema = z.object({
+  nome: z.string().trim().min(1).max(160),
+  telefone: z.string().trim().min(8),
+  email: z.string().trim().email().optional().or(z.literal("")),
+  produto: z.string().trim().max(160).optional(),
+  order_id: z.string().trim().max(160).optional(),
+  transaction_id: z.string().trim().max(160).optional()
+});
+
+export const bulkMensagemSchema = z.object({
+  mensagem: z.string().trim().min(1).max(4000),
+  clientes: z.array(bulkMensagemClienteSchema).min(1).max(2000)
+});
+
 export const mediaKindSchema = z.enum(["imagem", "video", "audio", "audio_voz", "documento"]);
 
 const mediaRules = {
