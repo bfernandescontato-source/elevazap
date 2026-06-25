@@ -1,6 +1,7 @@
 import { supabase } from "../supabase.js";
 import { createSupportSession, type SupportSession } from "./session.js";
 import { handleIncomingMessages } from "./agent.js";
+import { llmReady } from "./llm.js";
 
 type ManagedSupportSession = {
   agent: any;
@@ -78,8 +79,8 @@ export async function disconnectSupportSession(agentId: string) {
 
 export function getSupportSessionStatus(agentId: string) {
   const managed = sessions.get(agentId);
-  if (!managed) return { status: "disconnected", qr: "" };
-  return { status: managed.session.getStatus(), qr: managed.session.getQr() };
+  if (!managed) return { status: "disconnected", qr: "", llmReady: llmReady() };
+  return { status: managed.session.getStatus(), qr: managed.session.getQr(), llmReady: llmReady(), agentEnabled: Boolean(managed.agent?.enabled) };
 }
 
 export async function sendViaAgent(agentId: string, jid: string, text: string): Promise<string | null> {

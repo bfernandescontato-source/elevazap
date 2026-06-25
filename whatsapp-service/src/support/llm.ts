@@ -8,8 +8,15 @@ export type LLMResult = { content: string | null; toolCalls: ToolCall[] };
 
 let _openai: OpenAI | null = null;
 function openai() {
+  if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY não configurada no Railway.");
   if (!_openai) _openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   return _openai;
+}
+
+export function llmReady() {
+  if (env.LLM_PROVIDER === "openai") return Boolean(env.OPENAI_API_KEY);
+  if (env.LLM_PROVIDER === "anthropic") return Boolean(env.ANTHROPIC_API_KEY);
+  return false;
 }
 
 export async function callLLM(

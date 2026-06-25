@@ -231,36 +231,49 @@ async function processAggregation(conversationId: string, agentId: string, sock:
   let finalText: string | null = null;
   let sideEffect: { type: string } | undefined;
 
-  for (let turn = 0; turn < 5; turn++) {
-    const result = await callLLM(agent.model, agent.temperature, currentMessages, SUPPORT_TOOLS);
+  try {
+    for (let turn = 0; turn < 5; turn++) {
+      const result = await callLLM(agent.model, agent.temperature, currentMessages, SUPPORT_TOOLS);
 
-    if (result.toolCalls.length === 0) {
-      finalText = result.content;
-      break;
+      if (result.toolCalls.length === 0) {
+        finalText = result.content;
+        break;
+      }
+
+      // Execute each tool call
+      const assistantToolMsg: LLMMessage = {
+        role: "assistant",
+        content: result.content || "",
+      };
+      currentMessages.push(assistantToolMsg);
+
+      for (const tc of result.toolCalls) {
+        const { result: toolResult, sideEffect: se } = await executeTool(tc.name, tc.args, toolCtx);
+        if (se) sideEffect = se;
+        currentMessages.push({
+          role: "tool",
+          content: toolResult,
+          tool_call_id: tc.id,
+          name: tc.name
+        });
+      }
+
+      if (sideEffect?.type === "escalate" || sideEffect?.type === "close") {
+        finalText = result.content;
+        break;
+      }
     }
-
-    // Execute each tool call
-    const assistantToolMsg: LLMMessage = {
-      role: "assistant",
-      content: result.content || "",
-    };
-    currentMessages.push(assistantToolMsg);
-
-    for (const tc of result.toolCalls) {
-      const { result: toolResult, sideEffect: se } = await executeTool(tc.name, tc.args, toolCtx);
-      if (se) sideEffect = se;
-      currentMessages.push({
-        role: "tool",
-        content: toolResult,
-        tool_call_id: tc.id,
-        name: tc.name
-      });
-    }
-
-    if (sideEffect?.type === "escalate" || sideEffect?.type === "close") {
-      finalText = result.content;
-      break;
-    }
+  } catch (error: any) {
+    const content = `Falha interna da IA: ${error.message}`;
+    await supabase.from("support_message").insert({
+      conversation_id: conversationId,
+      wa_message_id: `ai_error_${Date.now()}`,
+      direction: "out",
+      sender: "ai",
+      content
+    });
+    console.error(`[support] LLM error for ${conversationId}:`, error);
+    return;
   }
 
   if (!finalText) return;

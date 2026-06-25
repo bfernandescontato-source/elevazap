@@ -95,7 +95,7 @@ function ConfigTab({ notify }: { notify: (m: string) => void }) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [session, setSession] = useState<{ status: string; qr: string }>({ status: "disconnected", qr: "" });
+  const [session, setSession] = useState<{ status: string; qr: string; llmReady?: boolean; agentEnabled?: boolean }>({ status: "disconnected", qr: "" });
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -172,6 +172,7 @@ function ConfigTab({ notify }: { notify: (m: string) => void }) {
   if (!agent) return <ErrorState message="Agente não encontrado." />;
 
   const isConnected = session.status === "connected";
+  const iaReady = isConnected && agent.enabled && session.llmReady !== false;
 
   return (
     <div className="space-y-5">
@@ -202,6 +203,9 @@ function ConfigTab({ notify }: { notify: (m: string) => void }) {
               Desconectar
             </ActionButton>
           )}
+        </div>
+        <div className={`mt-4 rounded-lg border p-3 text-sm ${iaReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+          {iaReady ? "IA pronta para responder." : !isConnected ? "Conecte o número de suporte para a IA responder." : !agent.enabled ? "Ative o agente e salve a configuração." : "OPENAI_API_KEY não configurada no Railway do whatsapp-service."}
         </div>
       </div>
 
