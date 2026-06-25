@@ -1,7 +1,7 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, Toast } from "@/components/ui";
-import { FileText, FolderPlus, Plus, RefreshCw, Save, Send, Trash2, X } from "lucide-react";
+import { FileText, FolderPlus, Phone, Plus, QrCode, RefreshCw, Save, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Grupo = {
@@ -35,7 +35,15 @@ type Modelo = {
   file_size_bytes?: number | null;
 };
 
-type Tab = "campanhas" | "disparo";
+type Sender = {
+  id: string;
+  label: string;
+  session_name: string;
+  status?: string;
+  qr?: string;
+};
+
+type Tab = "campanhas" | "disparo" | "conexoes";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
@@ -54,7 +62,9 @@ export default function GruposPage() {
   const [campaigns, setCampaigns] = useState<Campanha[]>([]);
   const [pastas, setPastas] = useState<Pasta[]>([]);
   const [modelos, setModelos] = useState<Modelo[]>([]);
+  const [senders, setSenders] = useState<Sender[]>([]);
   const [toast, setToast] = useState("");
+  const [newSenderLabel, setNewSenderLabel] = useState("");
 
   const [campaignName, setCampaignName] = useState("");
   const [campaignGroupQuery, setCampaignGroupQuery] = useState("");
@@ -63,6 +73,7 @@ export default function GruposPage() {
   const [addGroupsByCampaign, setAddGroupsByCampaign] = useState<Record<string, string[]>>({});
 
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [selectedSenderId, setSelectedSenderId] = useState("");
   const [campaignTarget, setCampaignTarget] = useState<CampaignTarget>("all");
   const [singleGroup, setSingleGroup] = useState("");
   const [manualGroups, setManualGroups] = useState<string[]>([]);
@@ -107,13 +118,19 @@ export default function GruposPage() {
     setModelos(Array.isArray(data) ? data : []);
   }
 
+  async function loadSenders() {
+    const data = await fetch("/api/whatsapp/senders").then((r) => r.json());
+    setSenders(data.senders || []);
+  }
+
   async function loadAll() {
-    await Promise.all([loadGroups(), loadCampaigns(), loadPastas(), loadModelos()]);
+    await Promise.all([loadGroups(), loadCampaigns(), loadPastas(), loadModelos(), loadSenders()]);
   }
 
   useEffect(() => { loadAll(); }, []);
 
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId), [campaigns, selectedCampaignId]);
+  const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);
   const selectedCampaignGroups = selectedCampaign?.grupos || [];
   const selectedCampaignJids = selectedCampaignGroups.map((group) => group.group_jid);
   const campaignFilteredGroups = useMemo(() => groups.filter((group) => {
@@ -257,6 +274,7 @@ export default function GruposPage() {
       body: JSON.stringify({
         titulo: `Lote ${new Date().toLocaleString()}`,
         group_jids: selected,
+        whatsapp_sender_id: selectedSenderId || undefined,
         tipo: activeTipo,
         texto: activeText,
         legenda: activeTipo === "imagem" || activeTipo === "video" ? activeText : undefined,
@@ -269,6 +287,23 @@ export default function GruposPage() {
     if (!response.ok) throw new Error(data.error || "Falha ao criar lote.");
     setConfirm(false);
     setToast("Lote criado.");
+  }
+
+  async function createSender() {
+    const response = await fetch("/api/whatsapp/senders", { method: "POST", body: JSON.stringify({ label: newSenderLabel }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Falha ao criar número.");
+    setNewSenderLabel("");
+    setToast("Número criado. Escaneie o QR Code.");
+    await loadSenders();
+  }
+
+  async function senderAction(sender: Sender, action: "connect" | "disconnect" | "refresh-groups") {
+    const response = await fetch(`/api/whatsapp/senders/${sender.id}/${action}`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Falha na ação do número.");
+    setToast(action === "refresh-groups" ? "Grupos atualizados para este número." : "Número atualizado.");
+    await Promise.all([loadSenders(), action === "refresh-groups" ? loadGroups() : Promise.resolve()]);
   }
 
   function startEditModel(modelo: Modelo) {
@@ -344,6 +379,7 @@ export default function GruposPage() {
   return <AppShell title="Grupos" subtitle="Campanhas e disparos para grupos próprios">
     <div className="mb-5 flex flex-wrap gap-2">
       <button onClick={() => setTab("campanhas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "campanhas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Grupos e Campanhas</button>
+      <button onClick={() => setTab("conexoes")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "conexoes" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>QR Code / Conexões</button>
       <button onClick={() => setTab("disparo")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "disparo" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Disparo de Mensagens</button>
     </div>
 
@@ -405,10 +441,38 @@ export default function GruposPage() {
       </div>
     </div> : null}
 
+    {tab === "conexoes" ? <div className="space-y-5">
+      <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
+        <h2 className="font-semibold text-ink">Conectar número para disparos</h2>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <input value={newSenderLabel} onChange={(e) => setNewSenderLabel(e.target.value)} placeholder="Ex: Número Campanha 1" className="focus-ring h-11 min-w-0 flex-1 rounded-lg border border-line px-3 text-sm" />
+          <ActionButton icon={<QrCode size={16} />} disabled={!newSenderLabel.trim()} onClick={() => createSender().catch(showError)}>Criar QR Code</ActionButton>
+        </div>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {senders.map((sender) => <section key={sender.id} className="rounded-lg border border-line bg-panel p-5 shadow-soft">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} />{sender.label}</div>
+              <div className="mt-1 font-mono text-xs text-muted">{sender.session_name}</div>
+            </div>
+            <span className={`rounded-full border px-2.5 py-1 text-xs ${sender.status === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{sender.status || "disconnected"}</span>
+          </div>
+          {sender.qr ? <div className="mt-4 flex justify-center rounded-lg bg-wash p-4"><img src={sender.qr} alt="QR Code do número" className="h-64 w-64 rounded-lg bg-white p-2" /></div> : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton icon={<QrCode size={15} />} className="border border-line bg-panel text-ink" onClick={() => senderAction(sender, "connect").catch(showError)}>Gerar QR</ActionButton>
+            <ActionButton icon={<RefreshCw size={15} />} className="border border-line bg-panel text-ink" onClick={() => senderAction(sender, "refresh-groups").catch(showError)}>Atualizar grupos</ActionButton>
+            <ActionButton icon={<X size={15} />} className="border border-line bg-panel text-red-600" onClick={() => senderAction(sender, "disconnect").catch(showError)}>Desconectar</ActionButton>
+          </div>
+        </section>)}
+        {!senders.length ? <div className="rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Crie um número para começar a usar disparos por telefone específico.</div> : null}
+      </div>
+    </div> : null}
+
     {tab === "disparo" ? <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
       <section className="space-y-4">
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">Destino</h2>
+          <h2 className="font-semibold">1. Escolher campanha</h2>
           <select value={selectedCampaignId} onChange={(e) => applyCampaign(e.target.value)} className="focus-ring mt-4 h-11 w-full rounded-lg border border-line px-3 text-sm">
             <option value="">Selecionar campanha</option>
             {campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.nome} ({campaign.grupos.length})</option>)}
@@ -433,7 +497,16 @@ export default function GruposPage() {
         </div>
 
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">Mensagem</h2>
+          <h2 className="font-semibold">2. Escolher telefone responsável</h2>
+          <select value={selectedSenderId} onChange={(e) => setSelectedSenderId(e.target.value)} className="focus-ring mt-4 h-11 w-full rounded-lg border border-line px-3 text-sm">
+            <option value="">Número principal conectado</option>
+            {senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label} ({sender.status || "desconectado"})</option>)}
+          </select>
+          <div className="mt-2 text-sm text-muted">{selectedSender ? `Este disparo será feito pelo número "${selectedSender.label}".` : "Sem seleção extra: usa o número principal da página Conexão."}</div>
+        </div>
+
+        <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
+          <h2 className="font-semibold">3. Escolher ou escrever mensagem</h2>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button onClick={() => setMessageSource("manual")} className={`rounded-lg px-3 py-2 text-sm ${messageSource === "manual" ? "bg-accent text-white" : "border border-line text-muted"}`}>Manual</button>
             <button onClick={() => setMessageSource("modelo")} className={`rounded-lg px-3 py-2 text-sm ${messageSource === "modelo" ? "bg-accent text-white" : "border border-line text-muted"}`}>Modelo pronto</button>

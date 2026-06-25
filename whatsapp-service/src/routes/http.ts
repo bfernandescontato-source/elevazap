@@ -9,6 +9,12 @@ import {
   getSupportSessionStatus,
   startNewSupportSession
 } from "../support/runtime.js";
+import {
+  disconnectSenderSession,
+  getSenderStatus,
+  refreshSenderGroups,
+  startSenderSessionByName
+} from "../senders/runtime.js";
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health") return next();
@@ -33,6 +39,36 @@ export function createHttpServer(runtime: WhatsAppRuntime, queue: GlobalSendQueu
   app.post("/logout", async (_req, res) => { await runtime.logout(); res.json({ ok: true }); });
   app.get("/groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));
   app.post("/refresh-groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));
+
+  app.get("/senders/:sessionName/status", (req, res) => {
+    res.json(getSenderStatus(req.params.sessionName));
+  });
+
+  app.post("/senders/:sessionName/connect", async (req, res) => {
+    try {
+      await startSenderSessionByName(req.params.sessionName);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/disconnect", async (req, res) => {
+    try {
+      await disconnectSenderSession(req.params.sessionName);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/refresh-groups", async (req, res) => {
+    try {
+      res.json({ groups: await refreshSenderGroups(req.params.sessionName) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   // Support agent routes
   app.get("/support/:agentId/status", (req, res) => {

@@ -14,10 +14,16 @@ export async function POST(request: NextRequest) {
   if (body.scheduled_at && new Date(body.scheduled_at).getTime() < Date.now() - 60000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
   const sb = supabaseAdmin();
   const { data: grupos } = await sb.from("grupos").select("group_jid,nome").in("group_jid", body.group_jids);
+  const { data: sender } = body.whatsapp_sender_id
+    ? await sb.from("whatsapp_senders").select("*").eq("id", body.whatsapp_sender_id).maybeSingle()
+    : { data: null } as any;
+  if (body.whatsapp_sender_id && !sender) return NextResponse.json({ error: "Número responsável pelo disparo não encontrado." }, { status: 400 });
   const scheduled_at = body.scheduled_at || new Date().toISOString();
   const media = body.media;
   const { data: lote, error } = await sb.from("envios_grupo_lotes").insert({
     titulo: body.titulo,
+    whatsapp_sender_id: sender?.id,
+    whatsapp_session_name: sender?.session_name,
     tipo: body.tipo,
     texto: body.texto,
     legenda: body.legenda,
@@ -34,6 +40,8 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const items = body.group_jids.map((jid) => ({
     lote_id: lote.id,
+    whatsapp_sender_id: sender?.id,
+    whatsapp_session_name: sender?.session_name,
     group_jid: jid,
     nome_grupo: grupos?.find((g) => g.group_jid === jid)?.nome || jid,
     tipo: body.tipo,

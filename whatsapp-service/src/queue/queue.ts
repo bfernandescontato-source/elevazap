@@ -4,6 +4,7 @@ import { downloadMedia, buildBaileysMessage, convertVoiceToOpus } from "../utils
 import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import type { WhatsAppRuntime } from "../whatsapp.js";
 import { randomUUID } from "crypto";
+import { getSenderSock } from "../senders/runtime.js";
 
 type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
 
@@ -35,11 +36,6 @@ export class GlobalSendQueue {
   private async loop() {
     while (this.running) {
       try {
-        if (this.runtime.getStatus() !== "connected") {
-          await this.returnQueuedToPending();
-          await sleep(3000);
-          continue;
-        }
         if (this.buffer.length < 1) await this.claimNext();
         const item = this.buffer.shift();
         if (item) await this.process(item);
@@ -52,8 +48,10 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
-    const envio = await this.claimTableItem("envios");
-    if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
+    if (this.runtime.getStatus() === "connected") {
+      const envio = await this.claimTableItem("envios");
+      if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
+    }
     const grupo = await this.claimTableItem("envios_grupo");
     if (grupo) {
       await supabase.from("envios_grupo_lotes")
@@ -115,6 +113,7 @@ export class GlobalSendQueue {
   }
 
   private async sendWelcome(row: any) {
+    if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
     const jid = phoneToWhatsAppJid(row.telefone);
@@ -124,20 +123,22 @@ export class GlobalSendQueue {
 
   private async sendGroup(row: any) {
     if (!validateGroupJid(row.group_jid)) throw new Error("JID de grupo inválido.");
+    const sock = row.whatsapp_session_name ? getSenderSock(row.whatsapp_session_name) : this.runtime.sock;
+    if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
     let media: Buffer | undefined;
     if (row.media_bucket && row.media_path) {
       media = await downloadMedia(row.media_bucket, row.media_path);
       if (row.tipo === "audio_voz") media = await convertVoiceToOpus(media);
     }
-    const mentions = row.mention_all ? await this.getGroupMentions(row.group_jid) : [];
-    const result = await this.runtime.sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions));
+    const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
+    const result = await sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions));
     await supabase.from("envios_grupo").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: result?.key?.id || null, updated_at: new Date().toISOString() }).eq("id", row.id);
     await supabase.rpc("recalc_lote_counts", { p_lote_id: row.lote_id });
   }
 
-  private async getGroupMentions(groupJid: string) {
-    const metadata = await this.runtime.sock.groupMetadata(groupJid);
-    const ownId = String(this.runtime.sock.user?.id || "").split(":")[0];
+  private async getGroupMentions(sock: any, groupJid: string) {
+    const metadata = await sock.groupMetadata(groupJid);
+    const ownId = String(sock.user?.id || "").split(":")[0];
     return (metadata.participants || [])
       .map((participant: any) => participant.id)
       .filter((jid: string) => jid && !jid.startsWith(`${ownId}@`));
