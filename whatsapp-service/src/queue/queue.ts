@@ -36,6 +36,12 @@ export class GlobalSendQueue {
   private async loop() {
     while (this.running) {
       try {
+        // If main session is down and buffer has items needing it, return them to pending
+        if (this.runtime.getStatus() !== "connected" && this.buffer.length > 0) {
+          await this.returnQueuedToPending();
+          await sleep(3000);
+          continue;
+        }
         if (this.buffer.length < 1) await this.claimNext();
         const item = this.buffer.shift();
         if (item) await this.process(item);
@@ -114,8 +120,14 @@ export class GlobalSendQueue {
   }
 
   private async sendWelcome(row: any) {
-    const sock = row.whatsapp_session_name ? getSenderSock(row.whatsapp_session_name) : this.runtime.sock;
-    if (!sock) throw new Error(row.whatsapp_session_name ? "Número responsável pelo disparo está desconectado." : "Número principal desconectado.");
+    let sock: any;
+    if (row.whatsapp_session_name) {
+      sock = getSenderSock(row.whatsapp_session_name);
+      if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
+    } else {
+      if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
+      sock = this.runtime.sock;
+    }
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
     const jid = await this.resolveWhatsAppContact(sock, row);
@@ -148,8 +160,14 @@ export class GlobalSendQueue {
 
   private async sendGroup(row: any) {
     if (!validateGroupJid(row.group_jid)) throw new Error("JID de grupo inválido.");
-    const sock = row.whatsapp_session_name ? getSenderSock(row.whatsapp_session_name) : this.runtime.sock;
-    if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
+    let sock: any;
+    if (row.whatsapp_session_name) {
+      sock = getSenderSock(row.whatsapp_session_name);
+      if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
+    } else {
+      if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
+      sock = this.runtime.sock;
+    }
     let media: Buffer | undefined;
     if (row.media_bucket && row.media_path) {
       media = await downloadMedia(row.media_bucket, row.media_path);
