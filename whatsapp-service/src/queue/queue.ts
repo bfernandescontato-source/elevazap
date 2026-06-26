@@ -139,10 +139,11 @@ export class GlobalSendQueue {
       }
     }
     if (!sock) throw new Error("Nenhum número conectado para disparo 1x1.");
-    console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel });
+    console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel, sockUser: sock.user?.id });
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
-    const jid = phoneToWhatsAppJid(row.telefone);
+    const jid = await this.resolveRecipientJid(sock, row);
+    if (!jid) return;
     console.log("[queue] sendMessage", { id: row.id, jid });
     const result = await sock.sendMessage(jid, { text: row.mensagem_enviada });
     const waMessageId = result?.key?.id || null;
@@ -153,6 +154,24 @@ export class GlobalSendQueue {
     }
     console.log("[queue] welcome-sent sucesso", { id: row.id, jid, waMessageId });
     await supabase.from("envios").update({ status: "sucesso", sent_at: new Date().toISOString(), wa_message_id: waMessageId, erro: null, updated_at: new Date().toISOString() }).eq("id", row.id);
+  }
+
+  private async resolveRecipientJid(sock: any, row: any): Promise<string | null> {
+    const fallbackJid = phoneToWhatsAppJid(row.telefone);
+    if (typeof sock.onWhatsApp !== "function") return fallbackJid;
+
+    try {
+      const phone = fallbackJid.replace("@s.whatsapp.net", "");
+      const result = await sock.onWhatsApp(phone);
+      const match = (result || []).find((item: any) => item?.exists && item?.jid);
+      if (match?.jid) return match.jid;
+    } catch (err: any) {
+      console.warn("[queue] onWhatsApp check failed, using fallback jid:", err?.message);
+      return fallbackJid;
+    }
+
+    await supabase.from("envios").update({ status: "erro", erro: "Telefone não encontrado no WhatsApp.", attempts: (row.attempts || 0) + 1, claim_token: null, last_attempt_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", row.id);
+    return null;
   }
 
   private async sendGroup(row: any) {

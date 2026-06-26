@@ -15,7 +15,8 @@ export async function useSupabaseAuthState(sessionName = "default") {
   let creds: AuthenticationCreds = data?.creds ? deserialize(data.creds) : initAuthCreds();
 
   async function saveCreds() {
-    await supabase.from("whatsapp_auth_creds").upsert({ session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() });
+    const { error } = await supabase.from("whatsapp_auth_creds").upsert({ session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() });
+    if (error) console.error(`[auth:${sessionName}] saveCreds failed:`, error.message);
   }
 
   return {
@@ -23,7 +24,8 @@ export async function useSupabaseAuthState(sessionName = "default") {
       creds,
       keys: {
         get: async (type: string, ids: string[]) => {
-          const { data: rows } = await supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("key_type", type).in("key_id", ids);
+          const { data: rows, error } = await supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("key_type", type).in("key_id", ids);
+          if (error) throw new Error(`[auth:${sessionName}] keys.get failed: ${error.message}`);
           const result: Record<string, any> = {};
           for (const id of ids) {
             const row = rows?.find((r) => r.key_id === id);
@@ -33,12 +35,28 @@ export async function useSupabaseAuthState(sessionName = "default") {
         },
         set: async (data: SignalDataSet) => {
           for (const [type, records] of Object.entries(data)) {
-            for (const [id, value] of Object.entries(records || {})) {
-              if (value) {
-                await supabase.from("whatsapp_auth_keys").upsert({ session_name: sessionName, key_type: type, key_id: id, key_data: serialize(value), updated_at: new Date().toISOString() });
-              } else {
-                await supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("key_type", type).eq("key_id", id);
-              }
+            const entries = Object.entries(records || {});
+            if (!entries.length) continue;
+
+            const toUpsert = entries.filter(([, v]) => v != null).map(([id, value]) => ({
+              session_name: sessionName,
+              key_type: type,
+              key_id: id,
+              key_data: serialize(value),
+              updated_at: new Date().toISOString()
+            }));
+
+            const toDelete = entries.filter(([, v]) => v == null).map(([id]) => id);
+
+            if (toUpsert.length) {
+              const { error } = await supabase.from("whatsapp_auth_keys").upsert(toUpsert);
+              if (error) throw new Error(`[auth:${sessionName}] keys.set upsert (${type}) failed: ${error.message}`);
+            }
+
+            if (toDelete.length) {
+              const { error } = await supabase.from("whatsapp_auth_keys").delete()
+                .eq("session_name", sessionName).eq("key_type", type).in("key_id", toDelete);
+              if (error) throw new Error(`[auth:${sessionName}] keys.set delete (${type}) failed: ${error.message}`);
             }
           }
         }
