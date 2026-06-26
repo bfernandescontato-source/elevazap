@@ -4,7 +4,7 @@ import { downloadMedia, buildBaileysMessage, convertVoiceToOpus } from "../utils
 import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import type { WhatsAppRuntime } from "../whatsapp.js";
 import { randomUUID } from "crypto";
-import { getSenderSock } from "../senders/runtime.js";
+import { getFirstConnectedSenderSock, getSenderSock } from "../senders/runtime.js";
 
 type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
 
@@ -33,9 +33,22 @@ export class GlobalSendQueue {
     void this.loop();
   }
 
+  private hasAnyConnection(): boolean {
+    if (this.runtime.getStatus() === "connected") return true;
+    return getFirstConnectedSenderSock() !== null;
+  }
+
   private async loop() {
     while (this.running) {
       try {
+        if (!this.hasAnyConnection()) {
+          if (this.buffer.length > 0) {
+            // Return buffered items to pending so they don't burn retries while disconnected
+            await this.returnQueuedToPending();
+          }
+          await sleep(3000);
+          continue;
+        }
         if (this.buffer.length < 1) await this.claimNext();
         const item = this.buffer.shift();
         if (item) await this.process(item);
@@ -48,7 +61,7 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
-    const envio = await this.claimTableItem("envios", { onlyWithSender: this.runtime.getStatus() !== "connected" });
+    const envio = await this.claimTableItem("envios");
     if (envio) { this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token }); return; }
     const grupo = await this.claimTableItem("envios_grupo");
     if (grupo) {
@@ -61,20 +74,17 @@ export class GlobalSendQueue {
     }
   }
 
-  private async claimTableItem(table: "envios" | "envios_grupo", options: { onlyWithSender?: boolean } = {}) {
+  private async claimTableItem(table: "envios" | "envios_grupo") {
     const now = new Date().toISOString();
-    let query = supabase.from(table)
+    const { data: job, error: selectError } = await supabase.from(table)
       .select("*")
       .eq("status", "pendente")
       .lte("scheduled_at", now)
       .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
       .order("scheduled_at", { ascending: true })
       .order("created_at", { ascending: true })
-      .limit(1);
-    if (options.onlyWithSender) query = query.not("whatsapp_session_name", "is", null);
-
-    const { data: job, error: selectError } = await query.maybeSingle();
-    if (selectError?.code === "42703" && options.onlyWithSender) return null;
+      .limit(1)
+      .maybeSingle();
     if (selectError) throw selectError;
     if (!job) return null;
 
@@ -114,15 +124,21 @@ export class GlobalSendQueue {
   }
 
   private async sendWelcome(row: any) {
-    let sock: any;
-    const sessionLabel = row.whatsapp_session_name || "principal";
+    let sock: any = null;
+    let sessionLabel = row.whatsapp_session_name || "principal";
     if (row.whatsapp_session_name) {
       sock = getSenderSock(row.whatsapp_session_name);
       if (!sock) throw new Error("Número responsável pelo disparo está desconectado.");
-    } else {
-      if (this.runtime.getStatus() !== "connected") throw new Error("Número principal desconectado.");
+    } else if (this.runtime.getStatus() === "connected") {
       sock = this.runtime.sock;
+    } else {
+      const fallback = getFirstConnectedSenderSock();
+      if (fallback) {
+        sock = fallback.sock;
+        sessionLabel = fallback.label || fallback.sessionName;
+      }
     }
+    if (!sock) throw new Error("Nenhum número conectado para disparo 1x1.");
     console.log("[queue] sendWelcome start", { id: row.id, telefone: row.telefone, session: sessionLabel });
     const optOut = await supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1);
     if (optOut.data?.length) throw new Error("Contato em opt-out.");
@@ -175,7 +191,7 @@ export class GlobalSendQueue {
   }
 
   private async markFailure(table: string, row: any, message: string) {
-    if (message.includes("desconectado") || message.includes("conectada mas não autenticada")) {
+    if (message.includes("desconectado") || message.includes("conectada mas não autenticada") || message.includes("Nenhum número conectado")) {
       await supabase.from(table).update({
         status: "pendente",
         erro: message,
