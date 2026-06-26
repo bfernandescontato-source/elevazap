@@ -100,7 +100,14 @@ export default function GruposPage() {
 
   async function loadGroups() {
     const data = await fetch("/api/whatsapp/groups").then((r) => r.json());
-    setGroups(data.groups || data || []);
+    setGroups(Array.isArray(data) ? data : data.groups || []);
+  }
+
+  async function refreshGroupsFromWhatsApp() {
+    const res = await fetch("/api/whatsapp/groups/refresh-all", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Falha ao atualizar grupos.");
+    setGroups(Array.isArray(data) ? data : []);
   }
 
   async function loadCampaigns() {
@@ -390,7 +397,7 @@ export default function GruposPage() {
             <label className="text-sm font-medium text-ink">Pesquisar grupos</label>
             <input value={campaignGroupQuery} onChange={(e) => setCampaignGroupQuery(e.target.value)} placeholder="Buscar por nome ou JID" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" />
           </div>
-          <ActionButton icon={<RefreshCw size={16} />} className="border border-line bg-panel text-ink" onClick={() => loadGroups().catch(showError)}>Atualizar grupos</ActionButton>
+          <ActionButton icon={<RefreshCw size={16} />} className="border border-line bg-panel text-ink" onClick={() => refreshGroupsFromWhatsApp().catch(showError)}>Atualizar grupos</ActionButton>
           <ActionButton icon={<FolderPlus size={16} />} disabled={!newCampaignGroups.length} onClick={() => setCreateCampaignOpen(true)}>Criar nova campanha</ActionButton>
         </div>
         <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-line p-3">
