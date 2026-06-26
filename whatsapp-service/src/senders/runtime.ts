@@ -53,6 +53,15 @@ export function getSenderSock(sessionName: string) {
   return managed.session.sock;
 }
 
+export function getFirstConnectedSenderSock() {
+  for (const managed of senders.values()) {
+    if (managed.session.getStatus() === "connected") {
+      return { sock: managed.session.sock, sessionName: managed.sessionName, label: managed.label };
+    }
+  }
+  return null;
+}
+
 export async function refreshSenderGroups(sessionName: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
