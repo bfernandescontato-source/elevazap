@@ -5,8 +5,7 @@ const falsePhoneCheckError = "Telefone não encontrado no WhatsApp. Confira se o
 const recoverableErrors = [
   falsePhoneCheckError,
   "Número principal desconectado.",
-  "Número responsável pelo disparo está desconectado.",
-  "Nenhum número conectado para disparo 1x1."
+  "Número responsável pelo disparo está desconectado."
 ];
 
 export async function recoverStuckJobsOnBoot() {

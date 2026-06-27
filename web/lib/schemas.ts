@@ -60,7 +60,6 @@ export function validateMedia(kind: z.infer<typeof mediaKindSchema>, mimeType: s
 
 export const createLoteSchema = z.object({
   titulo: z.string().min(1).max(120),
-  campanha_id: z.string().uuid().optional(),
   group_jids: z.array(z.string()).min(1),
   whatsapp_sender_id: z.string().uuid().optional(),
   tipo: z.enum(["texto", "imagem", "video", "audio", "audio_voz", "documento"]),

@@ -1,7 +1,7 @@
 "use client";
 
-import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, StatusBadge, Toast } from "@/components/ui";
-import { CalendarClock, Copy, FileText, FolderPlus, Phone, Plus, QrCode, RefreshCw, Save, Send, Trash2, X } from "lucide-react";
+import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, Toast } from "@/components/ui";
+import { FileText, FolderPlus, Phone, Plus, QrCode, RefreshCw, Save, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Grupo = {
@@ -43,23 +43,7 @@ type Sender = {
   qr?: string;
 };
 
-type ScheduledMessage = {
-  id: string;
-  lote_id?: string;
-  campanha_nome?: string;
-  lote_titulo?: string;
-  nome_grupo?: string;
-  group_jid: string;
-  numero_responsavel?: string;
-  scheduled_at?: string;
-  status?: string;
-  tipo?: MessageKind;
-  texto?: string | null;
-  legenda?: string | null;
-  preview?: string;
-};
-
-type Tab = "campanhas" | "disparo" | "agendadas" | "conexoes";
+type Tab = "campanhas" | "disparo" | "conexoes";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
@@ -79,7 +63,6 @@ export default function GruposPage() {
   const [pastas, setPastas] = useState<Pasta[]>([]);
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [senders, setSenders] = useState<Sender[]>([]);
-  const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
   const [toast, setToast] = useState("");
   const [newSenderLabel, setNewSenderLabel] = useState("");
 
@@ -114,8 +97,6 @@ export default function GruposPage() {
   const [editingModelId, setEditingModelId] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
   const [editingFolderName, setEditingFolderName] = useState("");
-  const [scheduleEdits, setScheduleEdits] = useState<Record<string, string>>({});
-  const [textEdits, setTextEdits] = useState<Record<string, string>>({});
 
   async function loadGroups() {
     const data = await fetch("/api/whatsapp/groups").then((r) => r.json());
@@ -149,13 +130,8 @@ export default function GruposPage() {
     setSenders(data.senders || []);
   }
 
-  async function loadScheduledMessages() {
-    const data = await fetch("/api/agendamentos-grupo", { cache: "no-store" }).then((r) => r.json());
-    setScheduledMessages(data.agendamentos || []);
-  }
-
   async function loadAll() {
-    await Promise.all([loadGroups(), loadCampaigns(), loadPastas(), loadModelos(), loadSenders(), loadScheduledMessages()]);
+    await Promise.all([loadGroups(), loadCampaigns(), loadPastas(), loadModelos(), loadSenders()]);
   }
 
   useEffect(() => { loadAll(); }, []);
@@ -176,26 +152,9 @@ export default function GruposPage() {
     });
     return grouped;
   }, [modelos]);
-  const pendingScheduledMessages = useMemo(() => scheduledMessages.filter((item) => ["pendente", "pausado", "erro", "incerto", "cancelado"].includes(item.status || "")), [scheduledMessages]);
 
   function showError(error: any) {
     setToast(error?.message || "Algo deu errado.");
-  }
-
-  function toDateTimeInput(value?: string) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 16);
-  }
-
-  function toIsoFromInput(value: string) {
-    return new Date(value).toISOString();
-  }
-
-  function formatDate(value?: string) {
-    return value ? new Date(value).toLocaleString() : "-";
   }
 
   function toggleNewCampaignGroup(jid: string, checked: boolean) {
@@ -320,8 +279,7 @@ export default function GruposPage() {
     const response = await fetch("/api/lotes/create", {
       method: "POST",
       body: JSON.stringify({
-        titulo: `${selectedCampaign?.nome || "Lote"} - ${new Date().toLocaleString()}`,
-        campanha_id: selectedCampaignId || undefined,
+        titulo: `Lote ${new Date().toLocaleString()}`,
         group_jids: selected,
         whatsapp_sender_id: selectedSenderId || undefined,
         tipo: activeTipo,
@@ -336,40 +294,6 @@ export default function GruposPage() {
     if (!response.ok) throw new Error(data.error || "Falha ao criar lote.");
     setConfirm(false);
     setToast("Lote criado.");
-    await loadScheduledMessages();
-  }
-
-  async function updateScheduled(item: ScheduledMessage, scope: "item" | "lote") {
-    const nextDate = scheduleEdits[item.id];
-    const nextText = textEdits[item.id];
-    const body: Record<string, any> = {
-      scope,
-      id: item.id,
-      lote_id: item.lote_id
-    };
-    if (nextDate) body.scheduled_at = toIsoFromInput(nextDate);
-    if (nextText !== undefined) {
-      if (item.tipo === "imagem" || item.tipo === "video") body.legenda = nextText;
-      else body.texto = nextText;
-    }
-    const response = await fetch("/api/agendamentos-grupo", { method: "PATCH", body: JSON.stringify(body) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao atualizar agendamento.");
-    setToast(scope === "lote" ? "Sequência reagendada." : "Mensagem atualizada.");
-    await loadScheduledMessages();
-  }
-
-  async function duplicateScheduled(item: ScheduledMessage, scope: "item" | "lote") {
-    const nextDate = scheduleEdits[item.id];
-    if (!nextDate) throw new Error("Escolha a nova data e horário.");
-    const response = await fetch("/api/agendamentos-grupo", {
-      method: "POST",
-      body: JSON.stringify({ scope, id: item.id, lote_id: item.lote_id, scheduled_at: toIsoFromInput(nextDate) })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao duplicar agendamento.");
-    setToast(scope === "lote" ? "Sequência duplicada." : "Mensagem duplicada.");
-    await loadScheduledMessages();
   }
 
   async function createSender() {
@@ -464,7 +388,6 @@ export default function GruposPage() {
       <button onClick={() => setTab("campanhas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "campanhas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Grupos e Campanhas</button>
       <button onClick={() => setTab("conexoes")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "conexoes" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>QR Code / Conexões</button>
       <button onClick={() => setTab("disparo")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "disparo" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Disparo de Mensagens</button>
-      <button onClick={() => setTab("agendadas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "agendadas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Mensagens Agendadas</button>
     </div>
 
     {tab === "campanhas" ? <div className="space-y-5">
@@ -550,85 +473,6 @@ export default function GruposPage() {
           </div>
         </section>)}
         {!senders.length ? <div className="rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Crie um número para começar a usar disparos por telefone específico.</div> : null}
-      </div>
-    </div> : null}
-
-    {tab === "agendadas" ? <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-line bg-panel p-4 shadow-soft">
-          <div className="text-sm text-muted">Agendadas e reaproveitáveis</div>
-          <div className="mt-2 text-2xl font-semibold text-ink">{pendingScheduledMessages.length}</div>
-        </div>
-        <div className="rounded-lg border border-line bg-panel p-4 shadow-soft">
-          <div className="text-sm text-muted">Total no histórico</div>
-          <div className="mt-2 text-2xl font-semibold text-ink">{scheduledMessages.length}</div>
-        </div>
-        <div className="rounded-lg border border-line bg-panel p-4 shadow-soft">
-          <div className="text-sm text-muted">Próximo disparo</div>
-          <div className="mt-2 text-sm font-semibold text-ink">{formatDate(pendingScheduledMessages[0]?.scheduled_at)}</div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-ink">Biblioteca de mensagens agendadas</h2>
-          <div className="text-sm text-muted">Confira, edite, duplique e reagende mensagens ou sequências inteiras.</div>
-        </div>
-        <ActionButton icon={<RefreshCw size={16} />} className="border border-line bg-panel text-ink" onClick={() => loadScheduledMessages().catch(showError)}>Atualizar</ActionButton>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        {scheduledMessages.map((item) => {
-          const editDate = scheduleEdits[item.id] ?? toDateTimeInput(item.scheduled_at);
-          const editText = textEdits[item.id] ?? (item.tipo === "imagem" || item.tipo === "video" ? item.legenda || "" : item.texto || "");
-          const locked = item.status === "sucesso" || item.status === "processando" || item.status === "enfileirado";
-          return <section key={item.id} className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-muted"><CalendarClock size={16} />{formatDate(item.scheduled_at)}</div>
-                <h3 className="mt-2 font-semibold text-ink">{item.campanha_nome || item.lote_titulo || "Sem campanha"}</h3>
-                <div className="mt-1 text-sm text-muted">{item.nome_grupo || item.group_jid}</div>
-              </div>
-              <StatusBadge status={item.status} />
-            </div>
-
-            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-              <div className="rounded-lg bg-wash p-3">
-                <div className="text-xs uppercase text-muted">Número responsável</div>
-                <div className="mt-1 font-medium text-ink">{item.numero_responsavel || "Número principal"}</div>
-              </div>
-              <div className="rounded-lg bg-wash p-3">
-                <div className="text-xs uppercase text-muted">Tipo</div>
-                <div className="mt-1 font-medium text-ink">{item.tipo ? messageKindLabels[item.tipo] : "-"}</div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-line bg-wash p-4">
-              <div className="text-xs uppercase text-muted">Prévia</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{item.preview || "-"}</div>
-            </div>
-
-            <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr]">
-              <div>
-                <label className="text-xs font-medium uppercase text-muted">Nova data</label>
-                <DateTimePicker value={editDate} onChange={(e) => setScheduleEdits((current) => ({ ...current, [item.id]: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase text-muted">Editar texto</label>
-                <textarea value={editText} disabled={locked} onChange={(e) => setTextEdits((current) => ({ ...current, [item.id]: e.target.value }))} rows={3} className="focus-ring mt-1 w-full rounded-lg border border-line bg-panel p-3 text-sm disabled:bg-wash disabled:text-muted" />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <ActionButton icon={<Save size={15} />} disabled={locked} onClick={() => updateScheduled(item, "item").catch(showError)}>Salvar item</ActionButton>
-              <ActionButton icon={<CalendarClock size={15} />} disabled={locked} className="border border-line bg-panel text-ink" onClick={() => updateScheduled(item, "lote").catch(showError)}>Reagendar sequência</ActionButton>
-              <ActionButton icon={<Copy size={15} />} className="border border-line bg-panel text-ink" onClick={() => duplicateScheduled(item, "item").catch(showError)}>Duplicar item</ActionButton>
-              <ActionButton icon={<Copy size={15} />} className="border border-line bg-panel text-ink" onClick={() => duplicateScheduled(item, "lote").catch(showError)}>Duplicar sequência</ActionButton>
-            </div>
-            {locked ? <div className="mt-3 text-xs text-muted">Mensagem já enviada ou em processamento. Para reaproveitar, use duplicar.</div> : null}
-          </section>;
-        })}
-        {!scheduledMessages.length ? <div className="rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Nenhuma mensagem agendada encontrada.</div> : null}
       </div>
     </div> : null}
 
