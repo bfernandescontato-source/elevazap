@@ -14,6 +14,10 @@ export async function POST(request: NextRequest) {
   if (body.scheduled_at && new Date(body.scheduled_at).getTime() < Date.now() - 60000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
   const sb = supabaseAdmin();
   const { data: grupos } = await sb.from("grupos").select("group_jid,nome").in("group_jid", body.group_jids);
+  const { data: campanha } = body.campanha_id
+    ? await sb.from("campanhas").select("id,nome").eq("id", body.campanha_id).maybeSingle()
+    : { data: null } as any;
+  if (body.campanha_id && !campanha) return NextResponse.json({ error: "Campanha não encontrada." }, { status: 400 });
   const { data: sender } = body.whatsapp_sender_id
     ? await sb.from("whatsapp_senders").select("*").eq("id", body.whatsapp_sender_id).maybeSingle()
     : { data: null } as any;
@@ -22,6 +26,8 @@ export async function POST(request: NextRequest) {
   const media = body.media;
   const { data: lote, error } = await sb.from("envios_grupo_lotes").insert({
     titulo: body.titulo,
+    campanha_id: campanha?.id,
+    campanha_nome: campanha?.nome,
     whatsapp_sender_id: sender?.id,
     whatsapp_session_name: sender?.session_name,
     tipo: body.tipo,
@@ -40,6 +46,8 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const items = body.group_jids.map((jid) => ({
     lote_id: lote.id,
+    campanha_id: campanha?.id,
+    campanha_nome: campanha?.nome,
     whatsapp_sender_id: sender?.id,
     whatsapp_session_name: sender?.session_name,
     group_jid: jid,
