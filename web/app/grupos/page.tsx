@@ -267,11 +267,10 @@ export default function GruposPage() {
   }
 
   return <AppShell title="Grupos" subtitle="Campanhas e disparos para grupos próprios">
-    <GroupNav />
-    <div className="mb-5 flex flex-wrap gap-2">
-      <button onClick={() => setTab("campanhas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "campanhas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Grupos e campanhas</button>
-      <button onClick={() => setTab("disparo")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "disparo" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Disparo de Mensagens</button>
-    </div>
+    <GroupNav showRoot={false}>
+      <button onClick={() => setTab("campanhas")} className={`inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition ${tab === "campanhas" ? "bg-black text-white" : "border border-line bg-white text-muted hover:border-zinc-400 hover:text-ink"}`}>Grupos e campanhas</button>
+      <button onClick={() => setTab("disparo")} className={`inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition ${tab === "disparo" ? "bg-black text-white" : "border border-line bg-white text-muted hover:border-zinc-400 hover:text-ink"}`}>Disparo de Mensagens</button>
+    </GroupNav>
 
     {tab === "campanhas" ? <div className="space-y-5">
       <div className="rounded-lg border border-line bg-panel p-4 shadow-soft">
