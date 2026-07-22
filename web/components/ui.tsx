@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrandLogo } from "./brand-logo";
 import {
   AlertTriangle,
   BarChart3,
@@ -21,7 +22,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Shield,
   Upload,
   Users,
   X
@@ -42,20 +42,16 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
   const pathname = usePathname();
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-72 border-r border-zinc-800 bg-black px-4 py-5 lg:block">
-        <div className="mb-8 flex items-center gap-3 px-2">
-          <div className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-700 bg-white text-black"><Shield size={20} /></div>
-          <div>
-            <div className="text-sm font-semibold text-white">Disparei</div>
-            <div className="text-xs text-zinc-400">Central de envios</div>
-          </div>
+      <aside className="hidden w-72 border-r border-line bg-white px-4 py-5 lg:block">
+        <div className="mb-8 px-2">
+          <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
         </div>
         <nav className="space-y-1">
           {nav.map((item) => {
             const active = pathname === item.href;
             const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-white text-black" : "text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>
+              <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </Link>
