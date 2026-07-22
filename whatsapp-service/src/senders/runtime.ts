@@ -44,7 +44,14 @@ export async function disconnectSenderSession(sessionName: string) {
 export function getSenderStatus(sessionName: string) {
   const managed = senders.get(sessionName);
   if (!managed) return { status: "disconnected", qr: "" };
-  return { status: managed.session.getStatus(), qr: managed.session.getQr() };
+  const user = managed.session.sock.user;
+  const phoneNumber = user?.id ? user.id.split(":")[0].split("@")[0] : "";
+  return {
+    status: managed.session.getStatus(),
+    qr: managed.session.getQr(),
+    phone_number: phoneNumber,
+    display_name: user?.name || ""
+  };
 }
 
 export function getSenderSock(sessionName: string) {

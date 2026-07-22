@@ -1,7 +1,8 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, Toast } from "@/components/ui";
-import { FileText, FolderPlus, Phone, Plus, QrCode, RefreshCw, Save, Send, Trash2, X } from "lucide-react";
+import { GroupNav } from "@/components/group-nav";
+import { FolderPlus, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Grupo = {
@@ -15,11 +16,6 @@ type Campanha = {
   id: string;
   nome: string;
   grupos: Grupo[];
-};
-
-type Pasta = {
-  id: string;
-  nome: string;
 };
 
 type Modelo = {
@@ -43,7 +39,7 @@ type Sender = {
   qr?: string;
 };
 
-type Tab = "campanhas" | "disparo" | "conexoes";
+type Tab = "campanhas" | "disparo";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
@@ -60,11 +56,9 @@ export default function GruposPage() {
   const [tab, setTab] = useState<Tab>("campanhas");
   const [groups, setGroups] = useState<Grupo[]>([]);
   const [campaigns, setCampaigns] = useState<Campanha[]>([]);
-  const [pastas, setPastas] = useState<Pasta[]>([]);
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [toast, setToast] = useState("");
-  const [newSenderLabel, setNewSenderLabel] = useState("");
 
   const [campaignName, setCampaignName] = useState("");
   const [campaignGroupQuery, setCampaignGroupQuery] = useState("");
@@ -88,16 +82,6 @@ export default function GruposPage() {
   const [scheduled, setScheduled] = useState("");
   const [confirm, setConfirm] = useState(false);
 
-  const [folderName, setFolderName] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [modelFolderId, setModelFolderId] = useState("");
-  const [modelKind, setModelKind] = useState<MessageKind>("texto");
-  const [modelText, setModelText] = useState("");
-  const [modelFile, setModelFile] = useState<File | null>(null);
-  const [editingModelId, setEditingModelId] = useState("");
-  const [editingFolderId, setEditingFolderId] = useState("");
-  const [editingFolderName, setEditingFolderName] = useState("");
-
   async function loadGroups() {
     const data = await fetch("/api/whatsapp/groups").then((r) => r.json());
     setGroups(Array.isArray(data) ? data : data.groups || []);
@@ -115,11 +99,6 @@ export default function GruposPage() {
     setCampaigns(Array.isArray(data) ? data : []);
   }
 
-  async function loadPastas() {
-    const data = await fetch("/api/modelos/pastas").then((r) => r.json());
-    setPastas(Array.isArray(data) ? data : []);
-  }
-
   async function loadModelos() {
     const data = await fetch("/api/modelos").then((r) => r.json());
     setModelos(Array.isArray(data) ? data : []);
@@ -131,7 +110,7 @@ export default function GruposPage() {
   }
 
   async function loadAll() {
-    await Promise.all([loadGroups(), loadCampaigns(), loadPastas(), loadModelos(), loadSenders()]);
+    await Promise.all([loadGroups(), loadCampaigns(), loadModelos(), loadSenders()]);
   }
 
   useEffect(() => { loadAll(); }, []);
@@ -144,15 +123,6 @@ export default function GruposPage() {
     const text = `${group.nome || ""} ${group.group_jid}`.toLowerCase();
     return text.includes(campaignGroupQuery.toLowerCase());
   }), [groups, campaignGroupQuery]);
-  const modelosByFolder = useMemo(() => {
-    const grouped = new Map<string, Modelo[]>();
-    modelos.forEach((modelo) => {
-      const key = modelo.pasta_id || "";
-      grouped.set(key, [...(grouped.get(key) || []), modelo]);
-    });
-    return grouped;
-  }, [modelos]);
-
   function showError(error: any) {
     setToast(error?.message || "Algo deu errado.");
   }
@@ -296,97 +266,10 @@ export default function GruposPage() {
     setToast("Lote criado.");
   }
 
-  async function createSender() {
-    const response = await fetch("/api/whatsapp/senders", { method: "POST", body: JSON.stringify({ label: newSenderLabel }) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao criar número.");
-    setNewSenderLabel("");
-    setToast("Número criado. Escaneie o QR Code.");
-    await loadSenders();
-  }
-
-  async function senderAction(sender: Sender, action: "connect" | "disconnect" | "refresh-groups") {
-    const response = await fetch(`/api/whatsapp/senders/${sender.id}/${action}`, { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha na ação do número.");
-    setToast(action === "refresh-groups" ? "Grupos atualizados para este número." : "Número atualizado.");
-    await Promise.all([loadSenders(), action === "refresh-groups" ? loadGroups() : Promise.resolve()]);
-  }
-
-  function startEditModel(modelo: Modelo) {
-    setEditingModelId(modelo.id);
-    setModelName(modelo.nome);
-    setModelFolderId(modelo.pasta_id || "");
-    setModelKind(modelo.tipo);
-    setModelText(modelo.texto || "");
-    setModelFile(null);
-  }
-
-  function resetModelForm() {
-    setEditingModelId("");
-    setModelName("");
-    setModelFolderId("");
-    setModelKind("texto");
-    setModelText("");
-    setModelFile(null);
-  }
-
-  async function saveFolder() {
-    const method = editingFolderId ? "PATCH" : "POST";
-    const response = await fetch("/api/modelos/pastas", {
-      method,
-      body: JSON.stringify({ id: editingFolderId || undefined, nome: editingFolderId ? editingFolderName : folderName })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao salvar pasta.");
-    setFolderName("");
-    setEditingFolderId("");
-    setEditingFolderName("");
-    setToast("Pasta salva.");
-    await loadPastas();
-  }
-
-  async function deleteFolder(id: string) {
-    const response = await fetch("/api/modelos/pastas", { method: "DELETE", body: JSON.stringify({ id }) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao excluir pasta.");
-    setToast("Pasta excluída.");
-    await Promise.all([loadPastas(), loadModelos()]);
-  }
-
-  async function saveModel() {
-    const previous = modelos.find((modelo) => modelo.id === editingModelId);
-    if (modelKind !== "texto" && !modelFile && !previous?.media_bucket) throw new Error("Selecione um arquivo para este modelo.");
-    const media = modelFile ? await uploadMedia(modelFile, modelKind) : previous?.media_bucket && previous.media_path && modelKind !== "texto" ? {
-      bucket: previous.media_bucket,
-      storage_path: previous.media_path,
-      file_name: previous.file_name || "arquivo",
-      mime_type: previous.mime_type || "application/octet-stream",
-      file_size_bytes: Number(previous.file_size_bytes || 1)
-    } : null;
-    const response = await fetch("/api/modelos", {
-      method: editingModelId ? "PATCH" : "POST",
-      body: JSON.stringify({ id: editingModelId || undefined, pasta_id: modelFolderId || null, nome: modelName, tipo: modelKind, texto: modelText, media })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao salvar modelo.");
-    resetModelForm();
-    setToast("Modelo salvo.");
-    await loadModelos();
-  }
-
-  async function deleteModel(id: string) {
-    const response = await fetch("/api/modelos", { method: "DELETE", body: JSON.stringify({ id }) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao excluir modelo.");
-    setToast("Modelo excluído.");
-    await loadModelos();
-  }
-
   return <AppShell title="Grupos" subtitle="Campanhas e disparos para grupos próprios">
+    <GroupNav />
     <div className="mb-5 flex flex-wrap gap-2">
-      <button onClick={() => setTab("campanhas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "campanhas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Grupos e Campanhas</button>
-      <button onClick={() => setTab("conexoes")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "conexoes" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>QR Code / Conexões</button>
+      <button onClick={() => setTab("campanhas")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "campanhas" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Grupos e campanhas</button>
       <button onClick={() => setTab("disparo")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "disparo" ? "bg-accent text-white" : "border border-line bg-panel text-muted"}`}>Disparo de Mensagens</button>
     </div>
 
@@ -448,35 +331,7 @@ export default function GruposPage() {
       </div>
     </div> : null}
 
-    {tab === "conexoes" ? <div className="space-y-5">
-      <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-        <h2 className="font-semibold text-ink">Conectar número para disparos</h2>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <input value={newSenderLabel} onChange={(e) => setNewSenderLabel(e.target.value)} placeholder="Ex: Número Campanha 1" className="focus-ring h-11 min-w-0 flex-1 rounded-lg border border-line px-3 text-sm" />
-          <ActionButton icon={<QrCode size={16} />} disabled={!newSenderLabel.trim()} onClick={() => createSender().catch(showError)}>Criar QR Code</ActionButton>
-        </div>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {senders.map((sender) => <section key={sender.id} className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} />{sender.label}</div>
-              <div className="mt-1 font-mono text-xs text-muted">{sender.session_name}</div>
-            </div>
-            <span className={`rounded-full border px-2.5 py-1 text-xs ${sender.status === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{sender.status || "disconnected"}</span>
-          </div>
-          {sender.qr ? <div className="mt-4 flex justify-center rounded-lg bg-wash p-4"><img src={sender.qr} alt="QR Code do número" className="h-64 w-64 rounded-lg bg-white p-2" /></div> : null}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton icon={<QrCode size={15} />} className="border border-line bg-panel text-ink" onClick={() => senderAction(sender, "connect").catch(showError)}>Gerar QR</ActionButton>
-            <ActionButton icon={<RefreshCw size={15} />} className="border border-line bg-panel text-ink" onClick={() => senderAction(sender, "refresh-groups").catch(showError)}>Atualizar grupos</ActionButton>
-            <ActionButton icon={<X size={15} />} className="border border-line bg-panel text-red-600" onClick={() => senderAction(sender, "disconnect").catch(showError)}>Desconectar</ActionButton>
-          </div>
-        </section>)}
-        {!senders.length ? <div className="rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Crie um número para começar a usar disparos por telefone específico.</div> : null}
-      </div>
-    </div> : null}
-
-    {tab === "disparo" ? <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+    {tab === "disparo" ? <div className="max-w-4xl">
       <section className="space-y-4">
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
           <h2 className="font-semibold">1. Escolher campanha</h2>
@@ -509,7 +364,7 @@ export default function GruposPage() {
             <option value="">Número principal conectado</option>
             {senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label} ({sender.status || "desconectado"})</option>)}
           </select>
-          <div className="mt-2 text-sm text-muted">{selectedSender ? `Este disparo será feito pelo número "${selectedSender.label}".` : "Sem seleção extra: usa o número principal da página Conexão."}</div>
+          <div className="mt-2 text-sm text-muted">{selectedSender ? `Este disparo será feito pelo número "${selectedSender.label}".` : "Sem seleção extra: usa o número principal de Números conectados."}</div>
         </div>
 
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
@@ -544,76 +399,6 @@ export default function GruposPage() {
         </div>
       </section>
 
-      <aside className="space-y-4">
-        <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">Pastas de modelos</h2>
-          <div className="mt-4 flex gap-2">
-            <input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Nova pasta" className="focus-ring h-10 min-w-0 flex-1 rounded-lg border border-line px-3 text-sm" />
-            <button className="grid h-10 w-10 place-items-center rounded-lg bg-accent text-white disabled:opacity-50" disabled={!folderName.trim()} onClick={() => saveFolder().catch(showError)} title="Criar pasta"><FolderPlus size={17} /></button>
-          </div>
-          <div className="mt-4 space-y-2">
-            {pastas.map((pasta) => <div key={pasta.id} className="rounded-lg border border-line p-3">
-              {editingFolderId === pasta.id ? <div className="flex gap-2">
-                <input value={editingFolderName} onChange={(e) => setEditingFolderName(e.target.value)} className="focus-ring h-9 min-w-0 flex-1 rounded-lg border border-line px-2 text-sm" />
-                <button className="rounded-lg bg-accent px-3 text-white" onClick={() => saveFolder().catch(showError)}><Save size={15} /></button>
-              </div> : <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">{pasta.nome}</span>
-                <div className="flex gap-1">
-                  <button className="rounded-lg px-2 py-1 text-xs text-muted hover:bg-wash" onClick={() => { setEditingFolderId(pasta.id); setEditingFolderName(pasta.nome); }}>Editar</button>
-                  <button className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => deleteFolder(pasta.id).catch(showError)}><Trash2 size={15} /></button>
-                </div>
-              </div>}
-            </div>)}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">{editingModelId ? "Editar modelo" : "Novo modelo"}</h2>
-          <div className="mt-4 space-y-3">
-            <input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="Nome do modelo" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" />
-            <select value={modelFolderId} onChange={(e) => setModelFolderId(e.target.value)} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
-              <option value="">Sem pasta</option>
-              {pastas.map((pasta) => <option key={pasta.id} value={pasta.id}>{pasta.nome}</option>)}
-            </select>
-            <select value={modelKind} onChange={(e) => setModelKind(e.target.value as MessageKind)} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
-              {Object.entries(messageKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-            {(modelKind === "texto" || modelKind === "imagem" || modelKind === "video") ? <textarea value={modelText} onChange={(e) => setModelText(e.target.value)} placeholder="Texto do modelo" rows={4} className="focus-ring w-full rounded-lg border border-line p-3 text-sm" /> : null}
-            {modelKind !== "texto" ? <><FileDropzone onFile={setModelFile} /><MediaPreview fileName={modelFile?.name} mimeType={modelFile?.type} /></> : null}
-            <div className="flex gap-2">
-              <ActionButton icon={<Save size={16} />} disabled={!modelName.trim()} onClick={() => saveModel().catch(showError)} className="flex-1 bg-accent text-white">Salvar modelo</ActionButton>
-              {editingModelId ? <ActionButton icon={<X size={16} />} onClick={resetModelForm} className="border border-line bg-panel text-ink">Cancelar</ActionButton> : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">Modelos salvos</h2>
-          <div className="mt-4 space-y-4">
-            {[{ id: "", nome: "Sem pasta" }, ...pastas].map((pasta) => {
-              const items = modelosByFolder.get(pasta.id) || [];
-              if (!items.length) return null;
-              return <section key={pasta.id || "sem-pasta"}>
-                <h3 className="mb-2 text-sm font-medium text-muted">{pasta.nome}</h3>
-                <div className="space-y-2">
-                  {items.map((modelo) => <div key={modelo.id} className="rounded-lg border border-line p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-medium text-ink">{modelo.nome}</div>
-                        <div className="mt-1 text-xs text-muted">{messageKindLabels[modelo.tipo]}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => startEditModel(modelo)}><FileText size={15} /></button>
-                        <button className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => deleteModel(modelo.id).catch(showError)}><Trash2 size={15} /></button>
-                      </div>
-                    </div>
-                  </div>)}
-                </div>
-              </section>;
-            })}
-          </div>
-        </div>
-      </aside>
     </div> : null}
 
     <ConfirmModal open={createCampaignOpen} title="Criar campanha" onCancel={() => setCreateCampaignOpen(false)} onConfirm={() => createCampaign().catch(showError)}>

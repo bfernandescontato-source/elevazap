@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
-  Bot,
   Check,
   ChevronRight,
   Clipboard,
@@ -16,7 +15,6 @@ import {
   Inbox,
   Loader2,
   LogOut,
-  MessageCircle,
   Pause,
   Play,
   QrCode,
@@ -26,22 +24,17 @@ import {
   Shield,
   Upload,
   Users,
-  Webhook,
   X
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/conexao", label: "Conexão", icon: QrCode },
-  { href: "/mensagem", label: "Mensagem", icon: MessageCircle },
-  { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/grupos", label: "Grupos", icon: Users },
   { href: "/lotes", label: "Lotes", icon: Clipboard },
   { href: "/envios", label: "Envios", icon: Send },
   { href: "/envios-grupo", label: "Envios em grupo", icon: Inbox },
   { href: "/incertos", label: "Incertos", icon: HelpCircle },
-  { href: "/suporte", label: "Suporte IA", icon: Bot },
   { href: "/configuracoes", label: "Configurações", icon: Cog }
 ];
 
@@ -49,12 +42,12 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
   const pathname = usePathname();
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-72 border-r border-line bg-panel/90 px-4 py-5 lg:block">
+      <aside className="hidden w-72 border-r border-zinc-800 bg-black px-4 py-5 lg:block">
         <div className="mb-8 flex items-center gap-3 px-2">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-accent text-white"><Shield size={20} /></div>
+          <div className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-700 bg-white text-black"><Shield size={20} /></div>
           <div>
-            <div className="text-sm font-semibold text-ink">ElevaZap Ops</div>
-            <div className="text-xs text-muted">Operação interna</div>
+            <div className="text-sm font-semibold text-white">Disparei</div>
+            <div className="text-xs text-zinc-400">Central de envios</div>
           </div>
         </div>
         <nav className="space-y-1">
@@ -62,7 +55,7 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
             const active = pathname === item.href;
             const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-accent text-white shadow-soft" : "text-muted hover:bg-wash hover:text-ink"}`}>
+              <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-white text-black" : "text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </Link>
@@ -71,7 +64,7 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
         </nav>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-line bg-wash/85 px-4 py-4 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-4 py-4 backdrop-blur lg:px-8">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-xl font-semibold tracking-normal text-ink">{title}</h1>
@@ -88,7 +81,7 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
               const active = pathname === item.href;
               const Icon = item.icon;
               return (
-                <Link key={item.href} href={item.href} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-accent text-white" : "bg-panel text-muted"}`}>
+                <Link key={item.href} href={item.href} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-black text-white" : "border border-line bg-panel text-muted"}`}>
                   <Icon size={16} /> {item.label}
                 </Link>
               );
@@ -175,9 +168,9 @@ export function PhoneMaskedText({ value }: { value: string }) {
   return <span className="font-mono text-sm">{value}</span>;
 }
 
-export function ConfirmModal({ open, title, children, onCancel, onConfirm }: { open: boolean; title: string; children: ReactNode; onCancel: () => void; onConfirm: () => void }) {
+export function ConfirmModal({ open, title, children, onCancel, onConfirm, confirmLabel = "Confirmar", loading = false, destructive = false }: { open: boolean; title: string; children: ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string; loading?: boolean; destructive?: boolean }) {
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-4"><div className="w-full max-w-md rounded-lg bg-panel p-5 shadow-soft"><h3 className="font-semibold text-ink">{title}</h3><div className="mt-2 text-sm text-muted">{children}</div><div className="mt-5 flex justify-end gap-2"><button className="rounded-lg border border-line px-4 py-2 text-sm" onClick={onCancel}>Voltar</button><button className="rounded-lg bg-accent px-4 py-2 text-sm text-white" onClick={onConfirm}>Confirmar</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="w-full max-w-md rounded-lg bg-panel p-5 shadow-soft"><h3 id="confirm-title" className="font-semibold text-ink">{title}</h3><div className="mt-2 text-sm text-muted">{children}</div><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={loading} className="rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onCancel}>Voltar</button><button type="button" disabled={loading} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${destructive ? "bg-red-600 hover:bg-red-700" : "bg-black hover:bg-zinc-800"}`} onClick={onConfirm}>{loading ? <Loader2 size={15} className="animate-spin" /> : null}{confirmLabel}</button></div></div></div>;
 }
 
 export function Toast({ message }: { message: string }) {

@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ElevaZap Ops",
-  description: "Operação interna segura de WhatsApp"
+  title: {
+    default: "Disparei",
+    template: "%s | Disparei"
+  },
+  description: "Campanhas e envios de WhatsApp em um só lugar"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

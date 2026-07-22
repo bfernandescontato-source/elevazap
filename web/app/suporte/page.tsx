@@ -63,10 +63,10 @@ export default function SuportePage() {
         {/* Tab bar */}
         <div className="flex gap-1 rounded-lg border border-line bg-wash p-1">
           {([
-            ["config", "Configuração", <Bot size={15} />],
-            ["inbox", "Caixa de entrada", <Inbox size={15} />],
-            ["kb", "Base de conhecimento", <BookOpen size={15} />],
-            ["refunds", "Reembolsos", <DollarSign size={15} />]
+            ["config", "Configuração", <Bot key="config" size={15} />],
+            ["inbox", "Caixa de entrada", <Inbox key="inbox" size={15} />],
+            ["kb", "Base de conhecimento", <BookOpen key="kb" size={15} />],
+            ["refunds", "Reembolsos", <DollarSign key="refunds" size={15} />]
           ] as [Tab, string, React.ReactNode][]).map(([id, label, icon]) => (
             <button
               key={id}
