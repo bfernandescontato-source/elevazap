@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverParticipatingGroups } from "../groups/discovery.js";
+import { discoverGroupByInvite, discoverParticipatingGroups, extractInviteCode } from "../groups/discovery.js";
 
 describe("discoverParticipatingGroups", () => {
   it("junta grupos quando o WhatsApp retorna listas parciais", async () => {
@@ -42,5 +42,25 @@ describe("discoverParticipatingGroups", () => {
 
     expect(groupMetadata).toHaveBeenCalledWith("1@g.us");
     expect(groups[0]?.subject).toBe("MAPA DAS VENDAS ONLINE 01");
+  });
+
+  it("extrai o código de um link de convite", () => {
+    expect(extractInviteCode("https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv")).toBe("AbCdEfGhIjKlMnOpQrStUv");
+    expect(() => extractInviteCode("https://example.com/invalido")).toThrow("link de convite válido");
+  });
+
+  it("identifica o grupo usando o link de convite", async () => {
+    const groupGetInviteInfo = vi.fn().mockResolvedValue({
+      id: "1@g.us",
+      subject: "MAPA DAS VENDAS ONLINE 02"
+    });
+
+    const group = await discoverGroupByInvite(
+      { groupGetInviteInfo },
+      "https://chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv"
+    );
+
+    expect(groupGetInviteInfo).toHaveBeenCalledWith("AbCdEfGhIjKlMnOpQrStUv");
+    expect(group.subject).toBe("MAPA DAS VENDAS ONLINE 02");
   });
 });

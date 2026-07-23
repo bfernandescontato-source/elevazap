@@ -13,6 +13,7 @@ import {
   disconnectSenderSession,
   getSenderStatus,
   refreshSenderGroups,
+  resolveSenderGroupInvite,
   syncSenderGroups,
   startSenderSessionByName
 } from "../senders/runtime.js";
@@ -51,6 +52,13 @@ export function createHttpServer(runtime: WhatsAppRuntime, queue: GlobalSendQueu
   app.post("/logout", async (_req, res) => { await runtime.logout(); res.json({ ok: true }); });
   app.get("/groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));
   app.post("/refresh-groups", async (_req, res) => res.json({ groups: await runtime.refreshGroups() }));
+  app.post("/groups/resolve-invite", async (req, res) => {
+    try {
+      res.json({ group: await runtime.resolveGroupInvite(String(req.body?.inviteUrl || "")) });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
   app.post("/groups/sync", async (req, res) => {
     try {
       const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
@@ -87,6 +95,14 @@ export function createHttpServer(runtime: WhatsAppRuntime, queue: GlobalSendQueu
       res.json({ groups: await refreshSenderGroups(req.params.sessionName) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/groups/resolve-invite", async (req, res) => {
+    try {
+      res.json({ group: await resolveSenderGroupInvite(req.params.sessionName, String(req.body?.inviteUrl || "")) });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 

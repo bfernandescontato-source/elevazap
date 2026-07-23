@@ -4,7 +4,7 @@ import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { supabase } from "./supabase.js";
 import { useSupabaseAuthState } from "./auth/supabase-auth-state.js";
-import { discoverParticipatingGroups } from "./groups/discovery.js";
+import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "./groups/discovery.js";
 import { syncGroupMetadata } from "./groups/sync.js";
 import { scheduleParticipantEventSync } from "./groups/events.js";
 
@@ -80,23 +80,20 @@ export async function createWhatsAppRuntime() {
   async function refreshGroups() {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
     const groups = await discoverParticipatingGroups(sock);
-    const rows = await Promise.all(groups.map(async (group: any) => {
-      let foto_url = null;
-      try { foto_url = await sock.profilePictureUrl(group.id, "image"); } catch {}
-      return {
-        group_jid: group.id,
-        nome: group.subject,
-        qtd_membros: group.participants?.length || 0,
-        sou_admin: group.participants?.some((p: any) => p.id === sock.user?.id && ["admin", "superadmin"].includes(p.admin)),
-        foto_url,
-        updated_at: new Date().toISOString()
-      };
-    }));
+    const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group)));
     if (rows.length) {
       const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
       if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
     }
     return rows;
+  }
+
+  async function resolveGroupInvite(inviteUrl: string) {
+    if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
+    const row = await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl));
+    const { error } = await supabase.from("grupos").upsert(row, { onConflict: "group_jid" });
+    if (error) throw new Error(`Falha ao salvar o grupo: ${error.message}`);
+    return row;
   }
 
   async function syncGroups(groupJids: string[]) {
@@ -109,6 +106,7 @@ export async function createWhatsAppRuntime() {
     restart,
     logout,
     refreshGroups,
+    resolveGroupInvite,
     syncGroups,
     get sock() { return sock; },
     getStatus: () => status,

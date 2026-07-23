@@ -85,6 +85,7 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
   const [showAdd, setShowAdd] = useState(false);
   const [addQuery, setAddQuery] = useState("");
   const [addJids, setAddJids] = useState<string[]>([]);
+  const [inviteLink, setInviteLink] = useState("");
   const [removeTarget, setRemoveTarget] = useState<Group | null>(null);
   const [resetTarget, setResetTarget] = useState<Group | null>(null);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
@@ -162,7 +163,33 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
       setAllGroups(Array.isArray(data.groups) ? data.groups : []);
       setAddJids([]);
       setAddQuery("");
+      setInviteLink("");
       setShowAdd(true);
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function resolveInvite() {
+    if (!inviteLink.trim()) return;
+    setSaving("resolve-invite");
+    try {
+      const response = await fetch("/api/whatsapp/groups/resolve-invite", {
+        method: "POST",
+        body: JSON.stringify({
+          invite_url: inviteLink.trim(),
+          sender_id: campaign?.whatsapp_sender_id || null
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível identificar o grupo.");
+      const group = data.group as AvailableGroup;
+      setAllGroups((current) => [group, ...current.filter((item) => item.group_jid !== group.group_jid)]);
+      setAddJids((current) => Array.from(new Set([...current, group.group_jid])));
+      setInviteLink("");
+      showMessage(`${group.nome || "Grupo"} encontrado e selecionado.`);
+    } catch (error: any) {
+      showMessage(error.message);
     } finally {
       setSaving("");
     }
@@ -290,7 +317,7 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
       {!history.length ? <EmptyState title="Nenhum acesso registrado" description="O histórico aparecerá quando alguém utilizar o link da campanha." /> : <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-white">{history.map((event) => <div key={event.id} className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[160px_150px_1fr_auto] md:items-center"><div>{formatDate(event.created_at)}</div><StatusBadge status={event.result === "redirecionado" ? "sucesso" : "erro"} /><div className="min-w-0 truncate">{groupNames.get(event.group_jid || "") || reasonLabel(event.reason)}</div><details><summary className="cursor-pointer font-medium">Detalhes</summary><pre className="mt-2 max-w-sm overflow-auto rounded-lg bg-wash p-3 text-xs">{JSON.stringify({ utm: event.utm, destino: event.destination_url, motivo: reasonLabel(event.reason) }, null, 2)}</pre></details></div>)}</div>}
     </section>
 
-    {showAdd ? <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={() => saving !== "add" && setShowAdd(false)}><div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-white" onClick={(event) => event.stopPropagation()}><div className="border-b border-line p-5"><h2 className="font-semibold text-ink">Adicionar grupos</h2></div><div className="flex-1 overflow-y-auto p-5"><input autoFocus value={addQuery} onChange={(event) => setAddQuery(event.target.value)} placeholder="Pesquisar grupos" className="focus-ring h-10 w-full rounded-lg border border-line px-3 text-sm" /><div className="mt-3 max-h-72 space-y-2 overflow-y-auto rounded-lg border border-line p-3">{availableGroups.map((group) => <label key={group.group_jid} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={addJids.includes(group.group_jid)} onChange={(event) => setAddJids((current) => event.target.checked ? [...current, group.group_jid] : current.filter((jid) => jid !== group.group_jid))} /><span>{group.nome || group.group_jid}</span></label>)}{!availableGroups.length ? <div className="py-5 text-center text-sm text-muted">Nenhum grupo disponível.</div> : null}</div><p className="mt-3 text-sm text-muted">{addJids.length} selecionado(s)</p></div><div className="flex justify-end gap-2 border-t border-line p-4"><ActionButton className="border border-line bg-white text-ink" onClick={() => setShowAdd(false)}>Cancelar</ActionButton><ActionButton disabled={!addJids.length || saving === "add"} onClick={addGroups}>{saving === "add" ? "Adicionando..." : "Adicionar selecionados"}</ActionButton></div></div></div> : null}
+    {showAdd ? <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={() => saving !== "add" && setShowAdd(false)}><div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-white" onClick={(event) => event.stopPropagation()}><div className="border-b border-line p-5"><h2 className="font-semibold text-ink">Adicionar grupos</h2></div><div className="flex-1 overflow-y-auto p-5"><div className="mb-4 rounded-lg border border-line bg-wash p-3"><label className="text-sm font-medium text-ink">Buscar pelo link do grupo</label><div className="mt-2 flex gap-2"><input value={inviteLink} onChange={(event) => setInviteLink(event.target.value)} placeholder="https://chat.whatsapp.com/..." className="focus-ring h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3 text-sm" /><button type="button" title="Buscar grupo" disabled={!inviteLink.trim() || saving === "resolve-invite"} onClick={resolveInvite} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-black text-white disabled:opacity-40">{saving === "resolve-invite" ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}</button></div><p className="mt-2 text-xs text-muted">Use esta opção quando o grupo aparecer apenas como código.</p></div><input autoFocus value={addQuery} onChange={(event) => setAddQuery(event.target.value)} placeholder="Pesquisar grupos" className="focus-ring h-10 w-full rounded-lg border border-line px-3 text-sm" /><div className="mt-3 max-h-72 space-y-2 overflow-y-auto rounded-lg border border-line p-3">{availableGroups.map((group) => <label key={group.group_jid} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={addJids.includes(group.group_jid)} onChange={(event) => setAddJids((current) => event.target.checked ? [...current, group.group_jid] : current.filter((jid) => jid !== group.group_jid))} /><span>{group.nome || group.group_jid}</span></label>)}{!availableGroups.length ? <div className="py-5 text-center text-sm text-muted">Nenhum grupo disponível.</div> : null}</div><p className="mt-3 text-sm text-muted">{addJids.length} selecionado(s)</p></div><div className="flex justify-end gap-2 border-t border-line p-4"><ActionButton className="border border-line bg-white text-ink" onClick={() => setShowAdd(false)}>Cancelar</ActionButton><ActionButton disabled={!addJids.length || saving === "add"} onClick={addGroups}>{saving === "add" ? "Adicionando..." : "Adicionar selecionados"}</ActionButton></div></div></div> : null}
 
     <ConfirmModal open={Boolean(removeTarget)} title="Remover grupo?" confirmLabel="Remover da campanha" destructive loading={saving === "remove"} onCancel={() => setRemoveTarget(null)} onConfirm={removeGroup}>O grupo continuará existindo no WhatsApp e no sistema. Apenas o vínculo com esta campanha será removido.</ConfirmModal>
     <ConfirmModal open={Boolean(resetTarget)} title="Zerar redirecionamentos?" confirmLabel="Zerar contador" destructive onCancel={() => setResetTarget(null)} onConfirm={() => { if (!resetTarget) return; patch({ action: "reset_redirect_count", group_jid: resetTarget.group_jid }, "Contador zerado.").then(() => setResetTarget(null)).catch((error) => showMessage(error.message)); }}>Essa ação zera somente a métrica de redirecionamentos do Disparei. A quantidade real de participantes não será alterada.</ConfirmModal>

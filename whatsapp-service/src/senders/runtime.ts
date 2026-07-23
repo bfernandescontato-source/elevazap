@@ -1,6 +1,6 @@
 import { supabase } from "../supabase.js";
 import { createSupportSession, type SupportSession } from "../support/session.js";
-import { discoverParticipatingGroups } from "../groups/discovery.js";
+import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "../groups/discovery.js";
 import { syncGroupMetadata } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
 
@@ -85,23 +85,21 @@ export async function refreshSenderGroups(sessionName: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
   const groups = await discoverParticipatingGroups(sock);
-  const rows = await Promise.all(groups.map(async (group: any) => {
-    let foto_url = null;
-    try { foto_url = await sock.profilePictureUrl(group.id, "image"); } catch {}
-    return {
-      group_jid: group.id,
-      nome: group.subject,
-      qtd_membros: group.participants?.length || 0,
-      sou_admin: group.participants?.some((p: any) => p.id === sock.user?.id && ["admin", "superadmin"].includes(p.admin)),
-      foto_url,
-      updated_at: new Date().toISOString()
-    };
-  }));
+  const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group)));
   if (rows.length) {
     const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
     if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
   }
   return rows;
+}
+
+export async function resolveSenderGroupInvite(sessionName: string, inviteUrl: string) {
+  const sock = getSenderSock(sessionName);
+  if (!sock) throw new Error("Número de disparo desconectado.");
+  const row = await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl));
+  const { error } = await supabase.from("grupos").upsert(row, { onConflict: "group_jid" });
+  if (error) throw new Error(`Falha ao salvar o grupo: ${error.message}`);
+  return row;
 }
 
 export async function syncSenderGroups(sessionName: string, groupJids: string[]) {
