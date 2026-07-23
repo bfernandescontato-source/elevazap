@@ -19,10 +19,13 @@ function toRow(body: any) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const guard = await requireAdmin();
   if (guard) return guard;
-  const { data, error } = await supabaseAdmin().from("modelos_mensagem").select("*").order("created_at", { ascending: false });
+  const pastaId = new URL(request.url).searchParams.get("pasta_id");
+  let query = supabaseAdmin().from("modelos_mensagem").select("*").order("created_at", { ascending: false });
+  if (pastaId) query = query.eq("pasta_id", pastaId);
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || []);
 }

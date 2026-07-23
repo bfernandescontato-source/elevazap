@@ -36,7 +36,10 @@ export async function DELETE(request: NextRequest) {
   if (guard) return guard;
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
-  const { error } = await supabaseAdmin().from("modelo_pastas").delete().eq("id", id);
+  const sb = supabaseAdmin();
+  const { error: modelsError } = await sb.from("modelos_mensagem").delete().eq("pasta_id", id);
+  if (modelsError) return NextResponse.json({ error: modelsError.message }, { status: 500 });
+  const { error } = await sb.from("modelo_pastas").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
