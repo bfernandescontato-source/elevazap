@@ -16,6 +16,14 @@ export async function createWhatsAppRuntime() {
   let currentQr = "";
   let starting = false;
 
+  async function finishLogout() {
+    if (!sock) return;
+    await Promise.race([
+      sock.logout().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 4_000))
+    ]);
+  }
+
   async function start(fresh = false) {
     if (starting) return;
     starting = true;
@@ -51,7 +59,7 @@ export async function createWhatsAppRuntime() {
   }
 
   async function logout() {
-    await sock?.logout().catch(() => undefined);
+    await finishLogout();
     sock?.end(undefined);
     await auth.clearAuth();
     auth = await useSupabaseAuthState();
@@ -62,7 +70,7 @@ export async function createWhatsAppRuntime() {
   }
 
   async function restart() {
-    await sock?.logout().catch(() => undefined);
+    await finishLogout();
     sock?.end(undefined);
     starting = false;
     await start(true);

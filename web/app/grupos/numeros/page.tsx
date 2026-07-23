@@ -22,6 +22,13 @@ type PrincipalStatus = {
   display_name?: string;
 };
 
+async function responseData(response: Response) {
+  const text = await response.text();
+  if (!text) return {} as Record<string, any>;
+  try { return JSON.parse(text); }
+  catch { return {} as Record<string, any>; }
+}
+
 export default function NumerosPage() {
   const [senders, setSenders] = useState<Sender[]>([]);
   const [principal, setPrincipal] = useState<PrincipalStatus>({});
@@ -37,7 +44,7 @@ export default function NumerosPage() {
       fetch("/api/whatsapp/status", { cache: "no-store" }),
       fetch("/api/whatsapp/qr", { cache: "no-store" })
     ]);
-    const [data, status, qr] = await Promise.all([response.json(), statusResponse.json(), qrResponse.json()]);
+    const [data, status, qr] = await Promise.all([responseData(response), responseData(statusResponse), responseData(qrResponse)]);
     if (!response.ok) throw new Error(data.error || "Falha ao carregar números.");
     setSenders(data.senders || []);
     setPrincipal({ ...status, qr: qr.qr || "" });
@@ -53,7 +60,7 @@ export default function NumerosPage() {
     setActionId("new");
     try {
       const response = await fetch("/api/whatsapp/senders", { method: "POST", body: JSON.stringify({ label }) });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error(data.error || "Falha ao criar número.");
       setLabel("");
       setToast("Número criado. Escaneie o QR Code para conectar.");
@@ -67,8 +74,8 @@ export default function NumerosPage() {
     setActionId(`${sender.id}:${action}`);
     try {
       const response = await fetch(`/api/whatsapp/senders/${sender.id}/${action}`, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Falha ao atualizar número.");
+      const data = await responseData(response);
+      if (!response.ok) throw new Error(data.error || `Falha ao atualizar número (${response.status}).`);
       setToast(action === "refresh-groups" ? "Grupos atualizados." : action === "disconnect" ? "Número desconectado." : "Conexão iniciada. Escaneie o QR Code.");
       await load();
     } finally {
@@ -81,7 +88,7 @@ export default function NumerosPage() {
     setActionId(`${deleteTarget.id}:delete`);
     try {
       const response = await fetch(`/api/whatsapp/senders/${deleteTarget.id}`, { method: "DELETE" });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error(data.error || "Falha ao excluir número.");
       setDeleteTarget(null);
       setToast("Número excluído da conta.");
@@ -98,8 +105,8 @@ export default function NumerosPage() {
     try {
       const route = action === "restart" ? "/api/whatsapp/restart" : action === "logout" ? "/api/whatsapp/logout" : "/api/whatsapp/groups/refresh";
       const response = await fetch(route, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Falha ao atualizar número principal.");
+      const data = await responseData(response);
+      if (!response.ok) throw new Error(data.error || `Falha ao gerar o QR Code (${response.status}). Tente novamente em alguns segundos.`);
       setToast(action === "restart" ? "Novo QR Code solicitado." : action === "logout" ? "Número principal desconectado." : "Grupos atualizados.");
       window.setTimeout(() => load().catch(() => undefined), 800);
     } finally {

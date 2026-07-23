@@ -37,6 +37,11 @@ export async function bootSenderSessions() {
 export async function startSenderSessionByName(sessionName: string) {
   const { data: sender } = await supabase.from("whatsapp_senders").select("*").eq("session_name", sessionName).maybeSingle();
   if (!sender) throw new Error("Número não encontrado.");
+  const current = senders.get(sessionName);
+  if (current) {
+    await current.session.logout();
+    senders.delete(sessionName);
+  }
   return startSender(sender);
 }
 

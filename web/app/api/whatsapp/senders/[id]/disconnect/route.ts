@@ -8,5 +8,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (guard) return guard;
   const { data: sender } = await supabaseAdmin().from("whatsapp_senders").select("*").eq("id", params.id).maybeSingle();
   if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
-  return NextResponse.json(await callWhatsappService(`/senders/${sender.session_name}/disconnect`, { method: "POST" }));
+  try {
+    return NextResponse.json(await callWhatsappService(`/senders/${sender.session_name}/disconnect`, { method: "POST" }));
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || "Não foi possível desconectar este número." }, { status: 503 });
+  }
 }
