@@ -143,7 +143,7 @@ export default function NumerosPage() {
     </div>}
 
     <ConfirmModal open={Boolean(deleteTarget)} title="Excluir número?" onCancel={() => setDeleteTarget(null)} onConfirm={deleteSender} confirmLabel="Excluir número" loading={actionId.endsWith(":delete")} destructive>
-      Tem certeza de que deseja excluir este número? Ele será desconectado da conta e poderá deixar de enviar mensagens ou acessar os grupos vinculados. Disparos pendentes impedem a exclusão até serem concluídos ou cancelados.
+      Tem certeza de que deseja excluir este número? Ele será desconectado, removido das campanhas e os disparos ainda pendentes serão cancelados. O histórico dos envios já realizados será preservado.
     </ConfirmModal>
     <Toast message={toast} />
   </AppShell>;
