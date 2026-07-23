@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { createSupportSession, type SupportSession } from "../support/session.js";
+import { discoverParticipatingGroups } from "../groups/discovery.js";
 import { syncGroupMetadata } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
 
@@ -83,8 +84,8 @@ export function getFirstConnectedSenderSock() {
 export async function refreshSenderGroups(sessionName: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
-  const groups = await sock.groupFetchAllParticipating();
-  const rows = await Promise.all(Object.values(groups).map(async (group: any) => {
+  const groups = await discoverParticipatingGroups(sock);
+  const rows = await Promise.all(groups.map(async (group: any) => {
     let foto_url = null;
     try { foto_url = await sock.profilePictureUrl(group.id, "image"); } catch {}
     return {
@@ -96,7 +97,10 @@ export async function refreshSenderGroups(sessionName: string) {
       updated_at: new Date().toISOString()
     };
   }));
-  if (rows.length) await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+  if (rows.length) {
+    const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+    if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
+  }
   return rows;
 }
 

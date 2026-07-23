@@ -4,6 +4,7 @@ import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { supabase } from "./supabase.js";
 import { useSupabaseAuthState } from "./auth/supabase-auth-state.js";
+import { discoverParticipatingGroups } from "./groups/discovery.js";
 import { syncGroupMetadata } from "./groups/sync.js";
 import { scheduleParticipantEventSync } from "./groups/events.js";
 
@@ -78,8 +79,8 @@ export async function createWhatsAppRuntime() {
 
   async function refreshGroups() {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
-    const groups = await sock.groupFetchAllParticipating();
-    const rows = await Promise.all(Object.values(groups).map(async (group: any) => {
+    const groups = await discoverParticipatingGroups(sock);
+    const rows = await Promise.all(groups.map(async (group: any) => {
       let foto_url = null;
       try { foto_url = await sock.profilePictureUrl(group.id, "image"); } catch {}
       return {
@@ -91,7 +92,10 @@ export async function createWhatsAppRuntime() {
         updated_at: new Date().toISOString()
       };
     }));
-    if (rows.length) await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+    if (rows.length) {
+      const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+      if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
+    }
     return rows;
   }
 
