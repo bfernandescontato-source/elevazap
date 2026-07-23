@@ -1,33 +1,66 @@
 "use client";
 
-import { AlertCard, AppShell, DataTable, ErrorState, LoadingState, StatCard, StatusBadge } from "@/components/ui";
-import { Inbox, Send, Users } from "lucide-react";
+import Link from "next/link";
+import { AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { useEffect, useState } from "react";
 
+type DashboardData = {
+  connection: { connected: boolean; count: number; phone: string };
+  counts: { campaigns: number; groups: number };
+};
+
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { fetch("/api/dashboard/summary").then((r) => r.json()).then(setData).catch((e) => setError(e.message)); }, []);
-  return (
-    <AppShell title="Dashboard" subtitle="Saúde da operação, fila e últimos eventos">
-      {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6">
-        {data.service?.status !== "connected" ? <AlertCard title="WhatsApp desconectado">Conecte o número para liberar novos envios.</AlertCard> : null}
-        {data.counts?.welcome_uncertain > 0 ? <AlertCard tone="critical" title="Boas-vindas incertas">{data.counts.welcome_uncertain} item(ns) precisam de decisão manual.</AlertCard> : null}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="WhatsApp" value={<StatusBadge status={data.service?.status} />} icon={<Send size={18} />} />
-          <StatCard label="Pendentes" value={data.counts?.pending || 0} />
-          <StatCard label="Incertos" value={data.counts?.uncertain || 0} icon={<Inbox size={18} />} />
-          <StatCard label="Grupos" value={data.counts?.groups || 0} icon={<Users size={18} />} />
-          <StatCard label="Enfileirados" value={data.counts?.queued || 0} />
-          <StatCard label="Processando" value={data.counts?.processing || 0} />
-          <StatCard label="Erros" value={data.counts?.errors || 0} />
-          <StatCard label="Enviados hoje" value={data.counts?.sent_today || 0} />
-        </div>
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section><h2 className="mb-3 font-semibold">Últimos envios</h2><DataTable columns={["Nome", "Produto", "Status"]} rows={(data.latestEnvios || []).map((e: any) => [e.nome, e.produto, <StatusBadge key={e.id} status={e.status} />])} /></section>
-          <section><h2 className="mb-3 font-semibold">Últimos lotes</h2><DataTable columns={["Título", "Status", "Total"]} rows={(data.latestLotes || []).map((l: any) => [l.titulo, <StatusBadge key={l.id} status={l.status} />, l.total])} /></section>
-        </div>
+
+  useEffect(() => {
+    fetch("/api/dashboard/summary", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "Não foi possível carregar o início.");
+        setData(body);
+      })
+      .catch((currentError) => setError(currentError.message));
+  }, []);
+
+  return <DashboardView data={data} error={error} />;
+}
+
+function DashboardView({ data, error = "" }: { data: DashboardData | null; error?: string }) {
+  const action = <Link href="/grupos?tab=disparo" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white transition hover:bg-zinc-800">Nova campanha</Link>;
+
+  return <AppShell title="Início" subtitle="Sua operação num olhar só" action={action} hideLogout>
+    {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6">
+      {data.connection.connected ? <div className="border-l-2 border-emerald-500 pl-3 text-sm font-medium text-emerald-700">
+        WhatsApp conectado{data.connection.phone ? ` · ${data.connection.phone}` : ""}
+      </div> : <section className="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="font-semibold text-red-800">WhatsApp desconectado</h2><p className="mt-1 text-sm text-red-700">Suas campanhas estão pausadas até reconectar.</p></div>
+        <Link href="/grupos/numeros#numero-principal" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
+      </section>}
+
+      {!data.connection.connected && data.counts.campaigns === 0 ? <Onboarding data={data} /> : <div className="grid gap-4 sm:grid-cols-3">
+        <Metric label="Números conectados" value={data.connection.count} />
+        <Metric label="Campanhas" value={data.counts.campaigns} />
+        <Metric label="Grupos" value={data.counts.groups} />
       </div>}
-    </AppShell>
-  );
+    </div>}
+  </AppShell>;
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-lg border border-line bg-white p-5"><div className="text-sm text-muted">{label}</div><div className="mt-2 text-3xl font-semibold text-ink">{value}</div></div>;
+}
+
+function Onboarding({ data }: { data: DashboardData }) {
+  const steps = [
+    { label: "Conectar WhatsApp", href: "/grupos/numeros#numero-principal", done: data.connection.connected },
+    { label: "Escolher grupos", href: "/grupos", done: data.counts.groups > 0 },
+    { label: "Criar primeira campanha", href: "/grupos?tab=disparo", done: data.counts.campaigns > 0 }
+  ];
+  return <ol className="divide-y divide-line rounded-lg border border-line bg-white">
+    {steps.map((step, index) => <li key={step.label}><Link href={step.href} className="flex items-center gap-3 px-4 py-4 text-sm font-medium transition hover:bg-wash">
+      <span className={`grid h-7 w-7 place-items-center rounded-full border text-xs ${step.done ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 text-muted"}`}>{step.done ? "✓" : index + 1}</span>
+      <span className={step.done ? "text-emerald-700" : "text-ink"}>{step.label}</span>
+    </Link></li>)}
+  </ol>;
 }

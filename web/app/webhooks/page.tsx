@@ -149,7 +149,7 @@ export default function WebhooksPage() {
     const response = await fetch("/api/webhooks/test", { method: "POST", body: JSON.stringify({ rule_id: form.id, event_type: testEvent, phone: testPhone }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Falha ao enviar teste.");
-    setToast("Teste colocado na fila.");
+    setToast("Teste preparado para envio.");
     setPreview(data.rendered || "");
     await loadEvents();
   }
@@ -190,7 +190,7 @@ export default function WebhooksPage() {
     </div> : null}
 
     {tab === "history" ? <div>
-      <div className="mb-4 grid gap-3 md:grid-cols-[220px_1fr]"><select className={inputClass()} value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)}><option value="">Todos</option><option value="queued">Na fila</option><option value="sent">Enviado</option><option value="success">Sucesso</option><option value="failed">Falhas</option><option value="ignored">Ignorados</option><option value="auth_error">Erro de autenticação</option><option value="duplicated">Duplicados</option></select><div /></div>
+      <div className="mb-4 grid gap-3 md:grid-cols-[220px_1fr]"><select className={inputClass()} value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)}><option value="">Todos</option><option value="queued">Aguardando envio</option><option value="sent">Enviado</option><option value="success">Sucesso</option><option value="failed">Falhas</option><option value="ignored">Ignorados</option><option value="auth_error">Erro de autenticação</option><option value="duplicated">Duplicados</option></select><div /></div>
       <DataTable columns={["Evento", "Regra", "Status", "HTTP", "Data", "Detalhes"]} rows={events.map((event) => [
         eventLabels[event.event_type] || event.event_type || "-",
         event.webhook_rules?.name || "-",

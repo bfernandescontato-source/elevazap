@@ -12,7 +12,6 @@ import {
   Clock,
   Cog,
   FileText,
-  HelpCircle,
   Inbox,
   Loader2,
   LogOut,
@@ -29,16 +28,13 @@ import {
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
 const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/dashboard", label: "Início", icon: BarChart3 },
+  { href: "/campanhas", label: "Campanhas", icon: Send },
   { href: "/grupos", label: "Grupos", icon: Users },
-  { href: "/lotes", label: "Lotes", icon: Clipboard },
-  { href: "/envios", label: "Envios", icon: Send },
-  { href: "/envios-grupo", label: "Envios em grupo", icon: Inbox },
-  { href: "/incertos", label: "Incertos", icon: HelpCircle },
   { href: "/configuracoes", label: "Configurações", icon: Cog }
 ];
 
-export function AppShell({ children, title, subtitle }: { children: ReactNode; title: string; subtitle?: string }) {
+export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
   return (
     <div className="min-h-screen lg:flex">
@@ -48,7 +44,7 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
         </div>
         <nav className="space-y-1">
           {nav.map((item) => {
-            const active = pathname === item.href;
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}>
@@ -66,15 +62,18 @@ export function AppShell({ children, title, subtitle }: { children: ReactNode; t
               <h1 className="text-xl font-semibold tracking-normal text-ink">{title}</h1>
               {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
             </div>
-            <form action="/api/auth/logout" method="post">
-              <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
-                <LogOut size={16} /> <span className="hidden sm:inline">Sair</span>
-              </button>
-            </form>
+            <div className="flex shrink-0 items-center gap-2">
+              {action}
+              {!hideLogout ? <form action="/api/auth/logout" method="post">
+                <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
+                  <LogOut size={16} /> <span className="hidden sm:inline">Sair</span>
+                </button>
+              </form> : null}
+            </div>
           </div>
           <nav className="mt-4 flex gap-2 overflow-x-auto lg:hidden">
             {nav.map((item) => {
-              const active = pathname === item.href;
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
               return (
                 <Link key={item.href} href={item.href} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-black text-white" : "border border-line bg-panel text-muted"}`}>
@@ -104,7 +103,19 @@ export function StatusBadge({ status }: { status?: string | null }) {
     enfileirado: "bg-indigo-50 text-indigo-700 border-indigo-200",
     pendente: "bg-zinc-50 text-zinc-700 border-zinc-200"
   } as Record<string, string>;
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${cls[s] || cls.pendente}`}>{s}</span>;
+  const labels: Record<string, string> = {
+    connected: "Conectado",
+    disconnected: "Desconectado",
+    sucesso: "Enviado",
+    erro: "Falhou",
+    incerto: "Não confirmado",
+    pausado: "Pausada",
+    cancelado: "Cancelada",
+    processando: "Enviando",
+    enfileirado: "Aguardando",
+    pendente: "Aguardando"
+  };
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${cls[s] || cls.pendente}`}>{labels[s] || s}</span>;
 }
 
 export function PriorityBadge({ priority }: { priority: "alta" | "normal" }) {
@@ -179,7 +190,7 @@ export function ConnectionStatusCard({ status, qr }: { status?: string; qr?: str
 }
 
 export function UncertainStatusCard({ critical, item, onAction }: { critical?: boolean; item: any; onAction?: (action: string, item: any) => void }) {
-  return <div className={`rounded-lg border p-4 ${critical ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-medium text-ink">{item.nome || item.nome_grupo || "Item incerto"}</div><div className="mt-1 text-sm text-muted">{item.erro || "Aguardando resolução manual."}</div></div><div className="flex gap-2"><button className="rounded-lg bg-accent px-3 py-2 text-sm text-white" onClick={() => onAction?.("success", item)}><Check size={15} /></button><button className="rounded-lg bg-coral px-3 py-2 text-sm text-white" onClick={() => onAction?.("error", item)}><X size={15} /></button><button className="rounded-lg border border-line bg-panel px-3 py-2 text-sm" onClick={() => onAction?.("retry", item)}><RefreshCw size={15} /></button></div></div></div>;
+  return <div className={`rounded-lg border p-4 ${critical ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-medium text-ink">{item.nome || item.nome_grupo || "Envio não confirmado"}</div><div className="mt-1 text-sm text-muted">{item.erro || "Aguardando revisão manual."}</div></div><div className="flex gap-2"><button className="rounded-lg bg-accent px-3 py-2 text-sm text-white" onClick={() => onAction?.("success", item)}><Check size={15} /></button><button className="rounded-lg bg-coral px-3 py-2 text-sm text-white" onClick={() => onAction?.("error", item)}><X size={15} /></button><button className="rounded-lg border border-line bg-panel px-3 py-2 text-sm" onClick={() => onAction?.("retry", item)}><RefreshCw size={15} /></button></div></div></div>;
 }
 
 export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) {

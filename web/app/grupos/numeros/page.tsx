@@ -121,7 +121,7 @@ export default function NumerosPage() {
     </section>
 
     {loading ? <LoadingState /> : <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-      <article className="rounded-lg border border-zinc-400 bg-panel p-5 shadow-soft">
+      <article id="numero-principal" className="scroll-mt-28 rounded-lg border border-zinc-400 bg-panel p-5 shadow-soft">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} /> <span className="truncate">Número principal</span></div><div className="mt-1 text-sm text-muted">{principal.phone_number || "Número aguardando conexão"}</div></div><StatusBadge status={principal.status} /></div>
         <dl className="mt-5 grid gap-3 border-y border-line py-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted">Nome no WhatsApp</dt><dd className="text-right font-medium">{principal.display_name || "Não disponível"}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted">Uso</dt><dd className="text-right">Padrão para envios sem número selecionado</dd></div></dl>
         {principal.qr ? <div className="mt-4"><p className="mb-3 text-center text-sm text-muted">Escaneie com o WhatsApp deste número</p><div className="flex justify-center rounded-lg bg-wash p-4"><img src={principal.qr} alt="QR Code do número principal" className="h-56 w-56 rounded-lg bg-white p-2" /></div></div> : null}

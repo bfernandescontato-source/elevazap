@@ -6,6 +6,7 @@ const protectedPaths = [
   "/conexao",
   "/mensagem",
   "/grupos",
+  "/campanhas",
   "/lotes",
   "/envios",
   "/envios-grupo",
@@ -29,5 +30,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/configuracoes/:path*"]
+  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/campanhas/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/configuracoes/:path*"]
 };

@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       conditions_result: { authPassed: true, eventMatched: true, productMatched: true, offerMatched: true, templateFound: true, phoneFound: true, whatsappAccountConnected: true, test: true },
       http_status: 200,
       status: "queued",
-      message: "Teste colocado na fila.",
+      message: "Teste preparado para envio.",
       template_used: template.template_body,
       rendered_message: rendered,
       recipient_phone: phone,

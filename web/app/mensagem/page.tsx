@@ -132,8 +132,8 @@ export default function MensagemPage() {
   async function test() {
     const response = await fetch("/api/mensagem/test", { method: "POST" });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao enfileirar teste.");
-    setToast("Teste enfileirado.");
+    if (!response.ok) throw new Error(data.error || "Não foi possível preparar o teste.");
+    setToast("Teste preparado para envio.");
   }
 
   async function loadBulkFile(file: File) {
@@ -151,8 +151,8 @@ export default function MensagemPage() {
         body: JSON.stringify({ mensagem: message, clientes: validBulkClients, whatsapp_sender_id: selectedSenderId || undefined })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Falha ao enfileirar disparos.");
-      setToast(`${data.enfileirados} cliente(s) colocados na fila. Acompanhe a entrega na tela Envios. ${data.erros || 0} linha(s) com erro.`);
+      if (!response.ok) throw new Error(data.error || "Não foi possível preparar os disparos.");
+      setToast(`${data.enfileirados} cliente(s) preparados para envio. Acompanhe em Campanhas. ${data.erros || 0} linha(s) com erro.`);
     } finally {
       setBulkLoading(false);
     }

@@ -67,6 +67,7 @@ export default function GruposPage() {
   const [addGroupsByCampaign, setAddGroupsByCampaign] = useState<Record<string, string[]>>({});
 
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [sendCampaignName, setSendCampaignName] = useState("");
   const [selectedSenderId, setSelectedSenderId] = useState("");
   const [campaignTarget, setCampaignTarget] = useState<CampaignTarget>("all");
   const [singleGroup, setSingleGroup] = useState("");
@@ -113,7 +114,10 @@ export default function GruposPage() {
     await Promise.all([loadGroups(), loadCampaigns(), loadModelos(), loadSenders()]);
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "disparo") setTab("disparo");
+    loadAll();
+  }, []);
 
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId), [campaigns, selectedCampaignId]);
   const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);
@@ -137,11 +141,11 @@ export default function GruposPage() {
       body: JSON.stringify({ nome: campaignName, group_jids: newCampaignGroups })
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao criar campanha.");
+    if (!response.ok) throw new Error(data.error || "Não foi possível criar a lista.");
     setCampaignName("");
     setNewCampaignGroups([]);
     setCreateCampaignOpen(false);
-    setToast("Campanha criada.");
+    setToast("Lista criada.");
     await loadCampaigns();
   }
 
@@ -151,7 +155,7 @@ export default function GruposPage() {
       body: JSON.stringify({ id: campaign.id, group_jids: Array.from(new Set(groupJids)) })
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao atualizar campanha.");
+    if (!response.ok) throw new Error(data.error || "Não foi possível atualizar a lista.");
     await loadCampaigns();
   }
 
@@ -173,15 +177,15 @@ export default function GruposPage() {
 
   async function removeGroupFromCampaign(campaign: Campanha, jid: string) {
     await updateCampaignGroups(campaign, campaign.grupos.map((group) => group.group_jid).filter((item) => item !== jid));
-    setToast("Grupo removido da campanha.");
+    setToast("Grupo removido da lista.");
   }
 
   async function deleteCampaign(campaignId: string) {
     const response = await fetch("/api/campanhas", { method: "DELETE", body: JSON.stringify({ id: campaignId }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao excluir campanha.");
+    if (!response.ok) throw new Error(data.error || "Não foi possível excluir a lista.");
     if (selectedCampaignId === campaignId) applyCampaign("");
-    setToast("Campanha excluída.");
+    setToast("Lista excluída.");
     await loadCampaigns();
   }
 
@@ -228,6 +232,8 @@ export default function GruposPage() {
   }
 
   async function createLote() {
+    const campaignTitle = sendCampaignName.trim();
+    if (!campaignTitle) throw new Error("Informe o nome da campanha.");
     const selectedModelo = modelos.find((modelo) => modelo.id === selectedModeloId);
     const activeTipo = messageSource === "modelo" && selectedModelo ? selectedModelo.tipo : tipo;
     const activeText = messageSource === "modelo" && selectedModelo ? selectedModelo.texto || "" : texto;
@@ -249,7 +255,7 @@ export default function GruposPage() {
     const response = await fetch("/api/lotes/create", {
       method: "POST",
       body: JSON.stringify({
-        titulo: `Lote ${new Date().toLocaleString()}`,
+        titulo: campaignTitle,
         group_jids: selected,
         whatsapp_sender_id: selectedSenderId || undefined,
         tipo: activeTipo,
@@ -261,14 +267,15 @@ export default function GruposPage() {
       })
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Falha ao criar lote.");
+    if (!response.ok) throw new Error(data.error || "Não foi possível criar a campanha.");
     setConfirm(false);
-    setToast("Lote criado.");
+    setSendCampaignName("");
+    setToast("Campanha criada.");
   }
 
-  return <AppShell title="Grupos" subtitle="Campanhas e disparos para grupos próprios">
+  return <AppShell title="Grupos" subtitle="Organize listas de grupos e crie campanhas">
     <GroupNav showRoot={false}>
-      <button onClick={() => setTab("campanhas")} className={`inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition ${tab === "campanhas" ? "bg-black text-white" : "border border-line bg-white text-muted hover:border-zinc-400 hover:text-ink"}`}>Grupos e campanhas</button>
+      <button onClick={() => setTab("campanhas")} className={`inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition ${tab === "campanhas" ? "bg-black text-white" : "border border-line bg-white text-muted hover:border-zinc-400 hover:text-ink"}`}>Listas de grupos</button>
       <button onClick={() => setTab("disparo")} className={`inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-medium transition ${tab === "disparo" ? "bg-black text-white" : "border border-line bg-white text-muted hover:border-zinc-400 hover:text-ink"}`}>Disparo de Mensagens</button>
     </GroupNav>
 
@@ -280,7 +287,7 @@ export default function GruposPage() {
             <input value={campaignGroupQuery} onChange={(e) => setCampaignGroupQuery(e.target.value)} placeholder="Buscar por nome ou JID" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" />
           </div>
           <ActionButton icon={<RefreshCw size={16} />} className="border border-line bg-panel text-ink" onClick={() => refreshGroupsFromWhatsApp().catch(showError)}>Atualizar grupos</ActionButton>
-          <ActionButton icon={<FolderPlus size={16} />} disabled={!newCampaignGroups.length} onClick={() => setCreateCampaignOpen(true)}>Criar nova campanha</ActionButton>
+          <ActionButton icon={<FolderPlus size={16} />} disabled={!newCampaignGroups.length} onClick={() => setCreateCampaignOpen(true)}>Criar lista</ActionButton>
         </div>
         <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-line p-3">
           {campaignFilteredGroups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 py-1 text-sm">
@@ -289,7 +296,7 @@ export default function GruposPage() {
           </label>)}
           {!campaignFilteredGroups.length ? <div className="py-4 text-center text-sm text-muted">Nenhum grupo encontrado.</div> : null}
         </div>
-        <div className="mt-3 text-sm text-muted">{newCampaignGroups.length} grupo(s) selecionado(s) para a nova campanha.</div>
+        <div className="mt-3 text-sm text-muted">{newCampaignGroups.length} grupo(s) selecionado(s) para a nova lista.</div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2">
@@ -302,7 +309,7 @@ export default function GruposPage() {
                 <h2 className="font-semibold text-ink">{campaign.nome}</h2>
                 <div className="text-sm text-muted">{campaign.grupos.length} grupo(s)</div>
               </div>
-              <button title="Excluir campanha" className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => deleteCampaign(campaign.id).catch(showError)}><Trash2 size={16} /></button>
+              <button title="Excluir lista" className="rounded-lg p-1 text-muted hover:bg-wash hover:text-ink" onClick={() => deleteCampaign(campaign.id).catch(showError)}><Trash2 size={16} /></button>
             </div>
             <div className="space-y-2">
               {campaign.grupos.length ? campaign.grupos.map((group) => <div key={group.group_jid} className="flex items-start justify-between gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
@@ -320,27 +327,30 @@ export default function GruposPage() {
                   <input type="checkbox" className="mt-1" checked={addSelection.includes(group.group_jid)} onChange={(e) => toggleGroupToAdd(campaign.id, group.group_jid, e.target.checked)} />
                   <span>{group.nome || group.group_jid}</span>
                 </label>)}
-                {!availableGroups.length ? <div className="text-sm text-muted">Todos os grupos já estão nesta campanha.</div> : null}
+                {!availableGroups.length ? <div className="text-sm text-muted">Todos os grupos já estão nesta lista.</div> : null}
               </div>
               <button className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-white disabled:opacity-50" disabled={!addSelection.length} onClick={() => addGroupsToCampaign(campaign).catch(showError)}><Plus size={16} />Adicionar selecionados</button>
             </div>
           </section>;
         })}
-        {!campaigns.length ? <div className="w-full rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Crie a primeira campanha para organizar seus grupos.</div> : null}
+        {!campaigns.length ? <div className="w-full rounded-lg border border-dashed border-line bg-panel p-8 text-center text-muted">Crie a primeira lista para organizar seus grupos.</div> : null}
       </div>
     </div> : null}
 
     {tab === "disparo" ? <div className="max-w-4xl">
       <section className="space-y-4">
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-          <h2 className="font-semibold">1. Escolher campanha</h2>
-          <select value={selectedCampaignId} onChange={(e) => applyCampaign(e.target.value)} className="focus-ring mt-4 h-11 w-full rounded-lg border border-line px-3 text-sm">
-            <option value="">Selecionar campanha</option>
+          <h2 className="font-semibold">1. Nomear campanha e escolher grupos</h2>
+          <label className="mt-4 block text-sm font-medium text-ink">Nome da campanha</label>
+          <input required value={sendCampaignName} onChange={(e) => setSendCampaignName(e.target.value)} placeholder="Ex: Promoção de sexta" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" />
+          <label className="mt-4 block text-sm font-medium text-ink">Lista de grupos</label>
+          <select value={selectedCampaignId} onChange={(e) => applyCampaign(e.target.value)} className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm">
+            <option value="">Selecionar lista</option>
             {campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.nome} ({campaign.grupos.length})</option>)}
           </select>
           {selectedCampaign ? <div className="mt-4 space-y-3">
             <select value={campaignTarget} onChange={(e) => changeCampaignTarget(e.target.value as CampaignTarget)} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
-              <option value="all">Todos os grupos da campanha</option>
+              <option value="all">Todos os grupos da lista</option>
               <option value="single">Um grupo específico</option>
               <option value="manual">Selecionar alguns grupos</option>
             </select>
@@ -394,19 +404,19 @@ export default function GruposPage() {
               <span className="block text-muted">Quando ativado, cada grupo do disparo recebe a mensagem mencionando seus membros.</span>
             </span>
           </label>
-          <ActionButton icon={<Send size={16} />} disabled={!selected.length || (messageSource === "modelo" && !selectedModeloId)} onClick={() => setConfirm(true)} className="mt-4 w-full bg-accent text-white">Enviar ou agendar</ActionButton>
+          <ActionButton icon={<Send size={16} />} disabled={!sendCampaignName.trim() || !selected.length || (messageSource === "modelo" && !selectedModeloId)} onClick={() => setConfirm(true)} className="mt-4 w-full bg-accent text-white">Criar campanha</ActionButton>
         </div>
       </section>
 
     </div> : null}
 
-    <ConfirmModal open={createCampaignOpen} title="Criar campanha" onCancel={() => setCreateCampaignOpen(false)} onConfirm={() => createCampaign().catch(showError)}>
+    <ConfirmModal open={createCampaignOpen} title="Criar lista" onCancel={() => setCreateCampaignOpen(false)} onConfirm={() => createCampaign().catch(showError)}>
       <div className="space-y-3">
-        <div>Informe o nome da campanha para os {newCampaignGroups.length} grupo(s) selecionado(s).</div>
-        <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Nome da campanha" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" />
+        <div>Informe o nome da lista para os {newCampaignGroups.length} grupo(s) selecionado(s).</div>
+        <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Nome da lista" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" />
       </div>
     </ConfirmModal>
-    <ConfirmModal open={confirm} title="Confirmar disparo" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}>Serão criados {selected.length} itens para a campanha selecionada.</ConfirmModal>
+    <ConfirmModal open={confirm} title="Confirmar campanha" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}>A campanha “{sendCampaignName}” enviará a mensagem para {selected.length} grupo(s).</ConfirmModal>
     <Toast message={toast} />
   </AppShell>;
 }

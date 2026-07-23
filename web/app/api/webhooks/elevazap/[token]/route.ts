@@ -155,7 +155,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
   if (error) return fail("failed", error.message);
   await sb.from("webhook_events").update({
     status: "queued",
-    message: "Disparo colocado na fila.",
+    message: "Disparo preparado para envio.",
     rendered_message: rendered,
     template_used: template.template_body,
     recipient_phone: phone,
