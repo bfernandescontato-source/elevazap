@@ -55,6 +55,15 @@ const messageKindLabels: Record<MessageKind, string> = {
   documento: "Documento"
 };
 
+function formatScheduledInput(value: string) {
+  if (!value) return "Envio imediato";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo"
+  }).format(new Date(value));
+}
+
 export default function GruposPage({ searchParams }: { searchParams?: { tab?: string } }) {
   const initialTab: Tab = searchParams?.tab === "disparo" ? "disparo" : "campanhas";
   const [tab] = useState<Tab>(initialTab);
@@ -453,7 +462,11 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
             </select>
           </div>}
 
-          <div className="mt-3"><DateTimePicker value={scheduled} onChange={(e) => setScheduled(e.target.value)} /></div>
+          <div className="mt-4">
+            <label className="text-sm font-medium text-ink">Data e horário do disparo</label>
+            <DateTimePicker value={scheduled} onChange={(e) => setScheduled(e.target.value)} className="focus-ring mt-1 h-11 w-full rounded-lg border border-line bg-panel px-3 text-sm" />
+            <div className="mt-2 text-sm text-muted">{scheduled ? `Programado para ${formatScheduledInput(scheduled)} (horário de Brasília).` : "Deixe vazio para enviar imediatamente."}</div>
+          </div>
           <label className="mt-3 flex items-start gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
             <input type="checkbox" className="mt-1" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} />
             <span>
@@ -475,7 +488,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
         <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="Ex: Promoção de sexta" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" />
       </div>
     </ConfirmModal>
-    <ConfirmModal open={confirm} title="Confirmar disparo" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}>A mensagem será enviada para {selected.length} grupo(s) da campanha “{selectedCampaign?.nome}”.</ConfirmModal>
+    <ConfirmModal open={confirm} title="Confirmar disparo" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}><div className="space-y-3"><p>A mensagem será enviada para {selected.length} grupo(s) da campanha “{selectedCampaign?.nome}”.</p><div className="rounded-lg bg-wash p-3"><div className="text-xs font-medium uppercase text-muted">Data e horário do disparo</div><div className="mt-1 font-semibold text-ink">{scheduled ? `${formatScheduledInput(scheduled)} (horário de Brasília)` : "Envio imediato"}</div></div></div></ConfirmModal>
     <Toast message={toast} />
   </AppShell>;
 }
