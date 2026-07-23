@@ -4,6 +4,8 @@ import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { supabase } from "./supabase.js";
 import { useSupabaseAuthState } from "./auth/supabase-auth-state.js";
+import { syncGroupMetadata } from "./groups/sync.js";
+import { scheduleParticipantEventSync } from "./groups/events.js";
 
 export type WhatsAppRuntime = Awaited<ReturnType<typeof createWhatsAppRuntime>>;
 
@@ -33,6 +35,7 @@ export async function createWhatsAppRuntime() {
     });
 
     sock.ev.on("creds.update", auth.saveCreds);
+    sock.ev.on("group-participants.update", (update: any) => scheduleParticipantEventSync(null, update, sock));
     sock.ev.on("connection.update", async (update: any) => {
       if (update.qr) currentQr = await qrcode.toDataURL(update.qr);
       if (update.connection === "open") { status = "connected"; currentQr = ""; }
@@ -84,11 +87,17 @@ export async function createWhatsAppRuntime() {
     return rows;
   }
 
+  async function syncGroups(groupJids: string[]) {
+    if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
+    return syncGroupMetadata(sock, groupJids);
+  }
+
   return {
     start,
     restart,
     logout,
     refreshGroups,
+    syncGroups,
     get sock() { return sock; },
     getStatus: () => status,
     getQr: () => currentQr

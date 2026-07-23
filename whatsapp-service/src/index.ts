@@ -6,6 +6,7 @@ import { createHttpServer } from "./routes/http.js";
 import { createWhatsAppRuntime } from "./whatsapp.js";
 import { bootSupportRuntime } from "./support/runtime.js";
 import { bootSenderSessions } from "./senders/runtime.js";
+import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
 
 async function main() {
   const lock = await acquireLock();
@@ -29,6 +30,8 @@ async function main() {
   // Boot support agent sessions (doesn't block the main queue)
   bootSupportRuntime().catch((e) => console.error("[support] boot error:", e));
   bootSenderSessions().catch((e) => console.error("[sender] boot error:", e));
+  setTimeout(() => syncAllCampaignGroups(runtime).catch((e) => console.error("[groups] initial sync error:", e)), 15_000);
+  setInterval(() => syncAllCampaignGroups(runtime).catch((e) => console.error("[groups] periodic sync error:", e)), 5 * 60_000);
 
   const app = createHttpServer(runtime, queue);
   app.listen(env.PORT, () => console.log(`whatsapp-service listening on ${env.PORT}`));

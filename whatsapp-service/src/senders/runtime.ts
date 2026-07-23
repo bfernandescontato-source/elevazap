@@ -1,5 +1,7 @@
 import { supabase } from "../supabase.js";
 import { createSupportSession, type SupportSession } from "../support/session.js";
+import { syncGroupMetadata } from "../groups/sync.js";
+import { scheduleParticipantEventSync } from "../groups/events.js";
 
 type SenderSession = {
   id: string;
@@ -14,7 +16,11 @@ async function startSender(sender: { id: string; session_name: string; label: st
   const current = senders.get(sender.session_name);
   if (current) return current;
 
-  const session = await createSupportSession(sender.session_name, async () => undefined);
+  const session = await createSupportSession(
+    sender.session_name,
+    async () => undefined,
+    async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock)
+  );
   const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session };
   senders.set(sender.session_name, managed);
   console.log(`[sender] Session started ${sender.label} (${sender.session_name})`);
@@ -87,4 +93,10 @@ export async function refreshSenderGroups(sessionName: string) {
   }));
   if (rows.length) await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
   return rows;
+}
+
+export async function syncSenderGroups(sessionName: string, groupJids: string[]) {
+  const sock = getSenderSock(sessionName);
+  if (!sock) throw new Error("Número de disparo desconectado.");
+  return syncGroupMetadata(sock, groupJids);
 }

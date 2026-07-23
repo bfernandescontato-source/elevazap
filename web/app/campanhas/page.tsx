@@ -58,9 +58,11 @@ export default function CampanhasPage() {
   }
 
   async function loadGroupsForSender(senderId: string) {
-    const url = senderId ? `/api/whatsapp/groups?sender_id=${senderId}` : "/api/whatsapp/groups";
-    const data = await fetch(url).then((r) => r.json());
-    setGroups(Array.isArray(data) ? data : []);
+    const url = senderId ? `/api/whatsapp/senders/${senderId}/refresh-groups` : "/api/whatsapp/groups/refresh";
+    const response = await fetch(url, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Não foi possível carregar os grupos deste número.");
+    setGroups(Array.isArray(data.groups) ? data.groups : []);
   }
 
   useEffect(() => {
@@ -90,18 +92,21 @@ export default function CampanhasPage() {
     setNewGroupQuery("");
     setNewGroupJids([]);
     setShowCreate(true);
-    await loadGroupsForSender("").catch(() => {});
+    await loadGroupsForSender("").catch((error) => showMsg(error.message));
     setTimeout(() => nameInputRef.current?.focus(), 60);
   }
 
   async function handleNewSenderChange(senderId: string) {
     setNewSenderId(senderId);
     setNewGroupJids([]);
-    await loadGroupsForSender(senderId).catch(() => {});
+    await loadGroupsForSender(senderId).catch((error) => {
+      setGroups([]);
+      showMsg(error.message);
+    });
   }
 
   async function handleCreate() {
-    if (!newName.trim()) return;
+    if (!newName.trim() || !newGroupJids.length) return;
     setCreating(true);
     try {
       const res = await fetch("/api/campanhas", {
@@ -292,7 +297,7 @@ export default function CampanhasPage() {
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="Ex.: Promoção de sexta"
-                  onKeyDown={(e) => { if (e.key === "Enter" && !creating && newName.trim()) handleCreate(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !creating && newName.trim() && newGroupJids.length) handleCreate(); }}
                   className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm"
                 />
               </div>
@@ -352,7 +357,7 @@ export default function CampanhasPage() {
                 Cancelar
               </ActionButton>
               <ActionButton
-                disabled={!newName.trim() || creating}
+                disabled={!newName.trim() || !newGroupJids.length || creating}
                 icon={creating ? <Loader2 size={16} className="animate-spin" /> : undefined}
                 onClick={handleCreate}
                 className="bg-black text-white hover:bg-zinc-800"

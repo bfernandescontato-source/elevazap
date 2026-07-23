@@ -14,8 +14,9 @@ export type SupportSession = {
 };
 
 type MessageHandler = (messages: any[]) => Promise<void>;
+type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 
-export async function createSupportSession(sessionId: string, onMessages: MessageHandler): Promise<SupportSession> {
+export async function createSupportSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler): Promise<SupportSession> {
   const auth = await useSupabaseAuthState(sessionId);
   let sock: any = null;
   let status: "connected" | "disconnected" | "connecting" = "connecting";
@@ -48,6 +49,12 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
     sock.ev.on("messages.upsert", async ({ messages }: { messages: any[] }) => {
       try { await onMessages(messages); } catch (e) { console.error(`[support:${sessionId}] message error`, e); }
     });
+
+    if (onGroupParticipants) {
+      sock.ev.on("group-participants.update", async (update: any) => {
+        try { await onGroupParticipants(update, sock); } catch (e) { console.error(`[support:${sessionId}] group update error`, e); }
+      });
+    }
   }
 
   await start();
