@@ -1,7 +1,6 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
-import { GroupNav } from "@/components/group-nav";
 import { Phone, Plus, QrCode, RefreshCw, Trash2, Unplug } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -112,7 +111,6 @@ export default function NumerosPage() {
   const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Não disponível";
 
   return <AppShell title="Números conectados" subtitle="Gerencie os telefones usados nos disparos do Disparei">
-    <GroupNav />
     <section className="mb-6 rounded-lg border border-line bg-panel p-5 shadow-soft">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
         <div className="flex-1"><label className="text-sm font-medium text-ink">Identificação do número</label><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Ex: Comercial ou Campanha semanal" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 text-sm" /></div>

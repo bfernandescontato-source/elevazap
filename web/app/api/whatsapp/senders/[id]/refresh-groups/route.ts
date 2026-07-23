@@ -6,7 +6,16 @@ import { callWhatsappService } from "@/lib/whatsapp-service";
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const guard = await guardAdminMutation(request, "whatsapp_senders");
   if (guard) return guard;
-  const { data: sender } = await supabaseAdmin().from("whatsapp_senders").select("*").eq("id", params.id).maybeSingle();
+  const sb = supabaseAdmin();
+  const { data: sender } = await sb.from("whatsapp_senders").select("*").eq("id", params.id).maybeSingle();
   if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
-  return NextResponse.json(await callWhatsappService(`/senders/${sender.session_name}/refresh-groups`, { method: "POST" }));
+  const result = await callWhatsappService(`/senders/${sender.session_name}/refresh-groups`, { method: "POST" });
+  const groups = result.groups || [];
+  const removed = await sb.from("whatsapp_sender_grupos").delete().eq("whatsapp_sender_id", sender.id);
+  if (removed.error) return NextResponse.json({ error: removed.error.message }, { status: 500 });
+  if (groups.length) {
+    const linked = await sb.from("whatsapp_sender_grupos").insert(groups.map((group: any) => ({ whatsapp_sender_id: sender.id, group_jid: group.group_jid, updated_at: new Date().toISOString() })));
+    if (linked.error) return NextResponse.json({ error: linked.error.message }, { status: 500 });
+  }
+  return NextResponse.json(result);
 }

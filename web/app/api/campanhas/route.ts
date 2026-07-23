@@ -10,12 +10,14 @@ export async function GET() {
   const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("campanhas")
-    .select("id,nome,created_at,campanha_grupos(group_jid,grupos(group_jid,nome,qtd_membros,sou_admin,foto_url))")
+    .select("id,nome,whatsapp_sender_id,created_at,whatsapp_senders(id,label,session_name),campanha_grupos(group_jid,grupos(group_jid,nome,qtd_membros,sou_admin,foto_url))")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const campanhas = (data || []).map((campanha: any) => ({
     id: campanha.id,
     nome: campanha.nome,
+    whatsapp_sender_id: campanha.whatsapp_sender_id,
+    numero: campanha.whatsapp_senders,
     created_at: campanha.created_at,
     grupos: (campanha.campanha_grupos || []).map((item: any) => item.grupos || { group_jid: item.group_jid })
   }));
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (groupError) return NextResponse.json({ error: groupError.message }, { status: 500 });
   if ((existingGroups || []).length !== groupJids.length) return NextResponse.json({ error: "Um ou mais grupos não foram encontrados." }, { status: 400 });
 
-  const { data: campanha, error } = await sb.from("campanhas").insert({ nome: body.nome }).select("*").single();
+  const { data: campanha, error } = await sb.from("campanhas").insert({ nome: body.nome, whatsapp_sender_id: body.whatsapp_sender_id || null }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rows = groupJids.map((group_jid) => ({ campanha_id: campanha.id, group_jid }));
   const linked = await sb.from("campanha_grupos").insert(rows);
@@ -54,6 +56,11 @@ export async function PATCH(request: NextRequest) {
 
   if (body.nome) {
     const { error } = await sb.from("campanhas").update({ nome: body.nome, updated_at: new Date().toISOString() }).eq("id", body.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (body.whatsapp_sender_id !== undefined) {
+    const { error } = await sb.from("campanhas").update({ whatsapp_sender_id: body.whatsapp_sender_id, updated_at: new Date().toISOString() }).eq("id", body.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

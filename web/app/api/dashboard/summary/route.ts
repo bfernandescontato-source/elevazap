@@ -15,7 +15,7 @@ export async function GET() {
 
   const sb = supabaseAdmin();
   const [campaigns, groups, senders, principal] = await Promise.all([
-    sb.from("envios_grupo_lotes").select("id", { count: "exact", head: true }),
+    sb.from("campanhas").select("id", { count: "exact", head: true }),
     sb.from("grupos").select("id", { count: "exact", head: true }),
     sb.from("whatsapp_senders").select("session_name"),
     callWhatsappService("/status").catch(() => ({ status: "disconnected", phone_number: "" }))

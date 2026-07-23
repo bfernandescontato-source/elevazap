@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
   const media = body.media;
   const { data: lote, error } = await sb.from("envios_grupo_lotes").insert({
     titulo: body.titulo,
+    campanha_id: body.campanha_id,
     whatsapp_sender_id: sender?.id,
     whatsapp_session_name: sender?.session_name,
     tipo: body.tipo,

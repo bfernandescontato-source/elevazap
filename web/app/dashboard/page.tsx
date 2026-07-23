@@ -27,7 +27,7 @@ export default function DashboardPage() {
 }
 
 function DashboardView({ data, error = "" }: { data: DashboardData | null; error?: string }) {
-  const action = <Link href="/grupos?tab=disparo" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white transition hover:bg-zinc-800">Nova campanha</Link>;
+  const action = <Link href="/campanhas" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white transition hover:bg-zinc-800">Nova campanha</Link>;
 
   return <AppShell title="Início" subtitle="Sua operação num olhar só" action={action} hideLogout>
     {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6">
@@ -54,8 +54,8 @@ function Metric({ label, value }: { label: string; value: number }) {
 function Onboarding({ data }: { data: DashboardData }) {
   const steps = [
     { label: "Conectar WhatsApp", href: "/grupos/numeros#numero-principal", done: data.connection.connected },
-    { label: "Escolher grupos", href: "/grupos", done: data.counts.groups > 0 },
-    { label: "Criar primeira campanha", href: "/grupos?tab=disparo", done: data.counts.campaigns > 0 }
+    { label: "Escolher grupos", href: "/campanhas", done: data.counts.groups > 0 },
+    { label: "Criar primeira campanha", href: "/campanhas", done: data.counts.campaigns > 0 }
   ];
   return <ol className="divide-y divide-line rounded-lg border border-line bg-white">
     {steps.map((step, index) => <li key={step.label}><Link href={step.href} className="flex items-center gap-3 px-4 py-4 text-sm font-medium transition hover:bg-wash">

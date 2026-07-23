@@ -6,61 +6,76 @@ import { BrandLogo } from "./brand-logo";
 import {
   AlertTriangle,
   BarChart3,
+  CircleAlert,
   Check,
   ChevronRight,
   Clipboard,
   Clock,
   Cog,
   FileText,
+  FolderOpen,
   Inbox,
+  Layers,
   Loader2,
   LogOut,
+  Menu,
+  Megaphone,
   Pause,
   Play,
   QrCode,
   RefreshCw,
   Search,
   Send,
+  Smartphone,
   Upload,
-  Users,
   X
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
-const nav = [
-  { href: "/dashboard", label: "Início", icon: BarChart3 },
-  { href: "/campanhas", label: "Campanhas", icon: Send },
-  { href: "/grupos", label: "Grupos", icon: Users },
-  { href: "/configuracoes", label: "Configurações", icon: Cog }
+const navSections = [
+  { label: "Principal", items: [
+    { href: "/dashboard", label: "Início", icon: BarChart3 },
+    { href: "/grupos/numeros", label: "Números", icon: Smartphone },
+    { href: "/campanhas", label: "Campanhas", icon: Megaphone },
+    { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
+    { href: "/disparos", label: "Disparos", icon: Send }
+  ] },
+  { label: "Dados", items: [
+    { href: "/envios", label: "Envios", icon: FileText },
+    { href: "/lotes", label: "Lotes", icon: Layers },
+    { href: "/incidentes", label: "Incidentes", icon: CircleAlert }
+  ] },
+  { label: "Conta", items: [
+    { href: "/configuracoes", label: "Configurações", icon: Cog }
+  ] }
 ];
 
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-72 border-r border-line bg-white px-4 py-5 lg:block">
+      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
         </div>
-        <nav className="space-y-1">
-          {nav.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const Icon = item.icon;
-            return (
-              <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}>
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        <SidebarNav pathname={pathname} />
       </aside>
+      {mobileMenuOpen ? <div className="fixed inset-0 z-40 bg-black/35 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
+        <aside className="h-full w-[min(84vw,320px)] overflow-y-auto bg-white px-4 py-5 shadow-soft" onClick={(event) => event.stopPropagation()}>
+          <div className="mb-7 flex items-center justify-between gap-3 px-2"><BrandLogo className="h-11 flex-1" imageClassName="w-[220px]" /><button type="button" title="Fechar menu" onClick={() => setMobileMenuOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-muted"><X size={18} /></button></div>
+          <SidebarNav pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
+        </aside>
+      </div> : null}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-4 py-4 backdrop-blur lg:px-8">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className="flex min-w-0 items-start gap-3">
+              <button type="button" title="Abrir menu" onClick={() => setMobileMenuOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-white text-ink lg:hidden"><Menu size={19} /></button>
+              <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-normal text-ink">{title}</h1>
               {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {action}
@@ -71,22 +86,25 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
               </form> : null}
             </div>
           </div>
-          <nav className="mt-4 flex gap-2 overflow-x-auto lg:hidden">
-            {nav.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              const Icon = item.icon;
-              return (
-                <Link key={item.href} href={item.href} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-black text-white" : "border border-line bg-panel text-muted"}`}>
-                  <Icon size={16} /> {item.label}
-                </Link>
-              );
-            })}
-          </nav>
         </header>
         <main className="flex-1 px-4 py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );
+}
+
+function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return <nav className="space-y-6" aria-label="Navegação principal">
+    {navSections.map((section) => <div key={section.label}>
+      <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
+      <div className="space-y-1">{section.items.map((item) => {
+        const match = "match" in item ? item.match : item.href;
+        const active = pathname === match || pathname.startsWith(`${match}/`);
+        const Icon = item.icon;
+        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span></Link>;
+      })}</div>
+    </div>)}
+  </nav>;
 }
 
 export function StatusBadge({ status }: { status?: string | null }) {

@@ -1,7 +1,6 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, EmptyState, FileDropzone, LoadingState, MediaPreview, SearchInput, Toast } from "@/components/ui";
-import { GroupNav } from "@/components/group-nav";
 import { FilePenLine, FolderPlus, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -149,8 +148,7 @@ export default function ModelosPage() {
 
   const fail = (error: any) => setToast(error?.message || "Algo deu errado.");
 
-  return <AppShell title="Modelos e Pastas" subtitle="Organize mensagens prontas para seus disparos">
-    <GroupNav />
+  return <AppShell title="Modelos" subtitle="Organize mensagens e pastas para seus disparos">
     {loading ? <LoadingState /> : <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
       <aside className="space-y-5">
         <section className="rounded-lg border border-line bg-panel p-5 shadow-soft">

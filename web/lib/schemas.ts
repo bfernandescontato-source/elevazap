@@ -60,6 +60,7 @@ export function validateMedia(kind: z.infer<typeof mediaKindSchema>, mimeType: s
 
 export const createLoteSchema = z.object({
   titulo: z.string().min(1).max(120),
+  campanha_id: z.string().uuid().optional(),
   group_jids: z.array(z.string()).min(1),
   whatsapp_sender_id: z.string().uuid().optional(),
   tipo: z.enum(["texto", "imagem", "video", "audio", "audio_voz", "documento"]),
@@ -78,13 +79,15 @@ export const createLoteSchema = z.object({
 
 export const createCampanhaSchema = z.object({
   nome: z.string().trim().min(1).max(120),
-  group_jids: z.array(z.string()).min(1)
+  group_jids: z.array(z.string()).min(1),
+  whatsapp_sender_id: z.string().uuid().nullable().optional()
 });
 
 export const updateCampanhaSchema = z.object({
   id: z.string().uuid(),
   nome: z.string().trim().min(1).max(120).optional(),
-  group_jids: z.array(z.string()).optional()
+  group_jids: z.array(z.string()).optional(),
+  whatsapp_sender_id: z.string().uuid().nullable().optional()
 });
 
 export const modeloMensagemTipoSchema = z.enum(["texto", "imagem", "video", "audio", "documento"]);
