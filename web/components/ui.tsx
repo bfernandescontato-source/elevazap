@@ -118,6 +118,7 @@ export function StatusBadge({ status }: { status?: string | null }) {
     pausado: "bg-slate-100 text-slate-700 border-slate-200",
     cancelado: "bg-slate-100 text-slate-700 border-slate-200",
     processando: "bg-blue-50 text-blue-700 border-blue-200",
+    programado: "bg-blue-50 text-blue-700 border-blue-200",
     enfileirado: "bg-indigo-50 text-indigo-700 border-indigo-200",
     pendente: "bg-zinc-50 text-zinc-700 border-zinc-200"
   } as Record<string, string>;
@@ -130,6 +131,7 @@ export function StatusBadge({ status }: { status?: string | null }) {
     pausado: "Pausada",
     cancelado: "Cancelada",
     processando: "Enviando",
+    programado: "Programado",
     enfileirado: "Aguardando",
     pendente: "Aguardando"
   };

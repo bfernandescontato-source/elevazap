@@ -1,6 +1,7 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, Toast } from "@/components/ui";
+import { ScheduledDispatches } from "@/components/scheduled-dispatches";
 import { FolderPlus, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -44,6 +45,7 @@ type Tab = "campanhas" | "disparo";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
+type DispatchSection = "novo" | "programados";
 
 const messageKindLabels: Record<MessageKind, string> = {
   texto: "Apenas texto",
@@ -85,6 +87,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   const [mentionAll, setMentionAll] = useState(false);
   const [scheduled, setScheduled] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [dispatchSection, setDispatchSection] = useState<DispatchSection>("novo");
 
   async function loadGroups(senderId = "") {
     const data = await fetch(`/api/whatsapp/groups${senderId ? `?sender_id=${senderId}` : ""}`).then((r) => r.json());
@@ -302,6 +305,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
     if (!response.ok) throw new Error(data.error || "Não foi possível criar a campanha.");
     setConfirm(false);
     setToast("Disparo criado.");
+    setDispatchSection("programados");
   }
 
   return <AppShell title={tab === "campanhas" ? "Campanhas" : "Disparos"} subtitle={tab === "campanhas" ? "Organize números e grupos por campanha" : "Escolha a campanha, a mensagem e o momento do envio"}>
@@ -388,7 +392,12 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       </div>
     </div> : null}
 
-    {tab === "disparo" ? <div className="max-w-4xl">
+    {tab === "disparo" ? <div className="mb-6 flex gap-2 border-b border-line pb-3" role="tablist" aria-label="Áreas de disparos">
+      <button type="button" role="tab" aria-selected={dispatchSection === "novo"} onClick={() => setDispatchSection("novo")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "novo" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Novo disparo</button>
+      <button type="button" role="tab" aria-selected={dispatchSection === "programados"} onClick={() => setDispatchSection("programados")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "programados" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Programados</button>
+    </div> : null}
+
+    {tab === "disparo" && dispatchSection === "novo" ? <div className="max-w-4xl">
       <section className="space-y-4">
         <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
           <h2 className="font-semibold">1. Escolher campanha</h2>
@@ -457,6 +466,8 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       </section>
 
     </div> : null}
+
+    {tab === "disparo" && dispatchSection === "programados" ? <ScheduledDispatches /> : null}
 
     <ConfirmModal open={createCampaignOpen} title="Criar campanha" onCancel={() => setCreateCampaignOpen(false)} onConfirm={() => createCampaign().catch(showError)}>
       <div className="space-y-3">
