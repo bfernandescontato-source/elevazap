@@ -1,92 +1,291 @@
 "use client";
 
+import { ActionButton, AppShell, ConfirmModal, LoadingState, Toast } from "@/components/ui";
+import { ChevronRight, Loader2, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { ActionButton, AppShell, DataTable, ErrorState, LoadingState, ProgressBar, StatusBadge, Toast, useApi } from "@/components/ui";
-import { ArrowLeft, Pause, Play, X } from "lucide-react";
-import { ReactNode, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type Tab = "resumo" | "envios" | "nao-confirmados";
+type Grupo = { group_jid: string; nome?: string; qtd_membros?: number };
+type Campanha = {
+  id: string;
+  nome: string;
+  whatsapp_sender_id?: string | null;
+  numero?: { id: string; label: string; session_name: string } | null;
+  grupos: Grupo[];
+};
+type Sender = { id: string; label: string; session_name: string; status?: string };
 
-export default function CampanhaDetalhePage({ params }: { params: { id: string } }) {
-  const { data: campaigns, loading } = useApi<any[]>("/api/lotes", []);
-  const { data: allSends } = useApi<any[]>("/api/envios-grupo", []);
-  const { data: senderData } = useApi<{ senders: any[] }>("/api/whatsapp/senders", { senders: [] });
-  const [tab, setTab] = useState<Tab>("resumo");
+export default function CampanhaDetailPage({ params }: { params: { id: string } }) {
+  const [campaign, setCampaign] = useState<Campanha | null>(null);
+  const [senders, setSenders] = useState<Sender[]>([]);
+  const [allGroups, setAllGroups] = useState<Grupo[]>([]);
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
-  const campaign = campaigns.find((item) => item.id === params.id);
-  const sends = useMemo(() => allSends.filter((item) => item.lote_id === params.id), [allSends, params.id]);
-  const unconfirmed = sends.filter((item) => item.status === "incerto");
-  const sender = senderData.senders.find((item) => item.id === campaign?.whatsapp_sender_id);
-  const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Não informado";
 
-  async function campaignAction(path: string) {
-    const response = await fetch(path, { method: "POST", body: JSON.stringify({ lote_id: params.id }) });
-    if (!response.ok) throw new Error("Não foi possível atualizar a campanha.");
-    location.reload();
+  // Remove group
+  const [removeTarget, setRemoveTarget] = useState<Grupo | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  // Add groups modal
+  const [showAdd, setShowAdd] = useState(false);
+  const [addQuery, setAddQuery] = useState("");
+  const [addJids, setAddJids] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+
+  // Sender update
+  const [updatingSender, setUpdatingSender] = useState(false);
+
+  async function load() {
+    const [cr, sr] = await Promise.all([fetch("/api/campanhas"), fetch("/api/whatsapp/senders")]);
+    const [cd, sd] = await Promise.all([cr.json(), sr.json()]);
+    const found = (Array.isArray(cd) ? cd : []).find((c: Campanha) => c.id === params.id) ?? null;
+    setCampaign(found);
+    setSenders(sd.senders || []);
   }
 
-  async function resolveUnconfirmed(action: "mark-success" | "mark-error" | "retry", id: string) {
-    const response = await fetch(`/api/incertos/${action}`, { method: "POST", body: JSON.stringify({ id, kind: "grupo", resolution_note: "Revisado manualmente na campanha." }) });
-    if (!response.ok) throw new Error("Não foi possível atualizar o envio.");
-    setToast("Envio atualizado.");
-    location.reload();
+  async function loadGroupsForSender(senderId: string) {
+    const url = senderId ? `/api/whatsapp/groups?sender_id=${senderId}` : "/api/whatsapp/groups";
+    const data = await fetch(url).then((r) => r.json());
+    setAllGroups(Array.isArray(data) ? data : []);
+  }
+
+  useEffect(() => {
+    load().catch(() => {}).finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id]);
+
+  function showMsg(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3500);
+  }
+
+  const campaignJids = useMemo(() => campaign?.grupos.map((g) => g.group_jid) ?? [], [campaign]);
+
+  const availableGroups = useMemo(() => {
+    const q = addQuery.trim().toLowerCase();
+    return allGroups.filter((g) => {
+      if (campaignJids.includes(g.group_jid)) return false;
+      if (!q) return true;
+      return `${g.nome || ""} ${g.group_jid}`.toLowerCase().includes(q);
+    });
+  }, [allGroups, campaignJids, addQuery]);
+
+  async function handleRemove() {
+    if (!campaign || !removeTarget) return;
+    setRemoving(true);
+    try {
+      const newJids = campaign.grupos.map((g) => g.group_jid).filter((j) => j !== removeTarget.group_jid);
+      const res = await fetch("/api/campanhas", {
+        method: "PATCH",
+        body: JSON.stringify({ id: campaign.id, group_jids: newJids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao remover grupo.");
+      showMsg("Grupo removido.");
+      setRemoveTarget(null);
+      await load();
+    } catch (e: any) {
+      showMsg(e.message);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  async function openAdd() {
+    setAddQuery("");
+    setAddJids([]);
+    setShowAdd(true);
+    await loadGroupsForSender(campaign?.whatsapp_sender_id ?? "").catch(() => {});
+  }
+
+  async function handleAdd() {
+    if (!campaign || !addJids.length) return;
+    setAdding(true);
+    try {
+      const newJids = [...campaignJids, ...addJids];
+      const res = await fetch("/api/campanhas", {
+        method: "PATCH",
+        body: JSON.stringify({ id: campaign.id, group_jids: newJids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao adicionar grupos.");
+      showMsg(`${addJids.length} grupo(s) adicionado(s).`);
+      setShowAdd(false);
+      await load();
+    } catch (e: any) {
+      showMsg(e.message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleSenderChange(senderId: string) {
+    if (!campaign) return;
+    setUpdatingSender(true);
+    try {
+      const res = await fetch("/api/campanhas", {
+        method: "PATCH",
+        body: JSON.stringify({ id: campaign.id, whatsapp_sender_id: senderId || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao atualizar número.");
+      showMsg("Número atualizado.");
+      await load();
+    } catch (e: any) {
+      showMsg(e.message);
+    } finally {
+      setUpdatingSender(false);
+    }
   }
 
   if (loading) return <AppShell title="Campanha"><LoadingState /></AppShell>;
-  if (!campaign) return <AppShell title="Campanha"><ErrorState message="Campanha não encontrada." /></AppShell>;
+  if (!campaign) return <AppShell title="Campanha"><div className="py-20 text-center text-muted">Campanha não encontrada.</div></AppShell>;
 
-  const progress = campaign.total ? Math.round(((campaign.enviados || 0) + (campaign.erros || 0)) / campaign.total * 100) : 0;
-  const action = <Link href="/campanhas" className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-medium text-ink"><ArrowLeft size={16} />Voltar</Link>;
+  return (
+    <AppShell
+      title={campaign.nome}
+      subtitle={`${campaign.grupos.length} grupo(s)`}
+      action={
+        <ActionButton icon={<Plus size={16} />} onClick={openAdd} className="bg-black text-white hover:bg-zinc-800">
+          Adicionar grupos
+        </ActionButton>
+      }
+    >
+      {/* Breadcrumb */}
+      <nav className="mb-6 flex items-center gap-1.5 text-sm text-muted">
+        <Link href="/campanhas" className="transition-colors hover:text-ink">Campanhas</Link>
+        <ChevronRight size={14} />
+        <span className="text-ink">{campaign.nome}</span>
+      </nav>
 
-  return <AppShell title={campaign.titulo || "Campanha"} subtitle={`Criada em ${formatDate(campaign.created_at)}`} action={action}>
-    <nav className="mb-5 flex gap-2 overflow-x-auto border-b border-line pb-3" aria-label="Detalhes da campanha">
-      <TabButton active={tab === "resumo"} onClick={() => setTab("resumo")}>Visão geral</TabButton>
-      <TabButton active={tab === "envios"} onClick={() => setTab("envios")}>Envios</TabButton>
-      <TabButton active={tab === "nao-confirmados"} onClick={() => setTab("nao-confirmados")}>Não confirmados ({unconfirmed.length})</TabButton>
-    </nav>
-
-    {tab === "resumo" ? <section className="space-y-6">
-      <dl className="grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="Status"><StatusBadge status={campaign.status} /></Info>
-        <Info label="Número responsável">{sender?.label || "Número principal"}</Info>
-        <Info label="Programada para">{formatDate(campaign.scheduled_at)}</Info>
-        <Info label="Grupos">{campaign.total || 0}</Info>
-      </dl>
-      <div>
-        <div className="mb-2 flex justify-between text-sm"><span className="font-medium text-ink">Progresso</span><span className="text-muted">{campaign.enviados || 0} de {campaign.total || 0} enviados</span></div>
-        <ProgressBar value={progress} />
+      {/* Sender selector */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <label className="shrink-0 text-sm font-medium text-ink">Número responsável:</label>
+        <select
+          value={campaign.whatsapp_sender_id ?? ""}
+          onChange={(e) => handleSenderChange(e.target.value).catch(() => {})}
+          disabled={updatingSender}
+          className="focus-ring h-10 rounded-lg border border-line bg-white px-3 text-sm disabled:opacity-60"
+        >
+          <option value="">Número principal</option>
+          {senders.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <ActionButton icon={<Pause size={16} />} className="border border-line bg-white text-ink" onClick={() => campaignAction("/api/lotes/pause").catch((error) => setToast(error.message))}>Pausar campanha</ActionButton>
-        <ActionButton icon={<Play size={16} />} className="border border-line bg-white text-ink" onClick={() => campaignAction("/api/lotes/resume").catch((error) => setToast(error.message))}>Retomar campanha</ActionButton>
-        <ActionButton icon={<X size={16} />} className="border border-red-200 bg-white text-red-700" onClick={() => campaignAction("/api/lotes/cancel-pending").catch((error) => setToast(error.message))}>Cancelar campanha</ActionButton>
-      </div>
-    </section> : null}
 
-    {tab === "envios" ? <DataTable columns={["Grupo", "Mensagem", "Status", "Enviado em"]} rows={sends.map((item) => [
-      item.nome_grupo || "—",
-      item.texto || item.legenda || item.file_name || "—",
-      <StatusBadge key="status" status={item.status} />,
-      formatDate(item.sent_at || item.created_at)
-    ])} /> : null}
+      {/* Groups list */}
+      {campaign.grupos.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <h2 className="text-lg font-semibold text-ink">Nenhum grupo nesta campanha</h2>
+          <p className="mt-2 text-sm text-muted">Adicione grupos para poder fazer disparos.</p>
+          <ActionButton icon={<Plus size={16} />} onClick={openAdd} className="mt-6 bg-black text-white hover:bg-zinc-800">
+            Adicionar grupos
+          </ActionButton>
+        </div>
+      ) : (
+        <div className="divide-y divide-line rounded-lg border border-line bg-panel shadow-soft">
+          {campaign.grupos.map((group) => (
+            <div key={group.group_jid} className="flex items-center gap-4 px-5 py-4">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-ink">{group.nome || "Sem nome"}</div>
+                <div className="mt-0.5 font-mono text-xs text-muted">{group.group_jid}</div>
+                {group.qtd_membros ? (
+                  <div className="mt-0.5 text-xs text-muted">{group.qtd_membros} membros</div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setRemoveTarget(group)}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 transition hover:bg-red-50"
+              >
+                <X size={14} /> Remover
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
-    {tab === "nao-confirmados" ? <DataTable columns={["Grupo", "Motivo", "Ações"]} rows={unconfirmed.map((item) => [
-      item.nome_grupo || "—",
-      item.erro || "O WhatsApp não confirmou este envio.",
-      <div key="actions" className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => resolveUnconfirmed("mark-success", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg bg-black px-3 text-xs font-medium text-white">Marcar como enviado</button>
-        <button type="button" onClick={() => resolveUnconfirmed("retry", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg border border-line px-3 text-xs font-medium">Tentar novamente</button>
-        <button type="button" onClick={() => resolveUnconfirmed("mark-error", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700">Marcar como falha</button>
-      </div>
-    ])} /> : null}
-    <Toast message={toast} />
-  </AppShell>;
-}
+      {/* Add groups modal */}
+      {showAdd && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          onClick={() => !adding && setShowAdd(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-line px-6 py-5">
+              <h2 className="text-lg font-semibold text-ink">Adicionar grupos</h2>
+            </div>
 
-function TabButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-lg px-4 text-sm font-medium transition ${active ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>{children}</button>;
-}
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+              <input
+                value={addQuery}
+                onChange={(e) => setAddQuery(e.target.value)}
+                placeholder="Pesquisar grupos..."
+                autoFocus
+                className="focus-ring h-10 w-full rounded-lg border border-line px-3 text-sm"
+              />
+              <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-line p-3">
+                {availableGroups.map((g) => (
+                  <label key={g.group_jid} className="flex cursor-pointer items-center gap-2 py-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={addJids.includes(g.group_jid)}
+                      onChange={(e) =>
+                        setAddJids((prev) =>
+                          e.target.checked
+                            ? Array.from(new Set([...prev, g.group_jid]))
+                            : prev.filter((j) => j !== g.group_jid)
+                        )
+                      }
+                    />
+                    <span className="truncate">{g.nome || g.group_jid}</span>
+                  </label>
+                ))}
+                {availableGroups.length === 0 && (
+                  <div className="py-4 text-center text-sm text-muted">Nenhum grupo disponível para adicionar.</div>
+                )}
+              </div>
+              <p className="text-sm text-muted">{addJids.length} grupo(s) selecionado(s).</p>
+            </div>
 
-function Info({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="bg-white p-4"><dt className="text-xs text-muted">{label}</dt><dd className="mt-2 text-sm font-medium text-ink">{children}</dd></div>;
+            <div className="flex justify-end gap-3 border-t border-line px-6 py-4">
+              <ActionButton
+                disabled={adding}
+                onClick={() => setShowAdd(false)}
+                className="border border-line bg-white text-ink hover:bg-wash"
+              >
+                Cancelar
+              </ActionButton>
+              <ActionButton
+                disabled={!addJids.length || adding}
+                icon={adding ? <Loader2 size={16} className="animate-spin" /> : undefined}
+                onClick={handleAdd}
+                className="bg-black text-white hover:bg-zinc-800"
+              >
+                Adicionar selecionados
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        open={Boolean(removeTarget)}
+        title="Remover grupo?"
+        confirmLabel="Remover grupo"
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={handleRemove}
+        loading={removing}
+        destructive
+      >
+        {`Remover "${removeTarget?.nome || removeTarget?.group_jid}" da campanha "${campaign.nome}"?`}
+      </ConfirmModal>
+
+      <Toast message={toast} />
+    </AppShell>
+  );
 }
