@@ -1,5 +1,6 @@
 type GroupMetadata = {
   id?: string;
+  subject?: string;
   [key: string]: unknown;
 };
 
@@ -33,6 +34,21 @@ export async function discoverParticipatingGroups(
   }
 
   if (!successfulAttempts) throw lastError || new Error("O WhatsApp não retornou os grupos.");
+
+  const missingNames = Array.from(discovered.entries()).filter(([, group]) => !group.subject?.trim());
+  let unresolvedNames = 0;
+  for (let index = 0; index < missingNames.length; index += 4) {
+    await Promise.all(missingNames.slice(index, index + 4).map(async ([groupJid, current]) => {
+      try {
+        const metadata = await sock.groupMetadata(groupJid);
+        discovered.set(groupJid, { ...current, ...metadata, id: metadata.id || groupJid });
+      } catch {
+        unresolvedNames += 1;
+      }
+    }));
+  }
+  if (unresolvedNames) console.warn(`[groups] ${unresolvedNames} grupo(s) continuam sem nome.`);
+
   console.log(`[groups] ${discovered.size} grupos encontrados em ${successfulAttempts} consulta(s).`);
   return Array.from(discovered.values());
 }

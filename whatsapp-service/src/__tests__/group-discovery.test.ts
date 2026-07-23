@@ -23,4 +23,24 @@ describe("discoverParticipatingGroups", () => {
 
     expect(groups).toHaveLength(1);
   });
+
+  it("consulta individualmente os grupos que vieram sem nome", async () => {
+    const groupFetchAllParticipating = vi.fn().mockResolvedValue({
+      "1@g.us": { id: "1@g.us" }
+    });
+    const groupMetadata = vi.fn().mockResolvedValue({
+      id: "1@g.us",
+      subject: "MAPA DAS VENDAS ONLINE 01",
+      participants: []
+    });
+
+    const groups = await discoverParticipatingGroups(
+      { groupFetchAllParticipating, groupMetadata },
+      1,
+      0
+    );
+
+    expect(groupMetadata).toHaveBeenCalledWith("1@g.us");
+    expect(groups[0]?.subject).toBe("MAPA DAS VENDAS ONLINE 01");
+  });
 });
