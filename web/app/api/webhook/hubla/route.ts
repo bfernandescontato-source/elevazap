@@ -31,6 +31,12 @@ export async function POST(request: NextRequest) {
     userId = users.users.find((item) => item.email?.toLowerCase() === email)?.id;
   }
   if (!userId) return NextResponse.json({ error: "Usuário não localizado." }, { status: 500 });
+  const { error: passwordError } = await admin.auth.admin.updateUserById(userId, {
+    password: INITIAL_PASSWORD,
+    email_confirm: true,
+    user_metadata: { name, source: "hubla" }
+  });
+  if (passwordError) return NextResponse.json({ error: "Usuário localizado, mas senha não foi configurada." }, { status: 500 });
   const { error: profileError } = await admin.from("app_users").upsert({
     id: userId, email, name, role: "operator", status: "active", approved_at: new Date().toISOString(), updated_at: new Date().toISOString()
   }, { onConflict: "id" });
