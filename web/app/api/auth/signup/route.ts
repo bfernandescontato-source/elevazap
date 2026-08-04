@@ -26,7 +26,17 @@ export async function POST(request: NextRequest) {
     password: parsed.data.password,
     options: { data: { name: parsed.data.name }, emailRedirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/confirm?next=/auth/pending` }
   });
-  if (error) return NextResponse.redirect(new URL("/cadastro?error=exists", request.url), { status: 303 });
+  if (error) {
+    const message = error.message.toLowerCase();
+    const code = /already registered|already been registered|user already exists|email.*exists/.test(message)
+      ? "exists"
+      : /signups? not allowed|disable.*signup/.test(message)
+        ? "disabled"
+        : /rate limit|too many requests/.test(message)
+          ? "rate"
+          : "provider";
+    return NextResponse.redirect(new URL(`/cadastro?error=${code}`, request.url), { status: 303 });
+  }
   const destination = data.session ? "/auth/pending" : "/cadastro?sent=1";
   return NextResponse.redirect(new URL(destination, request.url), { status: 303 });
 }
