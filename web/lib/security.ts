@@ -19,10 +19,20 @@ export async function requireAdminRole() {
 export function requireValidOrigin(request: NextRequest) {
   const method = request.method.toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return null;
-  const expected = env().NEXT_PUBLIC_APP_URL;
+  const configuredOrigin = new URL(env().NEXT_PUBLIC_APP_URL).origin;
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const allowedOrigins = new Set([configuredOrigin, request.nextUrl.origin]);
+  if (forwardedHost && forwardedProto) allowedOrigins.add(`${forwardedProto}://${forwardedHost}`);
+
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
-  const allowed = origin === expected || (referer ? referer.startsWith(`${expected}/`) : false);
+  let refererOrigin = "";
+  if (referer) {
+    try { refererOrigin = new URL(referer).origin; }
+    catch { refererOrigin = ""; }
+  }
+  const allowed = Boolean((origin && allowedOrigins.has(origin)) || (refererOrigin && allowedOrigins.has(refererOrigin)));
   if (!allowed) return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
   return null;
 }
