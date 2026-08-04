@@ -21,6 +21,13 @@ function retryDelay(attempts: number) {
   return env.RETRY_BASE_DELAY_MS * (attempts <= 1 ? 1 : 5 ** (attempts - 1));
 }
 
+function isMissingRpc(error: any, name: string) {
+  return Boolean(error && (
+    error.code === "PGRST202" || error.code === "42883" ||
+    new RegExp(`could not find the function.*${name}|function.*${name}.*does not exist`, "i").test(error.message || "")
+  ));
+}
+
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
   private running = false;
@@ -78,13 +85,47 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
-    const envio = await dbResult<any>("queue.claim.envio", supabase.rpc("claim_next_envio"));
+    let envio: any;
+    try {
+      envio = await dbResult<any>("queue.claim.envio", supabase.rpc("claim_next_envio"));
+    } catch (error) {
+      if (!isMissingRpc(error, "claim_next_envio")) throw error;
+      envio = await this.claimDirect("envios");
+    }
     if (envio?.id) {
       this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
       return;
     }
-    const grupo = await dbResult<any>("queue.claim.group", supabase.rpc("claim_next_envio_grupo"));
+    let grupo: any;
+    try {
+      grupo = await dbResult<any>("queue.claim.group", supabase.rpc("claim_next_envio_grupo"));
+    } catch (error) {
+      if (!isMissingRpc(error, "claim_next_envio_grupo")) throw error;
+      grupo = await this.claimDirect("envios_grupo");
+    }
     if (grupo?.id) this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+  }
+
+  private async claimDirect(table: TableName) {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const { data: candidates, error: selectError } = await supabase.from(table)
+      .select("*").eq("status", "pendente").or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
+      .order("scheduled_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: true })
+      .limit(20);
+    if (selectError) throw selectError;
+    const candidate = (candidates || [])[0];
+    if (!candidate) return null;
+    const claimToken = randomUUID();
+    const { data, error } = await supabase.from(table).update(this.updateFields(table, {
+      status: "enfileirado",
+      claimed_at: nowIso,
+      claim_token: claimToken,
+      processing_deadline_at: new Date(now.getTime() + env.QUEUE_PROCESSING_TIMEOUT_MS).toISOString(),
+      updated_at: nowIso
+    })).eq("id", candidate.id).eq("status", "pendente").select("*").maybeSingle();
+    if (error) throw error;
+    return data ? { ...data, claim_token: claimToken } : null;
   }
 
   private async process(item: QueueItem) {
@@ -288,7 +329,27 @@ export class GlobalSendQueue {
   }
 
   private async recalc(loteId: string) {
-    await dbResult("queue.recalc-lote", supabase.rpc("recalc_lote_counts", { p_lote_id: loteId }));
+    try {
+      await dbResult("queue.recalc-lote", supabase.rpc("recalc_lote_counts", { p_lote_id: loteId }));
+      return;
+    } catch (error) {
+      if (!isMissingRpc(error, "recalc_lote_counts")) throw error;
+    }
+    const { data: rows, error: rowsError } = await supabase.from("envios_grupo").select("status").eq("lote_id", loteId);
+    if (rowsError) throw rowsError;
+    const statuses = (rows || []).map((row: any) => row.status);
+    const total = statuses.length;
+    const enviados = statuses.filter((status) => status === "sucesso").length;
+    const erros = statuses.filter((status) => status === "erro").length;
+    const incertos = statuses.filter((status) => status === "incerto").length;
+    const processando = statuses.filter((status) => status === "processando").length;
+    const enfileirados = statuses.filter((status) => status === "enfileirado").length;
+    const pendentes = statuses.filter((status) => status === "pendente").length;
+    const status = pendentes || enfileirados ? "pendente" : processando ? "processando" : incertos ? "incerto" : enviados === total && total ? "sucesso" : erros === total && total ? "erro" : "concluido_com_erros";
+    const { error: updateError } = await supabase.from("envios_grupo_lotes").update({
+      status, total, enviados, erros, incertos, processando, enfileirados, pendentes, updated_at: new Date().toISOString()
+    }).eq("id", loteId);
+    if (updateError) throw updateError;
   }
 
   private async returnQueuedToPending() {
