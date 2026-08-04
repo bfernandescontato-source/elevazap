@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -62,12 +62,21 @@ async function resolveRedirectFallback(sb: any, slug: string) {
     })
     .sort((a: any, b: any) => Number(a.position || 0) - Number(b.position || 0))[0];
 
-  await sb.from("campanhas").update({ total_accesses: Number(campaign.total_accesses || 0) + 1, updated_at: new Date().toISOString() }).eq("id", campaign.id);
-  if (!selected) return { ok: false, fallback_url: fallbackUrl, reason: "nenhum_grupo_confiavel" };
+  if (!selected) {
+    after(async () => {
+      await sb.from("campanhas").update({ updated_at: new Date().toISOString() }).eq("id", campaign.id).then(() => undefined).catch(() => undefined);
+    });
+    return { ok: false, fallback_url: fallbackUrl, reason: "nenhum_grupo_confiavel" };
+  }
 
-  await sb.from("campanha_grupos").update({ updated_at: new Date().toISOString() })
-    .eq("campanha_id", campaign.id).eq("group_jid", selected.group_jid);
-  await sb.from("campanhas").update({ updated_at: new Date().toISOString() }).eq("id", campaign.id);
+  // O visitante não deve esperar métricas e contadores para chegar ao grupo.
+  after(async () => {
+    const nowIso = new Date().toISOString();
+    await Promise.all([
+      sb.from("campanha_grupos").update({ updated_at: nowIso }).eq("campanha_id", campaign.id).eq("group_jid", selected.group_jid),
+      sb.from("campanhas").update({ updated_at: nowIso }).eq("id", campaign.id)
+    ]).catch(() => undefined);
+  });
   return { ok: true, destination_url: selected.invite_url, campaign_id: campaign.id, group_jid: selected.group_jid };
 }
 
