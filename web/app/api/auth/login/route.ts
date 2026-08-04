@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSession, verifyPassword } from "@/lib/auth";
-import { clientIp, persistentRateLimit } from "@/lib/security";
+import { clientIp, persistentRateLimit, requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { getOrCreateUserProfile } from "@/lib/user-access";
 
 export async function POST(request: NextRequest) {
+  const originError = requireValidOrigin(request);
+  if (originError) return originError;
   const allowed = await persistentRateLimit(clientIp(request), "login_ip", 8, 15 * 60);
   if (!allowed) return NextResponse.redirect(new URL("/login?error=1", request.url), { status: 303 });
   const form = await request.formData();
