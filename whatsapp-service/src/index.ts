@@ -8,6 +8,7 @@ import { createWhatsAppRuntime } from "./whatsapp.js";
 import { bootSupportRuntime } from "./support/runtime.js";
 import { bootSenderSessions } from "./senders/runtime.js";
 import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
+import { detectDatabaseCapabilities } from "./database-capabilities.js";
 
 async function main() {
   const runtimeRef: { current: WhatsAppRuntime | null } = { current: null };
@@ -21,10 +22,11 @@ async function main() {
     readiness.supabase = true;
     if (!lock) throw new Error("Outra instância do whatsapp-service está ativa.");
 
-    await recoverStuckJobsOnBoot();
+    const databaseCapabilities = await detectDatabaseCapabilities();
+    await recoverStuckJobsOnBoot(databaseCapabilities);
     const runtime = await createWhatsAppRuntime();
     runtimeRef.current = runtime;
-    const queue = new GlobalSendQueue(runtime);
+    const queue = new GlobalSendQueue(runtime, databaseCapabilities);
     queueRef.current = queue;
     queue.start();
     readiness.queue = true;
@@ -42,7 +44,7 @@ async function main() {
         queue.stop();
       }
     }, 15_000);
-    setInterval(() => periodicReclaim().catch((error) => {
+    setInterval(() => periodicReclaim(databaseCapabilities).catch((error) => {
       readiness.lastError = error instanceof Error ? error.message : "Falha na recuperação da fila.";
     }), 60_000);
 

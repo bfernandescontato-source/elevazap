@@ -8,9 +8,10 @@ import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
 import type { WhatsAppRuntime } from "../whatsapp.js";
 import { getFirstConnectedSenderSock, getSenderSock } from "../senders/runtime.js";
+import { compatibleQueueUpdate, type DatabaseCapabilities, type QueueTable } from "../database-capabilities.js";
 
 type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
-type TableName = "envios" | "envios_grupo";
+type TableName = QueueTable;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -26,7 +27,11 @@ export class GlobalSendQueue {
   private lastSendAt = 0;
   private reconciliation = new Map<string, { table: TableName; row: any; messageId: string | null; reason: string }>();
 
-  constructor(private runtime: WhatsAppRuntime) {}
+  constructor(private runtime: WhatsAppRuntime, private databaseCapabilities: DatabaseCapabilities) {}
+
+  private updateFields(table: TableName, values: Record<string, unknown>) {
+    return compatibleQueueUpdate(this.databaseCapabilities, table, values);
+  }
 
   stats() {
     return {
@@ -87,12 +92,12 @@ export class GlobalSendQueue {
     const now = new Date();
     const row = await dbResult<any>(
       "queue.mark-processing",
-      supabase.from(table).update({
+      supabase.from(table).update(this.updateFields(table, {
         status: "processando",
         started_at: now.toISOString(),
         processing_deadline_at: new Date(now.getTime() + env.QUEUE_PROCESSING_TIMEOUT_MS).toISOString(),
         updated_at: now.toISOString()
-      }).eq("id", item.id).eq("status", "enfileirado").eq("claim_token", item.claim_token).select("*").maybeSingle()
+      })).eq("id", item.id).eq("status", "enfileirado").eq("claim_token", item.claim_token).select("*").maybeSingle()
     );
     if (!row) return;
 
@@ -148,7 +153,7 @@ export class GlobalSendQueue {
       console.warn({ event: "queue.lookup_failed", component: "queue", jobId: correlationId(row.id), ...errorFields(error) });
       return fallbackJid;
     }
-    await dbResult("queue.phone-not-found", supabase.from("envios").update({
+    await dbResult("queue.phone-not-found", supabase.from("envios").update(this.updateFields("envios", {
       status: "erro",
       erro: "Telefone não encontrado no WhatsApp.",
       attempts: (row.attempts || 0) + 1,
@@ -156,7 +161,7 @@ export class GlobalSendQueue {
       processing_deadline_at: null,
       last_attempt_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
-    }).eq("id", row.id));
+    })).eq("id", row.id));
     return null;
   }
 
@@ -190,7 +195,7 @@ export class GlobalSendQueue {
       return;
     }
     try {
-      await dbResult("queue.persist-success", supabase.from(table).update({
+      await dbResult("queue.persist-success", supabase.from(table).update(this.updateFields(table, {
         status: "sucesso",
         sent_at: new Date().toISOString(),
         wa_message_id: messageId,
@@ -200,7 +205,7 @@ export class GlobalSendQueue {
         reconciliation_required: false,
         last_error_code: null,
         updated_at: new Date().toISOString()
-      }).eq("id", row.id).eq("claim_token", row.claim_token));
+      })).eq("id", row.id).eq("claim_token", row.claim_token));
       if (table === "envios_grupo") await this.recalc(row.lote_id);
       console.info({ event: "queue.sent", component: "queue", jobId: correlationId(row.id), messageId: correlationId(messageId) });
     } catch (error) {
@@ -212,7 +217,7 @@ export class GlobalSendQueue {
     const reason = "Mensagem aceita pelo WhatsApp, mas a confirmação não foi persistida. Não reenviar automaticamente.";
     const key = `${table}:${row.id}`;
     try {
-      await dbResult("queue.mark-reconciliation", supabase.from(table).update({
+      await dbResult("queue.mark-reconciliation", supabase.from(table).update(this.updateFields(table, {
         status: "incerto",
         reconciliation_required: true,
         last_error_code: "PERSIST_SUCCESS_FAILED",
@@ -221,7 +226,7 @@ export class GlobalSendQueue {
         claim_token: null,
         processing_deadline_at: null,
         updated_at: new Date().toISOString()
-      }).eq("id", row.id));
+      })).eq("id", row.id));
       if (table === "envios_grupo") await this.recalc(row.lote_id);
     } catch (reconciliationError) {
       this.reconciliation.set(key, { table, row, messageId, reason });
@@ -233,7 +238,7 @@ export class GlobalSendQueue {
   private async flushReconciliation() {
     for (const [key, item] of this.reconciliation) {
       try {
-        await dbResult("queue.reconcile", supabase.from(item.table).update({
+        await dbResult("queue.reconcile", supabase.from(item.table).update(this.updateFields(item.table, {
           status: "incerto",
           reconciliation_required: true,
           last_error_code: "PERSIST_SUCCESS_FAILED",
@@ -242,7 +247,7 @@ export class GlobalSendQueue {
           claim_token: null,
           processing_deadline_at: null,
           updated_at: new Date().toISOString()
-        }).eq("id", item.row.id));
+        })).eq("id", item.row.id));
         if (item.table === "envios_grupo") await this.recalc(item.row.lote_id);
         this.reconciliation.delete(key);
       } catch {
@@ -255,7 +260,7 @@ export class GlobalSendQueue {
     const disconnected = /desconectad|Nenhum número conectado|não autenticada/i.test(message);
     const attempts = disconnected ? (row.attempts || 0) : (row.attempts || 0) + 1;
     const delay = disconnected ? env.RETRY_BASE_DELAY_MS : retryDelay(attempts);
-    await dbResult("queue.mark-failure", supabase.from(table).update({
+    await dbResult("queue.mark-failure", supabase.from(table).update(this.updateFields(table, {
       status: delay ? "pendente" : "erro",
       attempts,
       erro: message,
@@ -265,12 +270,12 @@ export class GlobalSendQueue {
       last_attempt_at: new Date().toISOString(),
       next_attempt_at: delay ? new Date(Date.now() + delay).toISOString() : null,
       updated_at: new Date().toISOString()
-    }).eq("id", row.id));
+    })).eq("id", row.id));
     if (table === "envios_grupo") await this.recalc(row.lote_id);
   }
 
   private async markUncertain(table: TableName, row: any, message: string, code: string) {
-    await dbResult("queue.mark-uncertain", supabase.from(table).update({
+    await dbResult("queue.mark-uncertain", supabase.from(table).update(this.updateFields(table, {
       status: "incerto",
       erro: message,
       last_error_code: code,
@@ -278,7 +283,7 @@ export class GlobalSendQueue {
       claim_token: null,
       processing_deadline_at: null,
       updated_at: new Date().toISOString()
-    }).eq("id", row.id));
+    })).eq("id", row.id));
     if (table === "envios_grupo") await this.recalc(row.lote_id);
   }
 
@@ -288,12 +293,12 @@ export class GlobalSendQueue {
 
   private async returnQueuedToPending() {
     for (const table of ["envios", "envios_grupo"] as const) {
-      await dbResult("queue.release-buffer", supabase.from(table).update({
+      await dbResult("queue.release-buffer", supabase.from(table).update(this.updateFields(table, {
         status: "pendente",
         claim_token: null,
         processing_deadline_at: null,
         updated_at: new Date().toISOString()
-      }).eq("status", "enfileirado"));
+      })).eq("status", "enfileirado"));
     }
     this.buffer = [];
   }
