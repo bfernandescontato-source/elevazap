@@ -17,10 +17,10 @@ function isMissingColumn(error: any, column: string) {
 }
 
 async function insertCampaignGroups(sb: any, campaignId: string, groupJids: string[]) {
-  const withPosition = groupJids.map((group_jid, index) => ({ campaign_id: campaignId, group_jid, position: index + 1 }));
+  const withPosition = groupJids.map((group_jid, index) => ({ campanha_id: campaignId, group_jid, position: index + 1 }));
   let result = await sb.from("campanha_grupos").insert(withPosition);
   if (isMissingColumn(result.error, "position")) {
-    result = await sb.from("campanha_grupos").insert(withPosition.map(({ campaign_id, group_jid }) => ({ campaign_id, group_jid })));
+    result = await sb.from("campanha_grupos").insert(withPosition.map(({ campanha_id, group_jid }) => ({ campanha_id, group_jid })));
   }
   return result;
 }
