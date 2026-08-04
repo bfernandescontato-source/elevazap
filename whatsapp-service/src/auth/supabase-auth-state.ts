@@ -72,19 +72,14 @@ export async function useSupabaseAuthState(sessionName = "default") {
     },
     saveCreds,
     clearAuth: async () => {
-      const { error } = await supabase.rpc("clear_whatsapp_auth", { p_session_name: sessionName });
-      const missingFunction = error && (error.code === "PGRST202" || error.code === "42883" || /could not find the function|does not exist/i.test(error.message));
-      if (error && !missingFunction) throw new Error(`auth.clear: ${error.message}`);
-      if (missingFunction) {
-        await dbResult(
-          `auth.keys.clear:${sessionName}`,
-          supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName)
-        );
-        await dbResult(
-          `auth.creds.clear:${sessionName}`,
-          supabase.from("whatsapp_auth_creds").delete().eq("session_name", sessionName)
-        );
-      }
+      await dbResult(
+        `auth.keys.clear:${sessionName}`,
+        supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName)
+      );
+      await dbResult(
+        `auth.creds.clear:${sessionName}`,
+        supabase.from("whatsapp_auth_creds").delete().eq("session_name", sessionName)
+      );
       creds = initAuthCreds();
     }
   };
