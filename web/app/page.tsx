@@ -7,6 +7,13 @@ export default function RootPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (code) {
+      window.history.replaceState(null, "", "/");
+      window.location.replace(`/auth/confirm?code=${encodeURIComponent(code)}&next=/redefinir-senha`);
+      return;
+    }
+
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const accessToken = hash.get("access_token");
     const refreshToken = hash.get("refresh_token");
