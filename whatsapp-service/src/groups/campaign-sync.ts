@@ -2,6 +2,7 @@ import type { WhatsAppRuntime } from "../whatsapp.js";
 import { supabase } from "../supabase.js";
 import { syncSenderGroups } from "../senders/runtime.js";
 import type { SyncedGroup } from "./sync.js";
+import { dbResult } from "../utils/db.js";
 
 async function persist(campaignIds: string[], senderId: string | null, rows: SyncedGroup[]) {
   for (const row of rows) {
@@ -14,15 +15,15 @@ async function persist(campaignIds: string[], senderId: string | null, rows: Syn
       update.participants_synced_at = row.synced_at;
     }
     if (row.invite_url) update.invite_url = row.invite_url;
-    await supabase.from("campanha_grupos").update(update).in("campanha_id", campaignIds).eq("group_jid", row.group_jid);
-    await supabase.from("group_participant_syncs").insert({
+    await dbResult("campaign-groups.persist", supabase.from("campanha_grupos").update(update).in("campanha_id", campaignIds).eq("group_jid", row.group_jid));
+    await dbResult("campaign-groups.audit", supabase.from("group_participant_syncs").insert({
       group_jid: row.group_jid,
       whatsapp_sender_id: senderId,
       participant_count: row.qtd_membros,
       status: row.participant_error ? "erro" : "sucesso",
       error: row.participant_error || row.invite_error || null,
       created_at: row.synced_at
-    });
+    }));
   }
 }
 
@@ -54,8 +55,8 @@ export async function syncAllCampaignGroups(runtime: WhatsAppRuntime) {
     } catch (currentError: any) {
       const message = currentError?.message || "Falha ao sincronizar participantes.";
       for (const groupJid of groupJids) {
-        await supabase.from("campanha_grupos").update({ participants_sync_error: message, updated_at: new Date().toISOString() }).in("campanha_id", batch.campaignIds).eq("group_jid", groupJid);
-        await supabase.from("group_participant_syncs").insert({ group_jid: groupJid, whatsapp_sender_id: batch.senderId, status: "erro", error: message });
+        await dbResult("campaign-groups.persist-error", supabase.from("campanha_grupos").update({ participants_sync_error: message, updated_at: new Date().toISOString() }).in("campanha_id", batch.campaignIds).eq("group_jid", groupJid));
+        await dbResult("campaign-groups.audit-error", supabase.from("group_participant_syncs").insert({ group_jid: groupJid, whatsapp_sender_id: batch.senderId, status: "erro", error: message }));
       }
     }
   }

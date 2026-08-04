@@ -1,33 +1,55 @@
 import { supabase } from "./supabase.js";
+import { dbResult } from "./utils/db.js";
 
-const uncertainError = "Serviço reiniciou durante envio. Status incerto para evitar duplicidade automática.";
-const falsePhoneCheckError = "Telefone não encontrado no WhatsApp. Confira se o número está correto e tem WhatsApp ativo.";
-const recoverableErrors = [
-  falsePhoneCheckError,
-  "Número principal desconectado.",
-  "Número responsável pelo disparo está desconectado."
-];
+const restartUncertain = "Serviço reiniciou durante envio. Confirmação manual necessária para evitar duplicidade.";
 
-export async function recoverStuckJobsOnBoot() {
-  for (const table of ["envios", "envios_grupo"]) {
-    await supabase.from(table).update({ status: "pendente", claim_token: null, updated_at: new Date().toISOString() }).eq("status", "enfileirado");
-    await supabase.from(table).update({ status: "incerto", erro: uncertainError, updated_at: new Date().toISOString() }).eq("status", "processando");
-    await supabase.from(table).update({
-      status: "pendente",
-      attempts: 0,
-      erro: null,
-      claim_token: null,
-      next_attempt_at: null,
-      updated_at: new Date().toISOString()
-    }).eq("status", "erro").in("erro", recoverableErrors);
+async function recalcTouchedLotes(loteIds: Array<string | null | undefined>) {
+  for (const loteId of new Set(loteIds.filter(Boolean) as string[])) {
+    await dbResult("recovery.recalc-lote", supabase.rpc("recalc_lote_counts", { p_lote_id: loteId }));
   }
 }
 
-export async function periodicReclaim() {
-  const oldQueued = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const oldProcessing = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  for (const table of ["envios", "envios_grupo"]) {
-    await supabase.from(table).update({ status: "pendente", claim_token: null, updated_at: new Date().toISOString() }).eq("status", "enfileirado").lt("claimed_at", oldQueued);
-    await supabase.from(table).update({ status: "incerto", erro: "Processamento antigo marcado como incerto para evitar duplicidade automática.", updated_at: new Date().toISOString() }).eq("status", "processando").lt("started_at", oldProcessing);
+async function recoverTable(table: "envios" | "envios_grupo", boot: boolean) {
+  const now = new Date().toISOString();
+  const group = table === "envios_grupo";
+  const fields = group ? "id,lote_id,status,processing_deadline_at" : "id,status,processing_deadline_at";
+  const active = await dbResult<any[]>(
+    "recovery.list-active",
+    supabase.from(table).select(fields).in("status", ["enfileirado", "processando"])
+  );
+  const queuedIds = (active || []).filter((item) => item.status === "enfileirado" && (boot || !item.processing_deadline_at || item.processing_deadline_at < now)).map((item) => item.id);
+  const processingIds = (active || []).filter((item) => item.status === "processando" && (boot || !item.processing_deadline_at || item.processing_deadline_at < now)).map((item) => item.id);
+
+  if (queuedIds.length) {
+    await dbResult("recovery.release-queued", supabase.from(table).update({
+      status: "pendente",
+      claim_token: null,
+      processing_deadline_at: null,
+      updated_at: now
+    }).in("id", queuedIds));
   }
+  if (processingIds.length) {
+    await dbResult("recovery.mark-uncertain", supabase.from(table).update({
+      status: "incerto",
+      erro: restartUncertain,
+      last_error_code: boot ? "SERVICE_RESTARTED" : "PROCESSING_DEADLINE_EXCEEDED",
+      reconciliation_required: true,
+      claim_token: null,
+      processing_deadline_at: null,
+      updated_at: now
+    }).in("id", processingIds));
+  }
+  if (group) {
+    await recalcTouchedLotes((active || []).filter((item) => queuedIds.includes(item.id) || processingIds.includes(item.id)).map((item) => item.lote_id));
+  }
+}
+
+export async function recoverStuckJobsOnBoot() {
+  await recoverTable("envios", true);
+  await recoverTable("envios_grupo", true);
+}
+
+export async function periodicReclaim() {
+  await recoverTable("envios", false);
+  await recoverTable("envios_grupo", false);
 }

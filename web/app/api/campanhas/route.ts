@@ -34,16 +34,13 @@ export async function POST(request: NextRequest) {
   if (groupJids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
 
   const sb = supabaseAdmin();
-  const { data: existingGroups, error: groupError } = await sb.from("grupos").select("group_jid").in("group_jid", groupJids);
-  if (groupError) return NextResponse.json({ error: groupError.message }, { status: 500 });
-  if ((existingGroups || []).length !== groupJids.length) return NextResponse.json({ error: "Um ou mais grupos não foram encontrados." }, { status: 400 });
-
-  const { data: campanha, error } = await sb.from("campanhas").insert({ nome: body.nome, whatsapp_sender_id: body.whatsapp_sender_id || null }).select("*").single();
+  const { data, error } = await sb.rpc("create_campaign_atomic", {
+    p_nome: body.nome,
+    p_group_jids: groupJids,
+    p_sender_id: body.whatsapp_sender_id || null
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const rows = groupJids.map((group_jid, index) => ({ campanha_id: campanha.id, group_jid, position: index + 1 }));
-  const linked = await sb.from("campanha_grupos").insert(rows);
-  if (linked.error) return NextResponse.json({ error: linked.error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, campanha });
+  return NextResponse.json(data);
 }
 
 export async function PATCH(request: NextRequest) {
@@ -67,28 +64,8 @@ export async function PATCH(request: NextRequest) {
   if (body.group_jids) {
     const groupJids = Array.from(new Set(body.group_jids));
     if (groupJids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
-    const { data: existingGroups, error: groupError } = await sb.from("grupos").select("group_jid").in("group_jid", groupJids);
-    if (groupError) return NextResponse.json({ error: groupError.message }, { status: 500 });
-    if ((existingGroups || []).length !== groupJids.length) return NextResponse.json({ error: "Um ou mais grupos não foram encontrados." }, { status: 400 });
-    const { data: currentRows, error: currentError } = await sb.from("campanha_grupos").select("group_jid").eq("campanha_id", body.id);
-    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
-    const currentJids = new Set((currentRows || []).map((item) => item.group_jid));
-    const nextJids = new Set(groupJids);
-    const removedJids = Array.from(currentJids).filter((jid) => !nextJids.has(jid));
-    const addedJids = groupJids.filter((jid) => !currentJids.has(jid));
-    if (removedJids.length) {
-      const removed = await sb.from("campanha_grupos").delete().eq("campanha_id", body.id).in("group_jid", removedJids);
-      if (removed.error) return NextResponse.json({ error: removed.error.message }, { status: 500 });
-    }
-    if (addedJids.length) {
-      const rows = addedJids.map((group_jid) => ({ campanha_id: body.id, group_jid, position: groupJids.indexOf(group_jid) + 1 }));
-      const linked = await sb.from("campanha_grupos").insert(rows);
-      if (linked.error) return NextResponse.json({ error: linked.error.message }, { status: 500 });
-    }
-    for (let index = 0; index < groupJids.length; index += 1) {
-      const ordered = await sb.from("campanha_grupos").update({ position: index + 1, updated_at: new Date().toISOString() }).eq("campanha_id", body.id).eq("group_jid", groupJids[index]);
-      if (ordered.error) return NextResponse.json({ error: ordered.error.message }, { status: 500 });
-    }
+    const { error } = await sb.rpc("replace_campaign_groups_atomic", { p_campanha_id: body.id, p_group_jids: groupJids });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

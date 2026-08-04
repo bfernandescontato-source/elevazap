@@ -43,13 +43,14 @@ function calculatedSituation(group: any, campaign: any, activeGroupJid?: string)
   return group.group_jid === activeGroupJid ? "Recebendo leads" : "Aguardando na fila";
 }
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireAdmin();
   if (guard) return guard;
+  const { id } = await params;
   const sb = supabaseAdmin();
   const { data: campaign, error } = await sb.from("campanhas")
     .select("id,nome,public_slug,status,link_ativo,fallback_type,fallback_url,reuse_available_groups,allow_stale_participant_count,total_accesses,total_redirects,whatsapp_sender_id,created_at,updated_at,whatsapp_senders(id,label,session_name),campanha_grupos(*,grupos(group_jid,nome,qtd_membros,foto_url))")
-    .eq("id", params.id).maybeSingle();
+    .eq("id", id).maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!campaign) return NextResponse.json({ error: "Campanha não encontrada." }, { status: 404 });
 
@@ -81,9 +82,10 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   });
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request, "campanhas_ip");
   if (guard) return guard;
+  const { id } = await params;
   const parsed = actionSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Configuração inválida." }, { status: 400 });
   const body = parsed.data;
@@ -93,7 +95,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (body.action === "campaign_settings") {
     if (body.fallback_type === "url" && !body.fallback_url) return NextResponse.json({ error: "Informe uma URL de contingência válida." }, { status: 400 });
     const values = Object.fromEntries(Object.entries(body).filter(([key, value]) => key !== "action" && value !== undefined));
-    const { error } = await sb.from("campanhas").update({ ...values, updated_at: now }).eq("id", params.id);
+    const { error } = await sb.from("campanhas").update({ ...values, updated_at: now }).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -102,29 +104,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (body.invite_url && !/^https:\/\/chat\.whatsapp\.com\//.test(body.invite_url)) return NextResponse.json({ error: "Use um link de convite válido do WhatsApp." }, { status: 400 });
     const values: Record<string, unknown> = Object.fromEntries(Object.entries(body).filter(([key, value]) => !["action", "group_jid"].includes(key) && value !== undefined));
     if (body.participant_limit !== undefined || body.safety_margin !== undefined || body.manual_status === "disponivel") values.capacity_reached_at = null;
-    const { error } = await sb.from("campanha_grupos").update({ ...values, updated_at: now }).eq("campanha_id", params.id).eq("group_jid", body.group_jid);
+    const { error } = await sb.from("campanha_grupos").update({ ...values, updated_at: now }).eq("campanha_id", id).eq("group_jid", body.group_jid);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   if (body.action === "reorder") {
     if (body.group_jids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Ordem inválida." }, { status: 400 });
-    const { data: current } = await sb.from("campanha_grupos").select("group_jid").eq("campanha_id", params.id);
+    const { data: current } = await sb.from("campanha_grupos").select("group_jid").eq("campanha_id", id);
     const currentJids = new Set((current || []).map((item) => item.group_jid));
     if (body.group_jids.length !== currentJids.size || body.group_jids.some((jid) => !currentJids.has(jid))) return NextResponse.json({ error: "A ordem precisa conter todos os grupos da campanha." }, { status: 400 });
     for (let index = 0; index < body.group_jids.length; index += 1) {
-      const { error } = await sb.from("campanha_grupos").update({ position: index + 1, updated_at: now }).eq("campanha_id", params.id).eq("group_jid", body.group_jids[index]);
+      const { error } = await sb.from("campanha_grupos").update({ position: index + 1, updated_at: now }).eq("campanha_id", id).eq("group_jid", body.group_jids[index]);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
 
   if (body.action === "regenerate_slug") {
     const publicSlug = randomUUID().replace(/-/g, "");
-    const { error } = await sb.from("campanhas").update({ public_slug: publicSlug, updated_at: now }).eq("id", params.id);
+    const { error } = await sb.from("campanhas").update({ public_slug: publicSlug, updated_at: now }).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   if (body.action === "reset_redirect_count") {
-    const { error } = await sb.from("campanha_grupos").update({ redirection_count: 0, updated_at: now }).eq("campanha_id", params.id).eq("group_jid", body.group_jid);
+    const { error } = await sb.from("campanha_grupos").update({ redirection_count: 0, updated_at: now }).eq("campanha_id", id).eq("group_jid", body.group_jid);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

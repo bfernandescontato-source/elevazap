@@ -3,9 +3,10 @@ import { guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const { id } = await params;
 
   const { text } = await request.json();
   if (!text?.trim()) return NextResponse.json({ error: "Texto obrigatório." }, { status: 400 });
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const { data: conv } = await supabase
     .from("support_conversation")
     .select("*, support_agent(whatsapp_session_id)")
-    .eq("id", params.id)
+    .eq("id", id)
     .maybeSingle();
 
   if (!conv) return NextResponse.json({ error: "Conversa não encontrada." }, { status: 404 });
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const waMessageId = result?.waMessageId || `human_${Date.now()}`;
     await supabase.from("support_message").insert({
-      conversation_id: params.id,
+      conversation_id: id,
       wa_message_id: waMessageId,
       direction: "out",
       sender: "human",
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     await supabase.from("support_conversation")
       .update({ last_message_at: new Date().toISOString(), status: "human_active", updated_at: new Date().toISOString() })
-      .eq("id", params.id);
+      .eq("id", id);
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

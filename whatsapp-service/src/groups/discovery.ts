@@ -35,7 +35,7 @@ export function extractInviteCode(value: string) {
 export async function groupToStoredRow(sock: any, group: GroupMetadata): Promise<StoredGroup> {
   if (!group.id) throw new Error("O WhatsApp não informou o identificador do grupo.");
   let photoUrl: string | null = null;
-  try { photoUrl = await sock.profilePictureUrl(group.id, "image"); } catch {}
+  try { photoUrl = await withTimeout("groups.photo", env.GROUP_SYNC_TIMEOUT_MS, sock.profilePictureUrl(group.id, "image")); } catch {}
   const participants = Array.isArray(group.participants) ? group.participants as any[] : [];
   return {
     group_jid: group.id,
@@ -48,7 +48,7 @@ export async function groupToStoredRow(sock: any, group: GroupMetadata): Promise
 }
 
 export async function discoverGroupByInvite(sock: any, inviteUrl: string) {
-  const metadata = await sock.groupGetInviteInfo(extractInviteCode(inviteUrl));
+  const metadata = await withTimeout<GroupMetadata>("groups.invite-info", env.GROUP_SYNC_TIMEOUT_MS, sock.groupGetInviteInfo(extractInviteCode(inviteUrl)));
   if (!metadata?.id || !metadata?.subject) throw new Error("Não foi possível identificar este grupo pelo link.");
   return metadata as GroupMetadata;
 }
@@ -64,7 +64,7 @@ export async function discoverParticipatingGroups(
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const groups = await sock.groupFetchAllParticipating();
+      const groups = await withTimeout<Record<string, GroupMetadata>>("groups.list", env.GROUP_SYNC_TIMEOUT_MS, sock.groupFetchAllParticipating());
       successfulAttempts += 1;
       for (const [jid, value] of Object.entries(groups || {})) {
         const group = value as GroupMetadata;
@@ -85,7 +85,7 @@ export async function discoverParticipatingGroups(
   for (let index = 0; index < missingNames.length; index += 4) {
     await Promise.all(missingNames.slice(index, index + 4).map(async ([groupJid, current]) => {
       try {
-        const metadata = await sock.groupMetadata(groupJid);
+        const metadata = await withTimeout<GroupMetadata>("groups.metadata", env.GROUP_SYNC_TIMEOUT_MS, sock.groupMetadata(groupJid));
         discovered.set(groupJid, { ...current, ...metadata, id: metadata.id || groupJid });
       } catch {
         unresolvedNames += 1;
@@ -97,3 +97,5 @@ export async function discoverParticipatingGroups(
   console.log(`[groups] ${discovered.size} grupos encontrados em ${successfulAttempts} consulta(s).`);
   return Array.from(discovered.values());
 }
+import { env } from "../env.js";
+import { withTimeout } from "../utils/timeout.js";

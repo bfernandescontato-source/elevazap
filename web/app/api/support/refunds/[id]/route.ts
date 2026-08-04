@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const { id } = await params;
 
   const { action } = await request.json();
   if (!["approve", "reject"].includes(action)) {
@@ -15,7 +16,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const { data: refund } = await supabase
     .from("refund_request")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .maybeSingle();
 
   if (!refund) return NextResponse.json({ error: "Solicitação não encontrada." }, { status: 404 });
@@ -26,7 +27,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       status: "rejected",
       decided_by: "admin",
       decided_at: new Date().toISOString()
-    }).eq("id", params.id);
+    }).eq("id", id);
     return NextResponse.json({ ok: true, status: "rejected" });
   }
 
@@ -55,7 +56,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       status: "processed",
       decided_by: "admin",
       decided_at: new Date().toISOString()
-    }).eq("id", params.id);
+    }).eq("id", id);
 
     return NextResponse.json({ ok: true, status: "processed" });
   } catch (err: any) {

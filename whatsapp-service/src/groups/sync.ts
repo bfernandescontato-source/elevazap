@@ -1,4 +1,7 @@
 import { supabase } from "../supabase.js";
+import { env } from "../env.js";
+import { dbResult } from "../utils/db.js";
+import { withTimeout } from "../utils/timeout.js";
 
 export type SyncedGroup = {
   group_jid: string;
@@ -19,16 +22,16 @@ export async function syncGroupMetadata(sock: any, groupJids: string[]): Promise
   for (const groupJid of uniqueJids) {
     const syncedAt = new Date().toISOString();
     try {
-      const metadata = await sock.groupMetadata(groupJid);
+      const metadata = await withTimeout<any>("groups.metadata", env.GROUP_SYNC_TIMEOUT_MS, sock.groupMetadata(groupJid));
       let photoUrl: string | null = null;
       let inviteUrl: string | null = null;
       let inviteError: string | null = null;
       if (!Array.isArray(metadata.participants)) {
         throw new Error("O WhatsApp não retornou a lista atual de participantes deste grupo.");
       }
-      try { photoUrl = await sock.profilePictureUrl(groupJid, "image"); } catch {}
+      try { photoUrl = await withTimeout("groups.photo", env.GROUP_SYNC_TIMEOUT_MS, sock.profilePictureUrl(groupJid, "image")); } catch {}
       try {
-        const inviteCode = await sock.groupInviteCode(groupJid);
+        const inviteCode = await withTimeout("groups.invite", env.GROUP_SYNC_TIMEOUT_MS, sock.groupInviteCode(groupJid));
         if (inviteCode) inviteUrl = `https://chat.whatsapp.com/${inviteCode}`;
       } catch (error: any) {
         inviteError = error?.message || "Não foi possível obter o link de convite. Verifique se o número é administrador do grupo.";
@@ -64,8 +67,7 @@ export async function syncGroupMetadata(sock: any, groupJids: string[]): Promise
     updated_at: row.synced_at
   }));
   if (validRows.length) {
-    const { error } = await supabase.from("grupos").upsert(validRows, { onConflict: "group_jid" });
-    if (error) console.error("group-metadata-upsert", error);
+    await dbResult("groups.upsert", supabase.from("grupos").upsert(validRows, { onConflict: "group_jid" }));
   }
   return rows;
 }

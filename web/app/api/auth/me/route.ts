@@ -3,5 +3,5 @@ import { getSession } from "@/lib/auth";
 
 export async function GET() {
   const session = await getSession();
-  return NextResponse.json({ authenticated: Boolean(session) });
+  return NextResponse.json({ authenticated: Boolean(session), user: session ? { email: session.email, name: session.name, role: session.role } : null });
 }

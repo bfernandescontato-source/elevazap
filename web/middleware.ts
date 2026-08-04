@@ -13,12 +13,12 @@ const protectedPaths = [
   "/envios-grupo",
   "/incertos",
   "/incidentes",
+  "/suporte",
   "/configuracoes"
 ];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (pathname === "/") return NextResponse.redirect(new URL("/dashboard", request.url));
   if (pathname === "/grupos") return NextResponse.redirect(new URL("/campanhas", request.url));
   if (!protectedPaths.some((path) => pathname.startsWith(path))) return NextResponse.next();
 
@@ -33,5 +33,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/campanhas/:path*", "/disparos/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/incidentes/:path*", "/configuracoes/:path*"]
+  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/campanhas/:path*", "/disparos/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/incidentes/:path*", "/suporte/:path*", "/configuracoes/:path*"]
 };

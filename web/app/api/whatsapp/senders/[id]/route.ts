@@ -9,12 +9,13 @@ function failure(error: { message?: string } | null | undefined, fallback: strin
   return NextResponse.json({ error: error?.message || fallback }, { status: 500 });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const guard = await guardAdminMutation(request, "whatsapp_senders");
   if (guard) return guard;
 
   const sb = supabaseAdmin();
-  const { data: sender, error: senderError } = await sb.from("whatsapp_senders").select("*").eq("id", params.id).maybeSingle();
+  const { data: sender, error: senderError } = await sb.from("whatsapp_senders").select("*").eq("id", id).maybeSingle();
   if (senderError) return NextResponse.json({ error: senderError.message }, { status: 500 });
   if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
 

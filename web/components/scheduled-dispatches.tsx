@@ -2,7 +2,7 @@
 
 import { EmptyState, LoadingState, StatusBadge } from "@/components/ui";
 import { RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Batch = {
   id: string;
@@ -55,8 +55,11 @@ export function ScheduledDispatches() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loadingRef = useRef(false);
 
   async function load() {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     try {
       const [batchResponse, dispatchResponse, campaignResponse] = await Promise.all([
         fetch("/api/lotes", { cache: "no-store" }),
@@ -76,6 +79,7 @@ export function ScheduledDispatches() {
     } catch (currentError: any) {
       setError(currentError?.message || "Falha ao carregar os disparos programados.");
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }

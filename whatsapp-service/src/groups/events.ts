@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { syncGroupMetadata } from "./sync.js";
+import { dbResult } from "../utils/db.js";
 
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -17,8 +18,8 @@ async function persistForCampaigns(senderId: string | null, groupJid: string, so
   }
   if (row.invite_url) update.invite_url = row.invite_url;
 
-  await supabase.from("campanha_grupos").update(update).eq("group_jid", groupJid);
-  await supabase.from("group_participant_syncs").insert({
+  await dbResult("group-event.persist", supabase.from("campanha_grupos").update(update).eq("group_jid", groupJid));
+  await dbResult("group-event.audit", supabase.from("group_participant_syncs").insert({
     group_jid: groupJid,
     whatsapp_sender_id: senderId,
     participant_count: row.qtd_membros,
@@ -26,7 +27,7 @@ async function persistForCampaigns(senderId: string | null, groupJid: string, so
     error: row.participant_error || row.invite_error || null,
     source: "baileys_group_participants_update",
     created_at: row.synced_at
-  });
+  }));
 }
 
 export function scheduleParticipantEventSync(senderId: string | null, update: any, sock: any) {

@@ -100,6 +100,14 @@ WELCOME_UNCERTAIN_POLICY=manual
 - `NEXT_PUBLIC_APP_URL` deve ser a origem pública exata do painel.
 - Acesse `/login`, entre com `ADMIN_EMAIL` e a senha correspondente ao hash.
 
+### Autenticação de usuários
+
+1. Aplique `supabase/migrations/014_user_authentication.sql` no projeto Supabase.
+2. Em Authentication > URL Configuration, defina a URL pública do painel como Site URL e inclua `/auth/confirm` nas URLs de redirecionamento.
+3. Nos templates de confirmação, magic link e recuperação, use o fluxo SSR com `token_hash`, apontando para `/auth/confirm`.
+4. O primeiro usuário confirmado fica ativo como administrador. Cadastros seguintes permanecem pendentes até aprovação em Configurações > Usuários.
+5. `ADMIN_EMAIL` e `ADMIN_PASSWORD_HASH` continuam como acesso legado de contingência durante a migração.
+
 ## Operação
 
 - `/conexao`: escaneie o QR Code e acompanhe status do socket.

@@ -1,6 +1,7 @@
 import { initAuthCreds, proto, type AuthenticationCreds, type SignalDataSet } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys";
 import { supabase } from "../supabase.js";
+import { dbResult } from "../utils/db.js";
 
 function serialize(data: unknown) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
@@ -11,12 +12,17 @@ function deserialize<T>(data: unknown): T {
 }
 
 export async function useSupabaseAuthState(sessionName = "default") {
-  const { data } = await supabase.from("whatsapp_auth_creds").select("creds").eq("session_name", sessionName).maybeSingle();
+  const data = await dbResult<{ creds: unknown }>(
+    `auth.load:${sessionName}`,
+    supabase.from("whatsapp_auth_creds").select("creds").eq("session_name", sessionName).maybeSingle()
+  );
   let creds: AuthenticationCreds = data?.creds ? deserialize(data.creds) : initAuthCreds();
 
   async function saveCreds() {
-    const { error } = await supabase.from("whatsapp_auth_creds").upsert({ session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() });
-    if (error) console.error(`[auth:${sessionName}] saveCreds failed:`, error.message);
+    await dbResult(
+      `auth.save:${sessionName}`,
+      supabase.from("whatsapp_auth_creds").upsert({ session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() })
+    );
   }
 
   return {
@@ -24,8 +30,10 @@ export async function useSupabaseAuthState(sessionName = "default") {
       creds,
       keys: {
         get: async (type: string, ids: string[]) => {
-          const { data: rows, error } = await supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("key_type", type).in("key_id", ids);
-          if (error) throw new Error(`[auth:${sessionName}] keys.get failed: ${error.message}`);
+          const rows = await dbResult(
+            `auth.keys.get:${sessionName}`,
+            supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("key_type", type).in("key_id", ids)
+          );
           const result: Record<string, any> = {};
           for (const id of ids) {
             const row = rows?.find((r) => r.key_id === id);
@@ -49,14 +57,14 @@ export async function useSupabaseAuthState(sessionName = "default") {
             const toDelete = entries.filter(([, v]) => v == null).map(([id]) => id);
 
             if (toUpsert.length) {
-              const { error } = await supabase.from("whatsapp_auth_keys").upsert(toUpsert);
-              if (error) throw new Error(`[auth:${sessionName}] keys.set upsert (${type}) failed: ${error.message}`);
+              await dbResult(`auth.keys.upsert:${sessionName}`, supabase.from("whatsapp_auth_keys").upsert(toUpsert));
             }
 
             if (toDelete.length) {
-              const { error } = await supabase.from("whatsapp_auth_keys").delete()
-                .eq("session_name", sessionName).eq("key_type", type).in("key_id", toDelete);
-              if (error) throw new Error(`[auth:${sessionName}] keys.set delete (${type}) failed: ${error.message}`);
+              await dbResult(
+                `auth.keys.delete:${sessionName}`,
+                supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("key_type", type).in("key_id", toDelete)
+              );
             }
           }
         }
@@ -64,8 +72,7 @@ export async function useSupabaseAuthState(sessionName = "default") {
     },
     saveCreds,
     clearAuth: async () => {
-      await supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName);
-      await supabase.from("whatsapp_auth_creds").delete().eq("session_name", sessionName);
+      await dbResult("auth.clear", supabase.rpc("clear_whatsapp_auth", { p_session_name: sessionName }));
       creds = initAuthCreds();
     }
   };

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 
@@ -72,7 +72,8 @@ function reasonLabel(reason?: string | null) {
   return reason ? labels[reason] || reason : "Sem grupo disponível";
 }
 
-export default function CampanhaDetailPage({ params }: { params: { id: string } }) {
+export default function CampanhaDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [detail, setDetail] = useState<DetailData | null>(null);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [allGroups, setAllGroups] = useState<AvailableGroup[]>([]);
@@ -104,9 +105,9 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
   }
 
   async function load(sync = false) {
-    if (sync) await fetch(`/api/campanhas/${params.id}/sync-groups`, { method: "POST" }).catch(() => undefined);
+    if (sync) await fetch(`/api/campanhas/${id}/sync-groups`, { method: "POST" }).catch(() => undefined);
     const [detailResponse, senderResponse] = await Promise.all([
-      fetch(`/api/campanhas/${params.id}/redirect`, { cache: "no-store" }),
+      fetch(`/api/campanhas/${id}/redirect`, { cache: "no-store" }),
       fetch("/api/whatsapp/senders", { cache: "no-store" })
     ]);
     const [detailData, senderData] = await Promise.all([detailResponse.json(), senderResponse.json()]);
@@ -121,10 +122,10 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
     setPublicOrigin(window.location.origin);
     load(true).catch((error) => showMessage(error.message)).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.id]);
+  }, [id]);
 
   async function patch(body: Record<string, unknown>, success: string) {
-    const response = await fetch(`/api/campanhas/${params.id}/redirect`, { method: "PATCH", body: JSON.stringify(body) });
+    const response = await fetch(`/api/campanhas/${id}/redirect`, { method: "PATCH", body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Não foi possível salvar a configuração.");
     showMessage(success);
@@ -134,7 +135,7 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
   async function updateNow() {
     setSaving("sync");
     try {
-      const response = await fetch(`/api/campanhas/${params.id}/sync-groups`, { method: "POST" });
+      const response = await fetch(`/api/campanhas/${id}/sync-groups`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao atualizar participantes.");
       showMessage("Participantes atualizados pelo WhatsApp.");
@@ -145,7 +146,7 @@ export default function CampanhaDetailPage({ params }: { params: { id: string } 
   async function updateSender(senderId: string) {
     setSaving("sender");
     try {
-      const response = await fetch("/api/campanhas", { method: "PATCH", body: JSON.stringify({ id: params.id, whatsapp_sender_id: senderId || null }) });
+      const response = await fetch("/api/campanhas", { method: "PATCH", body: JSON.stringify({ id, whatsapp_sender_id: senderId || null }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao atualizar o número.");
       showMessage("Número responsável atualizado.");

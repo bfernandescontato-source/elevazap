@@ -2,7 +2,7 @@
 
 import { ActionButton, AppShell, ConfirmModal, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
 import { Phone, Plus, QrCode, RefreshCw, Trash2, Unplug } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Sender = {
   id: string;
@@ -37,8 +37,12 @@ export default function NumerosPage() {
   const [label, setLabel] = useState("");
   const [toast, setToast] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Sender | null>(null);
+  const loadingRef = useRef(false);
 
   async function load() {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    try {
     const [response, statusResponse, qrResponse] = await Promise.all([
       fetch("/api/whatsapp/senders", { cache: "no-store" }),
       fetch("/api/whatsapp/status", { cache: "no-store" }),
@@ -48,6 +52,9 @@ export default function NumerosPage() {
     if (!response.ok) throw new Error(data.error || "Falha ao carregar números.");
     setSenders(data.senders || []);
     setPrincipal({ ...status, qr: qr.qr || "" });
+    } finally {
+      loadingRef.current = false;
+    }
   }
 
   useEffect(() => {

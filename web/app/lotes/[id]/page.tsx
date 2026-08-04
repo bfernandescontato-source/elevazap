@@ -3,24 +3,25 @@
 import Link from "next/link";
 import { ActionButton, AppShell, DataTable, ErrorState, LoadingState, ProgressBar, StatusBadge, Toast, useApi } from "@/components/ui";
 import { ArrowLeft, Pause, Play, X } from "lucide-react";
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, use, useMemo, useState } from "react";
 
 type Tab = "resumo" | "envios" | "nao-confirmados";
 
-export default function LoteDetailPage({ params }: { params: { id: string } }) {
+export default function LoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { data: campaigns, loading } = useApi<any[]>("/api/lotes", []);
   const { data: allSends } = useApi<any[]>("/api/envios-grupo", []);
   const { data: senderData } = useApi<{ senders: any[] }>("/api/whatsapp/senders", { senders: [] });
   const [tab, setTab] = useState<Tab>("resumo");
   const [toast, setToast] = useState("");
-  const campaign = campaigns.find((item) => item.id === params.id);
-  const sends = useMemo(() => allSends.filter((item) => item.lote_id === params.id), [allSends, params.id]);
+  const campaign = campaigns.find((item) => item.id === id);
+  const sends = useMemo(() => allSends.filter((item) => item.lote_id === id), [allSends, id]);
   const unconfirmed = sends.filter((item) => item.status === "incerto");
   const sender = senderData.senders.find((item) => item.id === campaign?.whatsapp_sender_id);
   const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Não informado";
 
   async function campaignAction(path: string) {
-    const response = await fetch(path, { method: "POST", body: JSON.stringify({ lote_id: params.id }) });
+    const response = await fetch(path, { method: "POST", body: JSON.stringify({ lote_id: id }) });
     if (!response.ok) throw new Error("Não foi possível atualizar a campanha.");
     location.reload();
   }

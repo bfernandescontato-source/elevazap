@@ -10,5 +10,16 @@
     "dev:service": "npm --workspace whatsapp-service run dev",
     "test": "npm --workspaces run test",
     "build": "npm --workspaces run build"
+  },
+  "overrides": {
+    "body-parser": "1.20.6",
+    "postcss": "8.5.22",
+    "protobufjs": "7.6.5",
+    "sharp": "0.35.3",
+    "tsx": "4.23.1"
+  },
+  "devDependencies": {
+    "postcss": "8.5.22",
+    "tsx": "4.23.1"
   }
 }

@@ -3,7 +3,7 @@
 import { ActionButton, AppShell, ConfirmModal, FileDropzone, LoadingState, MediaPreview, SearchInput, Toast } from "@/components/ui";
 import { ChevronRight, FileText, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
 
@@ -42,8 +42,8 @@ function formatModelDate(dateStr?: string | null): string {
   return `Atualizado em ${d.toLocaleDateString("pt-BR")}`;
 }
 
-export default function PastaPage({ params }: { params: { folderId: string } }) {
-  const { folderId } = params;
+export default function PastaPage({ params }: { params: Promise<{ folderId: string }> }) {
+  const { folderId } = use(params);
   const [pasta, setPasta] = useState<Pasta | null>(null);
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [loading, setLoading] = useState(true);

@@ -99,6 +99,7 @@ function ConfigTab({ notify }: { notify: (m: string) => void }) {
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadingSessionRef = useRef(false);
 
   const loadAgent = useCallback(async () => {
     try {
@@ -114,10 +115,16 @@ function ConfigTab({ notify }: { notify: (m: string) => void }) {
   }, []);
 
   const loadSession = useCallback(async () => {
+    if (loadingSessionRef.current) return;
+    loadingSessionRef.current = true;
+    try {
     const res = await fetch("/api/support/status").catch(() => null);
     if (res?.ok) {
       const data = await res.json();
       setSession(data);
+    }
+    } finally {
+      loadingSessionRef.current = false;
     }
   }, []);
 
@@ -313,20 +320,34 @@ function InboxTab({ notify }: { notify: (m: string) => void }) {
   const [replyText, setReplyText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const loadingConversationsRef = useRef(false);
+  const loadingConversationRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
+    if (loadingConversationsRef.current) return;
+    loadingConversationsRef.current = true;
+    try {
     const res = await fetch("/api/support/conversations");
     if (res.ok) { const d = await res.json(); setConversations(d.conversations || []); }
     setLoading(false);
+    } finally {
+      loadingConversationsRef.current = false;
+    }
   }, []);
 
   const loadConversation = useCallback(async (id: string) => {
+    if (loadingConversationRef.current) return;
+    loadingConversationRef.current = true;
+    try {
     const res = await fetch(`/api/support/conversations/${id}`);
     if (res.ok) {
       const d = await res.json();
       setMessages(d.messages || []);
       setConv(d.conversation || null);
+    }
+    } finally {
+      loadingConversationRef.current = false;
     }
   }, []);
 

@@ -15,14 +15,30 @@ export async function verifyPassword(email: string, password: string) {
   return bcrypt.compare(password, e.ADMIN_PASSWORD_HASH);
 }
 
-export async function createSession() {
-  const token = await new SignJWT({ role: "admin" })
+export type AppSession = {
+  userId: string | null;
+  email: string;
+  name: string | null;
+  role: "admin" | "operator";
+  source: "supabase" | "legacy";
+};
+
+export async function createSession(session?: Partial<AppSession>) {
+  const e = env();
+  const payload: AppSession = {
+    userId: session?.userId || null,
+    email: session?.email || e.ADMIN_EMAIL,
+    name: session?.name || null,
+    role: session?.role || "admin",
+    source: session?.source || "legacy"
+  };
+  const token = await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("8h")
     .sign(secret());
 
-  cookies().set(cookieName, token, {
+  (await cookies()).set(cookieName, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -31,16 +47,23 @@ export async function createSession() {
   });
 }
 
-export function clearSession() {
-  cookies().delete(cookieName);
+export async function clearSession() {
+  (await cookies()).delete(cookieName);
 }
 
 export async function getSession() {
-  const token = cookies().get(cookieName)?.value;
+  const token = (await cookies()).get(cookieName)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
-    return payload.role === "admin" ? { role: "admin" as const } : null;
+    if (!payload.email || !["admin", "operator"].includes(String(payload.role))) return null;
+    return {
+      userId: typeof payload.userId === "string" ? payload.userId : null,
+      email: String(payload.email),
+      name: typeof payload.name === "string" ? payload.name : null,
+      role: payload.role as AppSession["role"],
+      source: payload.source === "supabase" ? "supabase" as const : "legacy" as const
+    };
   } catch {
     return null;
   }

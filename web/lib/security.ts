@@ -9,6 +9,13 @@ export async function requireAdmin() {
   return null;
 }
 
+export async function requireAdminRole() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  if (session.role !== "admin") return NextResponse.json({ error: "Apenas administradores podem realizar esta ação." }, { status: 403 });
+  return null;
+}
+
 export function requireValidOrigin(request: NextRequest) {
   const method = request.method.toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return null;

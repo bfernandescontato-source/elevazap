@@ -10,53 +10,25 @@ export async function POST(request: NextRequest) {
   const parsed = createLoteSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Campanha inválida." }, { status: 400 });
   const body = parsed.data;
-  if (body.group_jids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
-  if (body.scheduled_at && new Date(body.scheduled_at).getTime() < Date.now() - 60000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
-  const sb = supabaseAdmin();
-  const { data: grupos } = await sb.from("grupos").select("group_jid,nome").in("group_jid", body.group_jids);
-  const { data: sender } = body.whatsapp_sender_id
-    ? await sb.from("whatsapp_senders").select("*").eq("id", body.whatsapp_sender_id).maybeSingle()
-    : { data: null } as any;
-  if (body.whatsapp_sender_id && !sender) return NextResponse.json({ error: "Número responsável pelo disparo não encontrado." }, { status: 400 });
-  const scheduled_at = body.scheduled_at || new Date().toISOString();
-  const media = body.media;
-  const { data: lote, error } = await sb.from("envios_grupo_lotes").insert({
-    titulo: body.titulo,
-    campanha_id: body.campanha_id,
-    whatsapp_sender_id: sender?.id,
-    whatsapp_session_name: sender?.session_name,
-    tipo: body.tipo,
-    texto: body.texto,
-    legenda: body.legenda,
-    mention_all: Boolean(body.mention_all),
-    media_bucket: media?.bucket,
-    media_path: media?.storage_path,
-    file_name: media?.file_name,
-    mime_type: media?.mime_type,
-    file_size_bytes: media?.file_size_bytes,
-    total: body.group_jids.length,
-    pendentes: body.group_jids.length,
-    scheduled_at
-  }).select("*").single();
+  const groupJids = Array.from(new Set(body.group_jids));
+  if (!groupJids.length || groupJids.some((jid) => !validateGroupJid(jid))) {
+    return NextResponse.json({ error: "Escolha ao menos um grupo válido." }, { status: 400 });
+  }
+  if (body.scheduled_at && new Date(body.scheduled_at).getTime() < Date.now() - 60_000) {
+    return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
+  }
+  const { data, error } = await supabaseAdmin().rpc("create_group_lote_atomic", {
+    p_titulo: body.titulo,
+    p_campanha_id: body.campanha_id || null,
+    p_group_jids: groupJids,
+    p_sender_id: body.whatsapp_sender_id || null,
+    p_tipo: body.tipo,
+    p_texto: body.texto || null,
+    p_legenda: body.legenda || null,
+    p_mention_all: Boolean(body.mention_all),
+    p_scheduled_at: body.scheduled_at || new Date().toISOString(),
+    p_media: body.media || null
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const items = body.group_jids.map((jid) => ({
-    lote_id: lote.id,
-    whatsapp_sender_id: sender?.id,
-    whatsapp_session_name: sender?.session_name,
-    group_jid: jid,
-    nome_grupo: grupos?.find((g) => g.group_jid === jid)?.nome || jid,
-    tipo: body.tipo,
-    texto: body.texto,
-    legenda: body.legenda,
-    mention_all: Boolean(body.mention_all),
-    media_bucket: media?.bucket,
-    media_path: media?.storage_path,
-    file_name: media?.file_name,
-    mime_type: media?.mime_type,
-    file_size_bytes: media?.file_size_bytes,
-    scheduled_at
-  }));
-  const inserted = await sb.from("envios_grupo").insert(items);
-  if (inserted.error) return NextResponse.json({ error: inserted.error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, lote });
+  return NextResponse.json(data);
 }

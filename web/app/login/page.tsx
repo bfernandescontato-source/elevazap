@@ -1,20 +1,25 @@
-import { BrandLogo } from "../../components/brand-logo";
+import Link from "next/link";
+import { AuthNotice, AuthShell, authButtonClass, authInputClass, authLinkClass } from "../../components/auth-shell";
 
-export default function LoginPage({ searchParams }: { searchParams: { error?: string } }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; password?: string }> }) {
+  const resolvedSearchParams = await searchParams;
+  const errorMessages: Record<string, string> = {
+    invalid: "E-mail ou senha inválidos.", pending: "Seu cadastro ainda aguarda aprovação.",
+    disabled: "Este acesso foi desativado.", link: "Este link é inválido ou expirou.",
+    setup: "O cadastro existe, mas a estrutura de perfis ainda precisa ser ativada no banco."
+  };
   return (
-    <main className="grid min-h-screen place-items-center px-4">
-      <form action="/api/auth/login" method="post" className="w-full max-w-sm rounded-lg border border-line bg-panel p-6 shadow-soft">
-        <div className="mb-6">
-          <BrandLogo className="h-16 w-full" imageClassName="w-[310px]" />
-          <p className="mt-1 text-center text-sm text-muted">Acesse sua central de envios</p>
-        </div>
-        {searchParams.error ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">Credenciais inválidas.</div> : null}
+    <AuthShell title="Entrar" description="Acesse sua central de envios" footer={<span>Não possui acesso? <Link href="/cadastro" className={authLinkClass}>Solicitar cadastro</Link></span>}>
+      <form action="/api/auth/login" method="post">
+        {resolvedSearchParams.error ? <AuthNotice error>{errorMessages[resolvedSearchParams.error] || "Não foi possível entrar."}</AuthNotice> : null}
+        {resolvedSearchParams.password === "updated" ? <AuthNotice>Senha atualizada. Entre com a nova senha.</AuthNotice> : null}
         <label className="text-sm font-medium text-ink">Email</label>
-        <input name="email" type="email" required className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3" />
+        <input name="email" type="email" autoComplete="email" required className={authInputClass} />
         <label className="mt-4 block text-sm font-medium text-ink">Senha</label>
-        <input name="password" type="password" required className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3" />
-        <button className="mt-6 h-11 w-full rounded-lg bg-black text-sm font-medium text-white transition hover:bg-zinc-800">Entrar</button>
+        <input name="password" type="password" autoComplete="current-password" required className={authInputClass} />
+        <button className={authButtonClass}>Entrar</button>
       </form>
-    </main>
+      <div className="mt-4 flex flex-wrap justify-between gap-3 text-sm"><Link href="/recuperar-senha" className={authLinkClass}>Esqueci minha senha</Link><Link href="/magic-link" className={authLinkClass}>Entrar por link</Link></div>
+    </AuthShell>
   );
 }

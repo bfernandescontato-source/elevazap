@@ -37,7 +37,8 @@ function listMatches(mode: string, allowed: string[], value: string) {
   return mode !== "specific" || (Boolean(value) && allowed.includes(value));
 }
 
-export async function POST(request: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   const allowed = await persistentRateLimit(clientIp(request), "webhook_elevazap_ip", 240, 60);
   if (!allowed) return NextResponse.json({ error: "Muitas requisições." }, { status: 429 });
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
   const { data: rule } = await sb
     .from("webhook_rules")
     .select("*, webhook_message_templates(*)")
-    .eq("webhook_token", params.token)
+    .eq("webhook_token", token)
     .maybeSingle();
   if (!rule) return NextResponse.json({ error: "Regra não encontrada." }, { status: 404 });
 
