@@ -8,6 +8,7 @@ const serverEnvSchema = z.object({
   WHATSAPP_SERVICE_URL: z.string().url(),
   INTERNAL_API_KEY: z.string().min(24),
   ELEVAPAY_WEBHOOK_TOKEN: z.string().min(16),
+  HUBLA_WEBHOOK_TOKEN: z.string().min(16).optional(),
   MEU_NUMERO_TESTE: z.string().min(10),
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD_HASH: z.string().min(20),

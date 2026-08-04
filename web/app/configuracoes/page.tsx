@@ -3,7 +3,6 @@
 import { AppShell, EmptyState, LoadingState } from "@/components/ui";
 import { CreditCard, KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 type Tab = "account" | "users" | "security" | "billing";
 type AccountData = { name: string | null; email: string; role: string };
@@ -82,7 +81,11 @@ export default function ConfiguracoesPage() {
 
         {account && tab === "security" ? <section className="max-w-2xl rounded-lg border border-line bg-panel p-6 shadow-soft">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-black text-white"><KeyRound size={18} /></div><div><h2 className="text-lg font-semibold text-ink">Alterar senha</h2><p className="text-sm text-muted">Proteja seu acesso com uma senha exclusiva.</p></div></div>
-          <div className="mt-6"><Link href="/recuperar-senha" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white">Enviar link para alterar senha</Link></div>
+          <form action="/api/auth/update-password" method="post" className="mt-6 max-w-md">
+            <label className="text-sm font-medium text-ink">Nova senha<input name="password" type="password" minLength={8} required className="mt-1 h-11 w-full rounded-lg border border-line px-3" /></label>
+            <label className="mt-4 block text-sm font-medium text-ink">Confirmar senha<input name="confirmation" type="password" minLength={8} required className="mt-1 h-11 w-full rounded-lg border border-line px-3" /></label>
+            <button className="mt-5 h-10 rounded-lg bg-black px-4 text-sm font-medium text-white">Salvar nova senha</button>
+          </form>
           {!capabilities.passwordChange ? <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Este acesso ainda usa a credencial administrativa legada. Cadastre o mesmo e-mail no novo sistema para habilitar recuperação e magic link.</div> : null}
         </section> : null}
 
