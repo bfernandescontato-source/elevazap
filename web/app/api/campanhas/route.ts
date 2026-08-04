@@ -4,6 +4,80 @@ import { validateGroupJid } from "@/lib/phone";
 import { guardAdminMutation, requireAdmin } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
+function isMissingRpc(error: any, functionName: string) {
+  return Boolean(error && (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    new RegExp(`could not find the function.*${functionName}|function.*${functionName}.*does not exist`, "i").test(error.message || "")
+  ));
+}
+
+function isMissingColumn(error: any, column: string) {
+  return Boolean(error && (error.code === "PGRST204" || error.code === "42703") && new RegExp(column, "i").test(error.message || ""));
+}
+
+async function insertCampaignGroups(sb: any, campaignId: string, groupJids: string[]) {
+  const withPosition = groupJids.map((group_jid, index) => ({ campaign_id: campaignId, group_jid, position: index + 1 }));
+  let result = await sb.from("campanha_grupos").insert(withPosition);
+  if (isMissingColumn(result.error, "position")) {
+    result = await sb.from("campanha_grupos").insert(withPosition.map(({ campaign_id, group_jid }) => ({ campaign_id, group_jid })));
+  }
+  return result;
+}
+
+async function createCampaignFallback(sb: any, nome: string, groupJids: string[], senderId: string | null) {
+  const { data: groups, error: groupsError } = await sb.from("grupos").select("group_jid").in("group_jid", groupJids);
+  if (groupsError) throw groupsError;
+  if ((groups || []).length !== groupJids.length) throw new Error("Um ou mais grupos não foram encontrados.");
+  if (senderId) {
+    const { data: sender, error: senderError } = await sb.from("whatsapp_senders").select("id").eq("id", senderId).maybeSingle();
+    if (senderError) throw senderError;
+    if (!sender) throw new Error("Número responsável não encontrado.");
+  }
+
+  const { data: campaign, error: campaignError } = await sb.from("campanhas")
+    .insert({ nome: nome.trim(), whatsapp_sender_id: senderId })
+    .select("*")
+    .single();
+  if (campaignError) throw campaignError;
+
+  const groupsResult = await insertCampaignGroups(sb, campaign.id, groupJids);
+  if (groupsResult.error) {
+    await sb.from("campanhas").delete().eq("id", campaign.id);
+    throw groupsResult.error;
+  }
+  return { ok: true, campanha: campaign };
+}
+
+async function replaceCampaignGroupsFallback(sb: any, campaignId: string, groupJids: string[]) {
+  const { data: campaign, error: campaignError } = await sb.from("campanhas").select("id").eq("id", campaignId).maybeSingle();
+  if (campaignError) throw campaignError;
+  if (!campaign) throw new Error("Campanha não encontrada.");
+  const { data: groups, error: groupsError } = await sb.from("grupos").select("group_jid").in("group_jid", groupJids);
+  if (groupsError) throw groupsError;
+  if ((groups || []).length !== groupJids.length) throw new Error("Um ou mais grupos não foram encontrados.");
+
+  const { data: current, error: currentError } = await sb.from("campanha_grupos").select("group_jid").eq("campanha_id", campaignId);
+  if (currentError) throw currentError;
+  const wanted = new Set(groupJids);
+  const remove = (current || []).map((row: any) => row.group_jid).filter((jid: string) => !wanted.has(jid));
+  if (remove.length) {
+    const { error } = await sb.from("campanha_grupos").delete().eq("campanha_id", campaignId).in("group_jid", remove);
+    if (error) throw error;
+  }
+  for (const [index, groupJid] of groupJids.entries()) {
+    const existing = (current || []).some((row: any) => row.group_jid === groupJid);
+    if (existing) {
+      const { error } = await sb.from("campanha_grupos").update({ position: index + 1 }).eq("campanha_id", campaignId).eq("group_jid", groupJid);
+      if (error && !isMissingColumn(error, "position")) throw error;
+    } else {
+      const result = await insertCampaignGroups(sb, campaignId, [groupJid]);
+      if (result.error) throw result.error;
+    }
+  }
+  return { ok: true, group_count: groupJids.length };
+}
+
 export async function GET() {
   const guard = await requireAdmin();
   if (guard) return guard;
@@ -39,6 +113,10 @@ export async function POST(request: NextRequest) {
     p_group_jids: groupJids,
     p_sender_id: body.whatsapp_sender_id || null
   });
+  if (error && isMissingRpc(error, "create_campaign_atomic")) {
+    try { return NextResponse.json(await createCampaignFallback(sb, body.nome, groupJids, body.whatsapp_sender_id || null)); }
+    catch (fallbackError: any) { return NextResponse.json({ error: fallbackError?.message || "Não foi possível criar a campanha." }, { status: 500 }); }
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
@@ -65,6 +143,10 @@ export async function PATCH(request: NextRequest) {
     const groupJids = Array.from(new Set(body.group_jids));
     if (groupJids.some((jid) => !validateGroupJid(jid))) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
     const { error } = await sb.rpc("replace_campaign_groups_atomic", { p_campanha_id: body.id, p_group_jids: groupJids });
+    if (error && isMissingRpc(error, "replace_campaign_groups_atomic")) {
+      try { return NextResponse.json(await replaceCampaignGroupsFallback(sb, body.id, groupJids)); }
+      catch (fallbackError: any) { return NextResponse.json({ error: fallbackError?.message || "Não foi possível atualizar os grupos da campanha." }, { status: 500 }); }
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
