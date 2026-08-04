@@ -92,6 +92,7 @@ export class GlobalSendQueue {
       if (!isMissingRpc(error, "claim_next_envio")) throw error;
       envio = await this.claimDirect("envios");
     }
+    if (!envio?.id) envio = await this.claimDirect("envios");
     if (envio?.id) {
       this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
       return;
@@ -103,6 +104,7 @@ export class GlobalSendQueue {
       if (!isMissingRpc(error, "claim_next_envio_grupo")) throw error;
       grupo = await this.claimDirect("envios_grupo");
     }
+    if (!grupo?.id) grupo = await this.claimDirect("envios_grupo");
     if (grupo?.id) this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
   }
 
