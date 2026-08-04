@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { appUrl } from "@/lib/env";
 import { requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await auth.auth.signUp({
     email: parsed.data.email.toLowerCase(),
     password: parsed.data.password,
-    options: { data: { name: parsed.data.name }, emailRedirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/confirm?next=/auth/pending` }
+    options: { data: { name: parsed.data.name }, emailRedirectTo: `${appUrl()}/auth/confirm?next=/auth/pending` }
   });
   if (error) {
     const message = error.message.toLowerCase();

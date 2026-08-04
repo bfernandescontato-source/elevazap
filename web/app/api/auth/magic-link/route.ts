@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { appUrl } from "@/lib/env";
 import { clientIp, persistentRateLimit, requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   if (!email.success) return NextResponse.redirect(new URL("/magic-link?error=invalid", request.url), { status: 303 });
   const { error } = await (await supabaseAuth()).auth.signInWithOtp({
     email: email.data.toLowerCase(),
-    options: { shouldCreateUser: false, emailRedirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/confirm?next=/dashboard` }
+    options: { shouldCreateUser: false, emailRedirectTo: `${appUrl()}/auth/confirm?next=/dashboard` }
   });
   if (error) return NextResponse.redirect(new URL("/magic-link?error=invalid", request.url), { status: 303 });
   return NextResponse.redirect(new URL("/magic-link?sent=1", request.url), { status: 303 });

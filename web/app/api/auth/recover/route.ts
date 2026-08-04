@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { appUrl } from "@/lib/env";
 import { clientIp, persistentRateLimit, requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const email = z.string().email().safeParse(String((await request.formData()).get("email") || "").trim());
   if (email.success) {
     await (await supabaseAuth()).auth.resetPasswordForEmail(email.data.toLowerCase(), {
-      redirectTo: `${env().NEXT_PUBLIC_APP_URL}/auth/confirm?next=/redefinir-senha`
+      redirectTo: `${appUrl()}/auth/confirm?next=/redefinir-senha`
     });
   }
   return NextResponse.redirect(new URL("/recuperar-senha?sent=1", request.url), { status: 303 });

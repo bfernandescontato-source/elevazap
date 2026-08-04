@@ -17,3 +17,11 @@ const serverEnvSchema = z.object({
 export function env() {
   return serverEnvSchema.parse(process.env);
 }
+
+export function appUrl() {
+  const configured = env().NEXT_PUBLIC_APP_URL;
+  if (process.env.NODE_ENV === "production" && new URL(configured).hostname === "localhost") {
+    return "https://www.disparei.pro";
+  }
+  return configured;
+}
