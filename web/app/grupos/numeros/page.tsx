@@ -118,7 +118,8 @@ export default function NumerosPage() {
       const route = action === "restart" ? "/api/whatsapp/restart" : action === "logout" ? "/api/whatsapp/logout" : "/api/whatsapp/groups/refresh";
       const response = await fetch(route, { method: "POST" });
       const data = await responseData(response);
-      if (!response.ok) throw new Error(data.error || `Falha ao gerar o QR Code (${response.status}). Tente novamente em alguns segundos.`);
+      const fallbackError = action === "restart" ? `Falha ao gerar o QR Code (${response.status}). Tente novamente em alguns segundos.` : action === "logout" ? `Falha ao desconectar o número (${response.status}).` : `Falha ao atualizar os grupos (${response.status}).`;
+      if (!response.ok) throw new Error(data.error || fallbackError);
       if (action === "restart" && data.qr) setPrincipal((current) => ({ ...current, ...data }));
       setToast(action === "restart" ? data.qr ? "QR Code pronto. Escaneie com o WhatsApp." : "Novo QR Code solicitado. Aguarde alguns segundos." : action === "logout" ? "Número principal desconectado." : "Grupos atualizados.");
       window.setTimeout(() => load().catch(() => undefined), 800);

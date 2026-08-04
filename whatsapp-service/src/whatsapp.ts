@@ -118,7 +118,7 @@ export async function createWhatsAppRuntime() {
   async function refreshGroups() {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
     const groups = await discoverParticipatingGroups(sock);
-    const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group)));
+    const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })));
     if (rows.length) {
       const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
       if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);

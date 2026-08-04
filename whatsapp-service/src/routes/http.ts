@@ -110,9 +110,13 @@ export function createHttpServer(
     return res.json({ groups: await runtime.refreshGroups() });
   });
   app.post("/refresh-groups", async (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    return res.json({ groups: await runtime.refreshGroups() });
+    try {
+      const runtime = runtimeRef.current;
+      if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
+      return res.json({ groups: await runtime.refreshGroups() });
+    } catch (e: any) {
+      return res.status(503).json({ error: e?.message || "Não foi possível atualizar os grupos." });
+    }
   });
   app.post("/groups/resolve-invite", async (req, res) => {
     try {

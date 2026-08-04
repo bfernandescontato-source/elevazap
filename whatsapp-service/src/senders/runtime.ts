@@ -88,7 +88,7 @@ export async function refreshSenderGroups(sessionName: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
   const groups = await discoverParticipatingGroups(sock);
-  const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group)));
+  const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })));
   if (rows.length) {
     const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
     if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);

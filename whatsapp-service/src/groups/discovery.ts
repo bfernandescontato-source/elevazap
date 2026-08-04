@@ -10,7 +10,7 @@ export type StoredGroup = {
   nome?: string;
   qtd_membros: number;
   sou_admin: boolean;
-  foto_url: string | null;
+  foto_url?: string | null;
   updated_at: string;
 };
 
@@ -32,19 +32,20 @@ export function extractInviteCode(value: string) {
   throw new Error("Cole um link de convite válido do WhatsApp.");
 }
 
-export async function groupToStoredRow(sock: any, group: GroupMetadata): Promise<StoredGroup> {
+export async function groupToStoredRow(sock: any, group: GroupMetadata, options: { includePhoto?: boolean } = {}): Promise<StoredGroup> {
   if (!group.id) throw new Error("O WhatsApp não informou o identificador do grupo.");
-  let photoUrl: string | null = null;
-  try { photoUrl = await withTimeout("groups.photo", env.GROUP_SYNC_TIMEOUT_MS, sock.profilePictureUrl(group.id, "image")); } catch {}
   const participants = Array.isArray(group.participants) ? group.participants as any[] : [];
-  return {
+  const row: StoredGroup = {
     group_jid: group.id,
     nome: group.subject,
     qtd_membros: participants.length || Number(group.size || 0),
     sou_admin: participants.some((participant) => participant.id === sock.user?.id && ["admin", "superadmin"].includes(participant.admin)),
-    foto_url: photoUrl,
     updated_at: new Date().toISOString()
   };
+  if (options.includePhoto !== false) {
+    try { row.foto_url = await withTimeout("groups.photo", env.GROUP_SYNC_TIMEOUT_MS, sock.profilePictureUrl(group.id, "image")); } catch {}
+  }
+  return row;
 }
 
 export async function discoverGroupByInvite(sock: any, inviteUrl: string) {
