@@ -39,7 +39,12 @@ export async function POST(request: NextRequest) {
   if (!data.user) return NextResponse.redirect(new URL("/cadastro?error=provider", request.url), { status: 303 });
   const profile = await getOrCreateUserProfile(data.user);
   if (!profile) return NextResponse.redirect(new URL("/cadastro?error=provider", request.url), { status: 303 });
-  if (profile.status !== "active") return NextResponse.redirect(new URL("/auth/pending", request.url), { status: 303 });
-  await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
+  const { data: activeProfile, error: activateError } = await admin.from("app_users").update({
+    status: "active",
+    approved_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }).eq("id", profile.id).select("id,email,name,role,status").single();
+  if (activateError || !activeProfile) return NextResponse.redirect(new URL("/cadastro?error=provider", request.url), { status: 303 });
+  await createSession({ userId: activeProfile.id, email: activeProfile.email, name: activeProfile.name, role: activeProfile.role, source: "supabase" });
   return NextResponse.redirect(new URL("/dashboard", request.url), { status: 303 });
 }
