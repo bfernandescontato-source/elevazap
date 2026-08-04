@@ -70,8 +70,12 @@ export default function NumerosPage() {
       const data = await responseData(response);
       if (!response.ok) throw new Error(data.error || "Falha ao criar número.");
       setLabel("");
-      setToast("Número criado. Escaneie o QR Code para conectar.");
+      if (data.sender) setSenders((current) => [...current.filter((item) => item.id !== data.sender.id), data.sender]);
+      setToast(data.sender?.qr ? "QR Code pronto. Escaneie com o WhatsApp." : "Número criado. Aguardando o QR Code...");
       await load();
+    } catch (error) {
+      await load().catch(() => undefined);
+      throw error;
     } finally {
       setActionId("");
     }
@@ -83,7 +87,8 @@ export default function NumerosPage() {
       const response = await fetch(`/api/whatsapp/senders/${sender.id}/${action}`, { method: "POST" });
       const data = await responseData(response);
       if (!response.ok) throw new Error(data.error || `Falha ao atualizar número (${response.status}).`);
-      setToast(action === "refresh-groups" ? "Grupos atualizados." : action === "disconnect" ? "Número desconectado." : "Conexão iniciada. Escaneie o QR Code.");
+      if (action === "connect" && data.status === "connected") setToast("Este número já está conectado.");
+      else setToast(action === "refresh-groups" ? "Grupos atualizados." : action === "disconnect" ? "Número desconectado." : data.qr ? "QR Code pronto. Escaneie com o WhatsApp." : "Conexão iniciada. Aguardando o QR Code...");
       await load();
     } finally {
       setActionId("");
@@ -114,7 +119,8 @@ export default function NumerosPage() {
       const response = await fetch(route, { method: "POST" });
       const data = await responseData(response);
       if (!response.ok) throw new Error(data.error || `Falha ao gerar o QR Code (${response.status}). Tente novamente em alguns segundos.`);
-      setToast(action === "restart" ? "Novo QR Code solicitado." : action === "logout" ? "Número principal desconectado." : "Grupos atualizados.");
+      if (action === "restart" && data.qr) setPrincipal((current) => ({ ...current, ...data }));
+      setToast(action === "restart" ? data.qr ? "QR Code pronto. Escaneie com o WhatsApp." : "Novo QR Code solicitado. Aguarde alguns segundos." : action === "logout" ? "Número principal desconectado." : "Grupos atualizados.");
       window.setTimeout(() => load().catch(() => undefined), 800);
     } finally {
       setActionId("");
@@ -137,7 +143,7 @@ export default function NumerosPage() {
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} /> <span className="truncate">Número principal</span></div><div className="mt-1 text-sm text-muted">{principal.phone_number || "Número aguardando conexão"}</div></div><StatusBadge status={principal.status} /></div>
         <dl className="mt-5 grid gap-3 border-y border-line py-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted">Nome no WhatsApp</dt><dd className="text-right font-medium">{principal.display_name || "Não disponível"}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted">Uso</dt><dd className="text-right">Padrão para envios sem número selecionado</dd></div></dl>
         {principal.qr ? <div className="mt-4"><p className="mb-3 text-center text-sm text-muted">Escaneie com o WhatsApp deste número</p><div className="flex justify-center rounded-lg bg-wash p-4"><img src={principal.qr} alt="QR Code do número principal" className="h-56 w-56 rounded-lg bg-white p-2" /></div></div> : null}
-        <div className="mt-4 flex flex-wrap gap-2"><ActionButton icon={<QrCode size={15} />} disabled={actionId.startsWith("principal")} className="border border-line bg-white text-ink" onClick={() => principalAction("restart").catch(fail)}>Gerar QR</ActionButton><ActionButton icon={<RefreshCw size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("refresh").catch(fail)}>Atualizar grupos</ActionButton><ActionButton icon={<Unplug size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("logout").catch(fail)}>Desconectar</ActionButton></div>
+        <div className="mt-4 flex flex-wrap gap-2"><ActionButton icon={<QrCode size={15} />} disabled={actionId.startsWith("principal") || principal.status === "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("restart").catch(fail)}>{actionId === "principal:restart" ? "Gerando QR..." : "Gerar QR"}</ActionButton><ActionButton icon={<RefreshCw size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("refresh").catch(fail)}>Atualizar grupos</ActionButton><ActionButton icon={<Unplug size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("logout").catch(fail)}>Desconectar</ActionButton></div>
       </article>
       {senders.map((sender) => {
       const busy = actionId.startsWith(sender.id);

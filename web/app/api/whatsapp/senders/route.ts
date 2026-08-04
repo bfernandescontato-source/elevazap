@@ -26,6 +26,13 @@ export async function POST(request: NextRequest) {
   const sessionName = `sender_${randomUUID().replace(/-/g, "").slice(0, 18)}`;
   const { data, error } = await supabaseAdmin().from("whatsapp_senders").insert({ label, session_name: sessionName }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await callWhatsappService(`/senders/${sessionName}/connect`, { method: "POST" }).catch(() => undefined);
-  return NextResponse.json({ sender: await withStatus(data) }, { status: 201 });
+  try {
+    const connection = await callWhatsappService(`/senders/${sessionName}/connect`, { method: "POST" });
+    return NextResponse.json({ sender: { ...data, ...connection } }, { status: 201 });
+  } catch (connectionError: any) {
+    return NextResponse.json({
+      error: connectionError?.message || "O número foi salvo, mas o serviço não conseguiu gerar o QR Code.",
+      sender: data
+    }, { status: 503 });
+  }
 }

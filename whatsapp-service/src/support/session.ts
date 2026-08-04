@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion } from "@whiskeysockets/baileys";
+import makeWASocket, { DisconnectReason } from "@whiskeysockets/baileys";
 import { pino } from "pino";
 import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
@@ -6,12 +6,14 @@ import { useSupabaseAuthState } from "../auth/supabase-auth-state.js";
 import { env } from "../env.js";
 import { withTimeout } from "../utils/timeout.js";
 import { errorFields } from "../utils/log.js";
+import { getBaileysVersion } from "../utils/baileys-version.js";
 
 export type SupportSession = {
   sessionId: string;
   sock: any;
   getStatus: () => "idle" | "starting" | "waiting_qr" | "connected" | "reconnecting" | "logged_out" | "failed";
   getQr: () => string;
+  getLastError: () => string | null;
   logout: () => Promise<void>;
   stop: () => void;
 };
@@ -26,6 +28,7 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
   let currentQr = "";
   let stopped = false;
   let starting = false;
+  let lastError: string | null = null;
 
   async function finishLogout() {
     if (!sock) return;
@@ -39,12 +42,14 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
     if (stopped || starting) return;
     starting = true;
     status = "starting";
+    currentQr = "";
+    lastError = null;
     try {
       if (fresh) {
         await auth.clearAuth();
         auth = await useSupabaseAuthState(sessionId);
       }
-      const { version } = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, fetchLatestBaileysVersion());
+      const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
       sock = makeWASocket({
         version,
         auth: auth.state,
@@ -54,12 +59,13 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
 
       sock.ev.on("creds.update", () => auth.saveCreds().catch((error) => {
         status = "failed";
+        lastError = "Falha ao salvar a conexão do WhatsApp.";
         console.error({ event: "whatsapp.credentials_save_failed", component: "managed-session", ...errorFields(error) });
       }));
 
       sock.ev.on("connection.update", async (update: any) => {
         if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; }
-        if (update.connection === "open") { status = "connected"; currentQr = ""; }
+        if (update.connection === "open") { status = "connected"; currentQr = ""; lastError = null; }
         if (update.connection === "connecting" && status !== "waiting_qr") status = "starting";
         if (update.connection === "close") {
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
@@ -67,8 +73,10 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
             if (code === DisconnectReason.loggedOut) {
               status = "logged_out";
               currentQr = "";
+              lastError = "A sessão foi desconectada pelo WhatsApp.";
             } else {
               status = "reconnecting";
+              lastError = "Conexão interrompida. Tentando novamente.";
               setTimeout(() => void start().catch(() => undefined), 5000);
             }
           }
@@ -86,6 +94,7 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
       }
     } catch (error) {
       status = "failed";
+      lastError = error instanceof Error ? error.message : "Falha ao iniciar o WhatsApp.";
       console.error({ event: "whatsapp.start_failed", component: "managed-session", ...errorFields(error) });
       throw error;
     } finally {
@@ -100,12 +109,14 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
     get sock() { return sock; },
     getStatus: () => status,
     getQr: () => currentQr,
+    getLastError: () => lastError,
     logout: async () => {
       stopped = true;
       await finishLogout();
       await auth.clearAuth();
       status = "logged_out";
       currentQr = "";
+      lastError = null;
     },
     stop: () => {
       stopped = true;

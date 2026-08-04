@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion } from "@whiskeysockets/baileys";
+import makeWASocket, { DisconnectReason } from "@whiskeysockets/baileys";
 import { pino } from "pino";
 import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
@@ -10,6 +10,7 @@ import { scheduleParticipantEventSync } from "./groups/events.js";
 import { env } from "./env.js";
 import { withTimeout } from "./utils/timeout.js";
 import { errorFields } from "./utils/log.js";
+import { getBaileysVersion } from "./utils/baileys-version.js";
 
 export type WhatsAppRuntime = Awaited<ReturnType<typeof createWhatsAppRuntime>>;
 export type WhatsAppState = "idle" | "starting" | "waiting_qr" | "connected" | "reconnecting" | "logged_out" | "failed";
@@ -49,7 +50,7 @@ export async function createWhatsAppRuntime() {
         await auth.clearAuth();
         auth = await useSupabaseAuthState();
       }
-      const { version } = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, fetchLatestBaileysVersion());
+      const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
       await stopSocket(false);
       const nextSock = makeWASocket({
         version,

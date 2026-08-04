@@ -40,6 +40,8 @@ export async function startSenderSessionByName(sessionName: string) {
   if (!sender) throw new Error("Número não encontrado.");
   const current = senders.get(sessionName);
   if (current) {
+    const status = current.session.getStatus();
+    if (["starting", "waiting_qr", "connected", "reconnecting"].includes(status)) return current;
     await current.session.logout();
     senders.delete(sessionName);
   }
@@ -56,11 +58,12 @@ export async function disconnectSenderSession(sessionName: string) {
 export function getSenderStatus(sessionName: string) {
   const managed = senders.get(sessionName);
   if (!managed) return { status: "disconnected", qr: "" };
-  const user = managed.session.sock.user;
+  const user = managed.session.sock?.user;
   const phoneNumber = user?.id ? user.id.split(":")[0].split("@")[0] : "";
   return {
     status: managed.session.getStatus(),
     qr: managed.session.getQr(),
+    error: managed.session.getLastError(),
     phone_number: phoneNumber,
     display_name: user?.name || ""
   };

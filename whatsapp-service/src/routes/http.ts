@@ -17,6 +17,7 @@ import {
   syncSenderGroups,
   startSenderSessionByName
 } from "../senders/runtime.js";
+import { waitForSessionReady } from "../utils/session-ready.js";
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health" || req.path === "/ready") return next();
@@ -82,8 +83,20 @@ export function createHttpServer(
   app.post("/restart", async (_req, res) => {
     const runtime = runtimeRef.current;
     if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    await runtime.restart();
-    return res.json({ ok: true });
+    try {
+      await runtime.restart();
+      const result = await waitForSessionReady(() => ({
+        status: runtime.getStatus(),
+        qr: runtime.getQr(),
+        error: runtime.getLastError()
+      }));
+      if (result.status === "failed" || result.status === "logged_out") {
+        return res.status(503).json({ ...result, error: result.error || "Não foi possível gerar o QR Code." });
+      }
+      return res.status(result.qr || result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
+    } catch (e: any) {
+      return res.status(503).json({ error: e?.message || "Não foi possível gerar o QR Code." });
+    }
   });
   app.post("/logout", async (_req, res) => {
     const runtime = runtimeRef.current;
@@ -128,9 +141,13 @@ export function createHttpServer(
   app.post("/senders/:sessionName/connect", async (req, res) => {
     try {
       await startSenderSessionByName(req.params.sessionName);
-      res.json({ ok: true });
+      const result = await waitForSessionReady(() => getSenderStatus(req.params.sessionName));
+      if (result.status === "failed" || result.status === "logged_out") {
+        return res.status(503).json({ ...result, error: result.error || "Não foi possível gerar o QR Code." });
+      }
+      return res.status(result.qr || result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      return res.status(503).json({ error: e.message });
     }
   });
 
