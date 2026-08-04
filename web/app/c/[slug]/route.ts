@@ -16,20 +16,34 @@ function isMissingRedirectRpc(error: any) {
   ));
 }
 
+function isMissingColumnError(error: any) {
+  return Boolean(error && (error.code === "PGRST204" || error.code === "42703" || /column .* does not exist|could not find the .* column/i.test(error.message || "")));
+}
+
 async function resolveRedirectFallback(sb: any, slug: string) {
-  const { data: campaign, error: campaignError } = await sb.from("campanhas")
-    .select("id,status,link_ativo,fallback_type,fallback_url,allow_stale_participant_count,participant_data_max_age_seconds,participant_data_stale_grace_seconds,stale_participant_safety_margin,reuse_available_groups,total_accesses,total_redirects")
+  let { data: campaign, error: campaignError } = await sb.from("campanhas")
+    .select("id,status,link_ativo,fallback_type,fallback_url,allow_stale_participant_count,participant_data_max_age_seconds,participant_data_stale_grace_seconds,stale_participant_safety_margin,reuse_available_groups")
     .eq("public_slug", slug)
     .maybeSingle();
+  if (campaignError && isMissingColumnError(campaignError)) {
+    const legacy = await sb.from("campanhas").select("id,status,link_ativo,fallback_type,fallback_url").eq("public_slug", slug).maybeSingle();
+    campaign = legacy.data;
+    campaignError = legacy.error;
+  }
   if (campaignError) throw campaignError;
   if (!campaign) return { ok: false, not_found: true };
 
   const fallbackUrl = campaign.fallback_type === "url" ? campaign.fallback_url : null;
   if (campaign.status !== "ativa" || !campaign.link_ativo) return { ok: false, fallback_url: fallbackUrl };
 
-  const { data: links, error: linksError } = await sb.from("campanha_grupos")
-    .select("group_jid,position,manual_status,participant_count,participants_synced_at,participant_limit,safety_margin,capacity_reached_at,invite_url,redirection_count")
+  let { data: links, error: linksError } = await sb.from("campanha_grupos")
+    .select("group_jid,position,manual_status,participant_count,participants_synced_at,participant_limit,safety_margin,capacity_reached_at,invite_url")
     .eq("campanha_id", campaign.id);
+  if (linksError && isMissingColumnError(linksError)) {
+    const legacy = await sb.from("campanha_grupos").select("group_jid,invite_url").eq("campanha_id", campaign.id);
+    links = legacy.data;
+    linksError = legacy.error;
+  }
   if (linksError) throw linksError;
 
   const now = Date.now();
@@ -39,7 +53,7 @@ async function resolveRedirectFallback(sb: any, slug: string) {
     .filter((group: any) => {
       if (group.manual_status && group.manual_status !== "disponivel") return false;
       if (!group.invite_url || !/^https:\/\/chat\.whatsapp\.com\//.test(group.invite_url)) return false;
-      if (group.participant_count == null || !group.participants_synced_at) return false;
+      if (group.participant_count == null || !group.participants_synced_at) return Boolean(group.invite_url);
       const ageSeconds = (now - new Date(group.participants_synced_at).getTime()) / 1000;
       if (ageSeconds > maxAge && (!campaign.allow_stale_participant_count || ageSeconds > maxAge + grace)) return false;
       if (!campaign.reuse_available_groups && group.capacity_reached_at) return false;
@@ -51,9 +65,9 @@ async function resolveRedirectFallback(sb: any, slug: string) {
   await sb.from("campanhas").update({ total_accesses: Number(campaign.total_accesses || 0) + 1, updated_at: new Date().toISOString() }).eq("id", campaign.id);
   if (!selected) return { ok: false, fallback_url: fallbackUrl, reason: "nenhum_grupo_confiavel" };
 
-  await sb.from("campanha_grupos").update({ redirection_count: Number(selected.redirection_count || 0) + 1, updated_at: new Date().toISOString() })
+  await sb.from("campanha_grupos").update({ updated_at: new Date().toISOString() })
     .eq("campanha_id", campaign.id).eq("group_jid", selected.group_jid);
-  await sb.from("campanhas").update({ total_redirects: Number(campaign.total_redirects || 0) + 1, updated_at: new Date().toISOString() }).eq("id", campaign.id);
+  await sb.from("campanhas").update({ updated_at: new Date().toISOString() }).eq("id", campaign.id);
   return { ok: true, destination_url: selected.invite_url, campaign_id: campaign.id, group_jid: selected.group_jid };
 }
 
