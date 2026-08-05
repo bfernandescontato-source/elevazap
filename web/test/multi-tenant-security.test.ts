@@ -90,6 +90,13 @@ describe("isolamento multi-tenant", () => {
     expect(migration).toContain("grant execute on function public.claim_next_envio() to service_role");
   });
 
+  it("mantém o redirecionador funcional quando a sincronização de participantes atrasa", () => {
+    const route = read("web/app/c/[slug]/route.ts");
+    expect(route).toContain('data?.reason === "nenhum_grupo_confiavel"');
+    expect(route).toContain("resolveRedirectFallback(sb, slug)");
+    expect(route).not.toContain("ageSeconds > maxAge");
+  });
+
   it("usa o cliente autenticado com RLS nas APIs de leitura migradas", () => {
     for (const route of [
       "web/app/api/dashboard/summary/route.ts",

@@ -46,16 +46,11 @@ async function resolveRedirectFallback(sb: any, slug: string) {
   }
   if (linksError) throw linksError;
 
-  const now = Date.now();
-  const maxAge = Number(campaign.participant_data_max_age_seconds || 900);
-  const grace = Number(campaign.participant_data_stale_grace_seconds || 3600);
   const selected = (links || [])
     .filter((group: any) => {
       if (group.manual_status && group.manual_status !== "disponivel") return false;
       if (!group.invite_url || !/^https:\/\/chat\.whatsapp\.com\//.test(group.invite_url)) return false;
       if (group.participant_count == null || !group.participants_synced_at) return Boolean(group.invite_url);
-      const ageSeconds = (now - new Date(group.participants_synced_at).getTime()) / 1000;
-      if (ageSeconds > maxAge && (!campaign.allow_stale_participant_count || ageSeconds > maxAge + grace)) return false;
       if (!campaign.reuse_available_groups && group.capacity_reached_at) return false;
       if (group.participant_limit != null && Number(group.participant_count) >= Math.max(0, Number(group.participant_limit) - Number(group.safety_margin || 0))) return false;
       return true;
@@ -111,6 +106,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       redirectError = null;
     } catch (fallbackError) {
       console.error("campaign redirect fallback failed", fallbackError);
+    }
+  }
+  if (!redirectError && !data?.destination_url && data?.reason === "nenhum_grupo_confiavel") {
+    try {
+      const fallback = await resolveRedirectFallback(sb, slug);
+      if (fallback?.destination_url || fallback?.fallback_url) data = fallback;
+    } catch (fallbackError) {
+      console.error("campaign redirect availability fallback failed", fallbackError);
     }
   }
   if (redirectError) return messagePage("Não foi possível processar este acesso agora. Tente novamente em instantes.", 503);
