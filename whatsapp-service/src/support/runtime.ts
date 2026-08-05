@@ -17,7 +17,7 @@ async function startAgentSession(agent: any) {
   const session = await createSupportSession(agent.whatsapp_session_id, async (messages) => {
     const current = sessions.get(agent.id);
     await handleIncomingMessages(agent.id, current?.agent || agent, session.sock, messages);
-  });
+  }, undefined, agent.account_id);
 
   sessions.set(agent.id, { agent, session });
   console.log(`[support] Session started for agent ${agent.id} (${agent.whatsapp_session_id})`);

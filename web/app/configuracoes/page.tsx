@@ -5,7 +5,7 @@ import { CreditCard, KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserRound, Use
 import { useEffect, useState } from "react";
 
 type Tab = "account" | "users" | "security" | "billing";
-type AccountData = { name: string | null; email: string; role: string };
+type AccountData = { name: string | null; email: string; role: string; plan: string; status: string; accountName: string | null };
 type Capabilities = { userManagement: boolean; passwordChange: boolean };
 type ManagedUser = { id: string; email: string; name: string | null; role: "admin" | "operator"; status: "pending" | "active" | "disabled"; created_at: string };
 
@@ -61,12 +61,14 @@ export default function ConfiguracoesPage() {
             <label className="text-sm font-medium text-ink">Nome<input readOnly value={account.name || ""} placeholder="Nome não informado" className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
             <label className="text-sm font-medium text-ink">E-mail<input readOnly value={account.email} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
             <label className="text-sm font-medium text-ink">Nível de acesso<input readOnly value={account.role} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
+            <label className="text-sm font-medium text-ink">Plano<input readOnly value={account.plan} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
+            <label className="text-sm font-medium text-ink">Status da assinatura<input readOnly value={account.status === "active" ? "Ativa" : account.status} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
           </div>
           <div className="mt-6 rounded-lg border border-line bg-wash p-4 text-sm text-muted">O e-mail e o nível de acesso são gerenciados pelo sistema seguro de autenticação.</div>
         </section> : null}
 
         {account && tab === "users" ? <section className="space-y-5">
-          <div><h2 className="text-lg font-semibold text-ink">Usuários</h2><p className="mt-1 text-sm text-muted">Aprove, bloqueie e defina o nível de acesso dos cadastros.</p></div>
+          <div><h2 className="text-lg font-semibold text-ink">Usuários</h2><p className="mt-1 text-sm text-muted">Gerencie os acessos vinculados à sua conta.</p></div>
           {userError ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{userError}</div> : null}
           {!capabilities.userManagement ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Somente administradores podem gerenciar usuários.</div> : <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel shadow-soft">
             {users.map((user) => <div key={user.id} className="grid gap-3 p-4 lg:grid-cols-[1fr_140px_150px_auto] lg:items-center">

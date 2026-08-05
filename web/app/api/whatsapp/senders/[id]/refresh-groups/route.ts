@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardAdminMutation } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 
@@ -7,8 +7,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const guard = await guardAdminMutation(request, "whatsapp_senders");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const sb = supabaseAdmin();
-  const { data: sender } = await sb.from("whatsapp_senders").select("*").eq("id", id).maybeSingle();
+  const { data: sender } = await sb.from("whatsapp_senders").select("*").eq("id", id).eq("account_id", context.accountId).maybeSingle();
   if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
   const result = await callWhatsappService(`/senders/${sender.session_name}/refresh-groups`, { method: "POST" });
   const groups = result.groups || [];
@@ -18,6 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .upsert(
         groups.map((group: any) => ({
           whatsapp_sender_id: sender.id,
+          account_id: context.accountId,
           group_jid: group.group_jid,
           updated_at: new Date().toISOString()
         })),

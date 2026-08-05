@@ -99,10 +99,13 @@ export async function executeTool(
 
       case "consultar_status_reembolso": {
         const orderId = String(args.order_id || "");
+        const { data: conversation } = await supabase.from("support_conversation").select("account_id").eq("id", ctx.conversationId).maybeSingle();
+        if (!conversation?.account_id) return { result: "Conversa sem conta associada." };
         const { data: req } = await supabase
           .from("refund_request")
           .select("status, created_at, decided_at")
           .eq("elevapay_order_id", orderId)
+          .eq("account_id", conversation.account_id)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -123,7 +126,10 @@ export async function executeTool(
           } catch {}
         }
 
+        const { data: conversation } = await supabase.from("support_conversation").select("account_id").eq("id", ctx.conversationId).maybeSingle();
+        if (!conversation?.account_id) return { result: "Não foi possível identificar a conta desta conversa." };
         await supabase.from("refund_request").insert({
+          account_id: conversation.account_id,
           conversation_id: ctx.conversationId,
           contact_jid: ctx.contactJid,
           customer_name: nomeCompleto,

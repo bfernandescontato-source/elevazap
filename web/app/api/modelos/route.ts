@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { modeloMensagemSchema } from "@/lib/schemas";
-import { guardAdminMutation, requireAdmin } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 function toRow(body: any) {
@@ -20,10 +20,10 @@ function toRow(body: any) {
 }
 
 export async function GET(request: NextRequest) {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const pastaId = new URL(request.url).searchParams.get("pasta_id");
-  let query = supabaseAdmin().from("modelos_mensagem").select("*").order("created_at", { ascending: false });
+  let query = supabaseAdmin().from("modelos_mensagem").select("*").eq("account_id", context.accountId).order("created_at", { ascending: false });
   if (pastaId) query = query.eq("pasta_id", pastaId);
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -33,9 +33,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const parsed = modeloMensagemSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Modelo inválido." }, { status: 400 });
-  const { data, error } = await supabaseAdmin().from("modelos_mensagem").insert(toRow(parsed.data)).select("*").single();
+  const { data, error } = await supabaseAdmin().from("modelos_mensagem").insert({ ...toRow(parsed.data), account_id: context.accountId }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, modelo: data });
 }
@@ -43,9 +45,11 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const parsed = modeloMensagemSchema.required({ id: true }).safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Modelo inválido." }, { status: 400 });
-  const { error } = await supabaseAdmin().from("modelos_mensagem").update(toRow(parsed.data)).eq("id", parsed.data.id);
+  const { error } = await supabaseAdmin().from("modelos_mensagem").update(toRow(parsed.data)).eq("id", parsed.data.id).eq("account_id", context.accountId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
@@ -53,9 +57,11 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Modelo inválido." }, { status: 400 });
-  const { error } = await supabaseAdmin().from("modelos_mensagem").delete().eq("id", id);
+  const { error } = await supabaseAdmin().from("modelos_mensagem").delete().eq("id", id).eq("account_id", context.accountId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

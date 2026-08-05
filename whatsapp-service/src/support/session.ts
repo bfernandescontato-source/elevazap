@@ -21,8 +21,8 @@ export type SupportSession = {
 type MessageHandler = (messages: any[]) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 
-export async function createSupportSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler): Promise<SupportSession> {
-  let auth = await useSupabaseAuthState(sessionId);
+export async function createSupportSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string): Promise<SupportSession> {
+  let auth = await useSupabaseAuthState(sessionId, accountId);
   let sock: any = null;
   let status: ReturnType<SupportSession["getStatus"]> = "idle";
   let currentQr = "";
@@ -47,7 +47,7 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
     try {
       if (fresh) {
         await auth.clearAuth();
-        auth = await useSupabaseAuthState(sessionId);
+        auth = await useSupabaseAuthState(sessionId, accountId);
       }
       const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
       sock = makeWASocket({

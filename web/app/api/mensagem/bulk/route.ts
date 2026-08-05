@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { maskPhone, normalizeBrazilianPhone } from "@/lib/phone";
-import { guardAdminMutation } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { bulkMensagemSchema } from "@/lib/schemas";
 import { supabaseAdmin } from "@/lib/supabase";
 import { renderApprovedPurchaseMessage } from "@/lib/message-template";
@@ -8,6 +8,8 @@ import { renderApprovedPurchaseMessage } from "@/lib/message-template";
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "mensagem_bulk");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const parsed = bulkMensagemSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -16,7 +18,7 @@ export async function POST(request: NextRequest) {
 
   const sb = supabaseAdmin();
   const { data: sender } = parsed.data.whatsapp_sender_id
-    ? await sb.from("whatsapp_senders").select("*").eq("id", parsed.data.whatsapp_sender_id).maybeSingle()
+    ? await sb.from("whatsapp_senders").select("*").eq("id", parsed.data.whatsapp_sender_id).eq("account_id", context.accountId).maybeSingle()
     : { data: null };
   if (parsed.data.whatsapp_sender_id && !sender) {
     return NextResponse.json({ error: "Número responsável pelo disparo não encontrado." }, { status: 400 });
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest) {
       const telefone = normalizeBrazilianPhone(cliente.telefone);
       const produto = cliente.produto || "Disparo manual";
       rows.push({
+        account_id: context.accountId,
         source: "massa_manual",
         event: "manual.bulk",
         nome: cliente.nome,

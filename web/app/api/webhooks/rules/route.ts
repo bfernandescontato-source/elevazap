@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
-import { guardAdminMutation, requireAdmin } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const allowedEvents = new Set(["order.paid", "pix.generated", "order.refunded"]);
@@ -62,10 +62,10 @@ async function payloadToRule(body: any, existing?: any) {
   };
 }
 
-async function replaceTemplates(ruleId: string, templates: Record<string, string>) {
+async function replaceTemplates(accountId: string, ruleId: string, templates: Record<string, string>) {
   const sb = supabaseAdmin();
-  await sb.from("webhook_message_templates").delete().eq("webhook_rule_id", ruleId);
-  const rows = Object.entries(templates).map(([event_type, template_body]) => ({ webhook_rule_id: ruleId, event_type, template_body }));
+  await sb.from("webhook_message_templates").delete().eq("webhook_rule_id", ruleId).eq("account_id", accountId);
+  const rows = Object.entries(templates).map(([event_type, template_body]) => ({ account_id: accountId, webhook_rule_id: ruleId, event_type, template_body }));
   if (rows.length) {
     const { error } = await sb.from("webhook_message_templates").insert(rows);
     if (error) throw error;
@@ -77,11 +77,12 @@ function publicRule(rule: any) {
 }
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { data, error } = await supabaseAdmin()
     .from("webhook_rules")
     .select("*, webhook_message_templates(*)")
+    .eq("account_id", context.accountId)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json((data || []).map(publicRule));
@@ -90,15 +91,18 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "webhook_rules");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   try {
     const body = await request.json();
     const { rule, templates } = await payloadToRule(body);
     const { data, error } = await supabaseAdmin().from("webhook_rules").insert({
       ...rule,
+      account_id: context.accountId,
       webhook_token: randomBytes(18).toString("base64url")
     }).select("*").single();
     if (error) throw error;
-    await replaceTemplates(data.id, templates);
+    await replaceTemplates(context.accountId, data.id, templates);
     return NextResponse.json({ ok: true, rule: publicRule(data) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Falha ao salvar regra." }, { status: 400 });
@@ -108,15 +112,17 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const guard = await guardAdminMutation(request, "webhook_rules");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   try {
     const body = await request.json();
     const id = String(body.id || "");
-    const { data: existing, error: findError } = await supabaseAdmin().from("webhook_rules").select("*").eq("id", id).single();
+    const { data: existing, error: findError } = await supabaseAdmin().from("webhook_rules").select("*").eq("id", id).eq("account_id", context.accountId).single();
     if (findError || !existing) throw new Error("Regra não encontrada.");
     const { rule, templates } = await payloadToRule(body, existing);
-    const { data, error } = await supabaseAdmin().from("webhook_rules").update({ ...rule, updated_at: new Date().toISOString() }).eq("id", id).select("*").single();
+    const { data, error } = await supabaseAdmin().from("webhook_rules").update({ ...rule, updated_at: new Date().toISOString() }).eq("id", id).eq("account_id", context.accountId).select("*").single();
     if (error) throw error;
-    await replaceTemplates(id, templates);
+    await replaceTemplates(context.accountId, id, templates);
     return NextResponse.json({ ok: true, rule: publicRule(data) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Falha ao salvar regra." }, { status: 400 });
@@ -126,8 +132,10 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const guard = await guardAdminMutation(request, "webhook_rules");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const body = await request.json().catch(() => ({}));
-  const { error } = await supabaseAdmin().from("webhook_rules").delete().eq("id", String(body.id || ""));
+  const { error } = await supabaseAdmin().from("webhook_rules").delete().eq("id", String(body.id || "")).eq("account_id", context.accountId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -1,37 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, guardAdminMutation } from "@/lib/security";
+import { requireAccountContext, guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { randomUUID } from "crypto";
 
-async function getOrCreateAgent(supabase: ReturnType<typeof supabaseAdmin>) {
-  const { data } = await supabase.from("support_agent").select("*").limit(1).maybeSingle();
+async function getOrCreateAgent(supabase: ReturnType<typeof supabaseAdmin>, accountId: string) {
+  const { data } = await supabase.from("support_agent").select("*").eq("account_id", accountId).limit(1).maybeSingle();
   if (data) return data;
 
   const sessionId = `support_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
   const { data: created } = await supabase
     .from("support_agent")
-    .insert({ whatsapp_session_id: sessionId, name: "Agente de Suporte", enabled: false })
+    .insert({ account_id: accountId, whatsapp_session_id: sessionId, name: "Agente de Suporte", enabled: false })
     .select("*")
     .single();
   return created;
 }
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const supabase = supabaseAdmin();
-  const agent = await getOrCreateAgent(supabase);
-  const { data: kb } = await supabase.from("support_kb").select("*").eq("agent_id", agent.id).order("created_at");
+  const agent = await getOrCreateAgent(supabase, context.accountId);
+  const { data: kb } = await supabase.from("support_kb").select("*").eq("agent_id", agent.id).eq("account_id", context.accountId).order("created_at");
   return NextResponse.json({ agent, kb: kb || [] });
 }
 
 export async function PUT(request: NextRequest) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const agent = await getOrCreateAgent(supabase);
+  const agent = await getOrCreateAgent(supabase, context.accountId);
   const body = await request.json();
 
   const allowed = ["name", "enabled", "system_prompt", "model", "temperature", "max_history",
@@ -45,6 +47,7 @@ export async function PUT(request: NextRequest) {
     .from("support_agent")
     .update(update)
     .eq("id", agent.id)
+    .eq("account_id", context.accountId)
     .select("*")
     .single();
 

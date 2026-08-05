@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/security";
+import { requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const status = request.nextUrl.searchParams.get("status");
   let query = supabaseAdmin()
     .from("webhook_events")
     .select("*, webhook_rules(name), envios(status,erro,attempts,sent_at,wa_message_id)")
+    .eq("account_id", context.accountId)
     .order("created_at", { ascending: false })
     .limit(200);
   if (status) query = query.eq("status", status);

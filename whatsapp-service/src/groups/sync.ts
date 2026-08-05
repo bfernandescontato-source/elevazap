@@ -15,7 +15,7 @@ export type SyncedGroup = {
   invite_error?: string | null;
 };
 
-export async function syncGroupMetadata(sock: any, groupJids: string[]): Promise<SyncedGroup[]> {
+export async function syncGroupMetadata(sock: any, groupJids: string[], accountId?: string): Promise<SyncedGroup[]> {
   const uniqueJids = Array.from(new Set(groupJids.filter((jid) => /^\d+(-\d+)?@g\.us$/.test(jid))));
   const rows: SyncedGroup[] = [];
 
@@ -66,8 +66,8 @@ export async function syncGroupMetadata(sock: any, groupJids: string[]): Promise
     foto_url: row.foto_url,
     updated_at: row.synced_at
   }));
-  if (validRows.length) {
-    await dbResult("groups.upsert", supabase.from("grupos").upsert(validRows, { onConflict: "group_jid" }));
+  if (validRows.length && accountId) {
+    await dbResult("groups.upsert", supabase.from("grupos").upsert(validRows.map((row) => ({ ...row, account_id: accountId })), { onConflict: "account_id,group_jid" }));
   }
   return rows;
 }

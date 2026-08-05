@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardAdminMutation } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await params;
 
   const { title, content } = await request.json();
@@ -14,6 +16,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     .from("support_kb")
     .update({ title, content, updated_at: new Date().toISOString() })
     .eq("id", id)
+    .eq("account_id", context.accountId)
     .select("*")
     .single();
 
@@ -24,9 +27,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await params;
 
   const supabase = supabaseAdmin();
-  await supabase.from("support_kb").delete().eq("id", id);
+  await supabase.from("support_kb").delete().eq("id", id).eq("account_id", context.accountId);
   return NextResponse.json({ ok: true });
 }

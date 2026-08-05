@@ -83,6 +83,9 @@ async function resolveRedirectFallback(sb: any, slug: string) {
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const sb = supabaseAdmin();
+  const { data: tenantCampaign } = await sb.from("campanhas").select("account_id,accounts!inner(status)").eq("public_slug", slug).maybeSingle();
+  const tenantAccount = Array.isArray(tenantCampaign?.accounts) ? tenantCampaign.accounts[0] : tenantCampaign?.accounts;
+  if (!tenantCampaign || tenantAccount?.status !== "active") return messagePage("Este link não existe ou não está mais disponível.", 404);
   const utm = Object.fromEntries(
     ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]
       .map((key) => [key, request.nextUrl.searchParams.get(key)])

@@ -48,14 +48,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const sb = supabaseAdmin();
   const { data: rule } = await sb
     .from("webhook_rules")
-    .select("*, webhook_message_templates(*)")
+    .select("*, webhook_message_templates(*), accounts!inner(status)")
     .eq("webhook_token", token)
     .maybeSingle();
   if (!rule) return NextResponse.json({ error: "Regra não encontrada." }, { status: 404 });
+  const account = Array.isArray(rule.accounts) ? rule.accounts[0] : rule.accounts;
+  if (account?.status !== "active") return NextResponse.json({ error: "Assinatura inativa." }, { status: 403 });
 
   const auth = await authPassed(request, body, rule);
   if (!auth.ok) {
     await createEvent({
+      account_id: rule.account_id,
       webhook_rule_id: rule.id,
       raw_payload: rawPayload,
       conditions_result: { authPassed: false },
@@ -72,6 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   const idempotencyKey = buildIdempotencyKey(rule.id, normalized, rawPayload);
   const base = {
+    account_id: rule.account_id,
     webhook_rule_id: rule.id,
     external_event_id: normalized.external_event_id,
     idempotency_key: idempotencyKey,
@@ -83,7 +87,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     whatsapp_account_id: rule.whatsapp_account_id
   };
 
-  const { data: duplicate } = await sb.from("webhook_events").select("id").eq("webhook_rule_id", rule.id).eq("idempotency_key", idempotencyKey).maybeSingle();
+  const { data: duplicate } = await sb.from("webhook_events").select("id").eq("account_id", rule.account_id).eq("webhook_rule_id", rule.id).eq("idempotency_key", idempotencyKey).maybeSingle();
   if (duplicate) {
     await createEvent({
       ...base,
@@ -119,7 +123,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       error_message: status === "failed" || status === "validation_error" ? message : null,
       conditions_result: conditions,
       processed_at: new Date().toISOString()
-    }).eq("id", event.id);
+    }).eq("id", event.id).eq("account_id", rule.account_id);
     return NextResponse.json({ ok: true, status, message }, { status: httpStatus });
   };
 
@@ -139,6 +143,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { rendered, warnings } = renderAutomationTemplate(template.template_body, normalized, rawPayload, rule.fixed_variables || {});
   const { data: envio, error } = await sb.from("envios").insert({
+    account_id: rule.account_id,
     source: "webhook_elevazap",
     event: normalized.event_type,
     idempotency_key: idempotencyKey,
@@ -164,6 +169,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     warnings,
     conditions_result: conditions,
     processed_at: new Date().toISOString()
-  }).eq("id", event.id);
+  }).eq("id", event.id).eq("account_id", rule.account_id);
   return NextResponse.json({ ok: true, queued: true });
 }

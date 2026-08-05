@@ -9,20 +9,22 @@ type SenderSession = {
   sessionName: string;
   label: string;
   session: SupportSession;
+  accountId: string;
 };
 
 const senders = new Map<string, SenderSession>();
 
-async function startSender(sender: { id: string; session_name: string; label: string }) {
+async function startSender(sender: { id: string; session_name: string; label: string; account_id: string }) {
   const current = senders.get(sender.session_name);
   if (current) return current;
 
   const session = await createSupportSession(
     sender.session_name,
     async () => undefined,
-    async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock)
+    async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock),
+    sender.account_id
   );
-  const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session };
+  const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session, accountId: sender.account_id };
   senders.set(sender.session_name, managed);
   console.log(`[sender] Session started ${sender.label} (${sender.session_name})`);
   return managed;
@@ -69,9 +71,9 @@ export function getSenderStatus(sessionName: string) {
   };
 }
 
-export function getSenderSock(sessionName: string) {
+export function getSenderSock(sessionName: string, accountId?: string) {
   const managed = senders.get(sessionName);
-  if (!managed || managed.session.getStatus() !== "connected") return null;
+  if (!managed || (accountId && managed.accountId !== accountId) || managed.session.getStatus() !== "connected") return null;
   return managed.session.sock;
 }
 
@@ -87,10 +89,12 @@ export function getFirstConnectedSenderSock() {
 export async function refreshSenderGroups(sessionName: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
+  const managed = senders.get(sessionName);
+  if (!managed) throw new Error("Sessão não pertence a uma conta.");
   const groups = await discoverParticipatingGroups(sock);
-  const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })));
+  const rows = (await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })))).map((row) => ({ ...row, account_id: managed.accountId }));
   if (rows.length) {
-    const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+    const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "account_id,group_jid" });
     if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
   }
   return rows;
@@ -99,8 +103,10 @@ export async function refreshSenderGroups(sessionName: string) {
 export async function resolveSenderGroupInvite(sessionName: string, inviteUrl: string) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
-  const row = await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl));
-  const { error } = await supabase.from("grupos").upsert(row, { onConflict: "group_jid" });
+  const managed = senders.get(sessionName);
+  if (!managed) throw new Error("Sessão não pertence a uma conta.");
+  const row = { ...(await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl))), account_id: managed.accountId };
+  const { error } = await supabase.from("grupos").upsert(row, { onConflict: "account_id,group_jid" });
   if (error) throw new Error(`Falha ao salvar o grupo: ${error.message}`);
   return row;
 }
@@ -108,5 +114,7 @@ export async function resolveSenderGroupInvite(sessionName: string, inviteUrl: s
 export async function syncSenderGroups(sessionName: string, groupJids: string[]) {
   const sock = getSenderSock(sessionName);
   if (!sock) throw new Error("Número de disparo desconectado.");
-  return syncGroupMetadata(sock, groupJids);
+  const managed = senders.get(sessionName);
+  if (!managed) throw new Error("Sessão não pertence a uma conta.");
+  return syncGroupMetadata(sock, groupJids, managed.accountId);
 }

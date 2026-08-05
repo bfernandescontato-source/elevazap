@@ -10,12 +10,13 @@ type SyncedGroup = {
   invite_error?: string | null;
 };
 
-export async function syncCampaignGroups(campaignId: string) {
+export async function syncCampaignGroups(accountId: string, campaignId: string) {
   const sb = supabaseAdmin();
   const { data: campaign, error } = await sb
     .from("campanhas")
     .select("id,whatsapp_sender_id,whatsapp_senders(session_name),campanha_grupos(group_jid)")
     .eq("id", campaignId)
+    .eq("account_id", accountId)
     .maybeSingle();
   if (error) throw error;
   if (!campaign) throw new Error("Campanha não encontrada.");
@@ -37,8 +38,8 @@ export async function syncCampaignGroups(campaignId: string) {
   } catch (currentError: any) {
     const message = currentError?.message || "Falha ao consultar o WhatsApp.";
     await Promise.all(groupJids.map(async (groupJid: string) => {
-      await sb.from("campanha_grupos").update({ participants_sync_error: message, updated_at: new Date().toISOString() }).eq("campanha_id", campaignId).eq("group_jid", groupJid);
-      await sb.from("group_participant_syncs").insert({ group_jid: groupJid, whatsapp_sender_id: campaign.whatsapp_sender_id, status: "erro", error: message });
+      await sb.from("campanha_grupos").update({ participants_sync_error: message, updated_at: new Date().toISOString() }).eq("campanha_id", campaignId).eq("account_id", accountId).eq("group_jid", groupJid);
+      await sb.from("group_participant_syncs").insert({ account_id: accountId, group_jid: groupJid, whatsapp_sender_id: campaign.whatsapp_sender_id, status: "erro", error: message });
     }));
     throw currentError;
   }
@@ -53,8 +54,9 @@ export async function syncCampaignGroups(campaignId: string) {
       update.participants_synced_at = row.synced_at;
     }
     if (row.invite_url) update.invite_url = row.invite_url;
-    await sb.from("campanha_grupos").update(update).eq("campanha_id", campaignId).eq("group_jid", row.group_jid);
+    await sb.from("campanha_grupos").update(update).eq("campanha_id", campaignId).eq("account_id", accountId).eq("group_jid", row.group_jid);
     await sb.from("group_participant_syncs").insert({
+      account_id: accountId,
       group_jid: row.group_jid,
       whatsapp_sender_id: campaign.whatsapp_sender_id,
       participant_count: row.qtd_membros,

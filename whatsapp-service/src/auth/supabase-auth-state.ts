@@ -11,17 +11,19 @@ function deserialize<T>(data: unknown): T {
   return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
 }
 
-export async function useSupabaseAuthState(sessionName = "default") {
-  const data = await dbResult<{ creds: unknown }>(
+export async function useSupabaseAuthState(sessionName = "default", requestedAccountId?: string) {
+  const data = await dbResult<{ creds: unknown; account_id: string }>(
     `auth.load:${sessionName}`,
-    supabase.from("whatsapp_auth_creds").select("creds").eq("session_name", sessionName).maybeSingle()
+    supabase.from("whatsapp_auth_creds").select("creds,account_id").eq("session_name", sessionName).maybeSingle()
   );
+  const accountId = requestedAccountId || data?.account_id;
   let creds: AuthenticationCreds = data?.creds ? deserialize(data.creds) : initAuthCreds();
 
   async function saveCreds() {
+    if (!accountId) throw new Error("Conta da sessão WhatsApp não identificada.");
     await dbResult(
       `auth.save:${sessionName}`,
-      supabase.from("whatsapp_auth_creds").upsert({ session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() })
+      supabase.from("whatsapp_auth_creds").upsert({ account_id: accountId, session_name: sessionName, creds: serialize(creds), updated_at: new Date().toISOString() })
     );
   }
 
@@ -32,7 +34,7 @@ export async function useSupabaseAuthState(sessionName = "default") {
         get: async (type: string, ids: string[]) => {
           const rows = await dbResult(
             `auth.keys.get:${sessionName}`,
-            supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("key_type", type).in("key_id", ids)
+            supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", ids)
           );
           const result: Record<string, any> = {};
           for (const id of ids) {
@@ -47,6 +49,7 @@ export async function useSupabaseAuthState(sessionName = "default") {
             if (!entries.length) continue;
 
             const toUpsert = entries.filter(([, v]) => v != null).map(([id, value]) => ({
+              account_id: accountId,
               session_name: sessionName,
               key_type: type,
               key_id: id,
@@ -63,7 +66,7 @@ export async function useSupabaseAuthState(sessionName = "default") {
             if (toDelete.length) {
               await dbResult(
                 `auth.keys.delete:${sessionName}`,
-                supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("key_type", type).in("key_id", toDelete)
+                supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", toDelete)
               );
             }
           }
@@ -74,11 +77,11 @@ export async function useSupabaseAuthState(sessionName = "default") {
     clearAuth: async () => {
       await dbResult(
         `auth.keys.clear:${sessionName}`,
-        supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName)
+        supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("account_id", accountId)
       );
       await dbResult(
         `auth.creds.clear:${sessionName}`,
-        supabase.from("whatsapp_auth_creds").delete().eq("session_name", sessionName)
+        supabase.from("whatsapp_auth_creds").delete().eq("session_name", sessionName).eq("account_id", accountId)
       );
       creds = initAuthCreds();
     }
