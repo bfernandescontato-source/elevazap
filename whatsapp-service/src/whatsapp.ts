@@ -118,9 +118,11 @@ export async function createWhatsAppRuntime() {
   async function refreshGroups() {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
     const groups = await discoverParticipatingGroups(sock);
-    const rows = await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })));
+    const { data: authOwner } = await supabase.from("whatsapp_auth_creds").select("account_id").eq("session_name", "default").maybeSingle();
+    if (!authOwner?.account_id) throw new Error("Conta da sessão principal não identificada.");
+    const rows = (await Promise.all(groups.map((group) => groupToStoredRow(sock, group, { includePhoto: false })))).map((row) => ({ ...row, account_id: authOwner.account_id }));
     if (rows.length) {
-      const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "group_jid" });
+      const { error } = await supabase.from("grupos").upsert(rows, { onConflict: "account_id,group_jid" });
       if (error) throw new Error(`Falha ao salvar os grupos: ${error.message}`);
     }
     return rows;
@@ -128,15 +130,19 @@ export async function createWhatsAppRuntime() {
 
   async function resolveGroupInvite(inviteUrl: string) {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
-    const row = await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl));
-    const { error } = await supabase.from("grupos").upsert(row, { onConflict: "group_jid" });
+    const { data: authOwner } = await supabase.from("whatsapp_auth_creds").select("account_id").eq("session_name", "default").maybeSingle();
+    if (!authOwner?.account_id) throw new Error("Conta da sessão principal não identificada.");
+    const row = { ...(await groupToStoredRow(sock, await discoverGroupByInvite(sock, inviteUrl))), account_id: authOwner.account_id };
+    const { error } = await supabase.from("grupos").upsert(row, { onConflict: "account_id,group_jid" });
     if (error) throw new Error(`Falha ao salvar o grupo: ${error.message}`);
     return row;
   }
 
   async function syncGroups(groupJids: string[]) {
     if (!sock || status !== "connected") throw new Error("WhatsApp desconectado.");
-    return syncGroupMetadata(sock, groupJids);
+    const { data: authOwner } = await supabase.from("whatsapp_auth_creds").select("account_id").eq("session_name", "default").maybeSingle();
+    if (!authOwner?.account_id) throw new Error("Conta da sessão principal não identificada.");
+    return syncGroupMetadata(sock, groupJids, authOwner.account_id);
   }
 
   return {

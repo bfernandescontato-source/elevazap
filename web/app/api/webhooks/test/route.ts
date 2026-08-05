@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { maskPhone, normalizeBrazilianPhone } from "@/lib/phone";
-import { guardAdminMutation } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { renderAutomationTemplate, sampleWebhookVariables } from "@/lib/webhook-automation";
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "webhook_test");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   try {
     const body = await request.json();
     const ruleId = String(body.rule_id || "");
@@ -17,6 +19,7 @@ export async function POST(request: NextRequest) {
       .from("webhook_rules")
       .select("*, webhook_message_templates(*)")
       .eq("id", ruleId)
+      .eq("account_id", context.accountId)
       .single();
     if (error || !rule) throw new Error("Regra não encontrada.");
     const template = (rule.webhook_message_templates || []).find((item: any) => item.event_type === eventType);
@@ -41,6 +44,7 @@ export async function POST(request: NextRequest) {
     const { rendered, warnings } = renderAutomationTemplate(template.template_body, normalized, sampleWebhookVariables, rule.fixed_variables || {});
     const idempotencyKey = `webhook-test:${rule.id}:${Date.now()}`;
     const { data: envio } = await supabaseAdmin().from("envios").insert({
+      account_id: context.accountId,
       source: "webhook_test",
       event: eventType,
       idempotency_key: idempotencyKey,
@@ -55,6 +59,7 @@ export async function POST(request: NextRequest) {
       status: "pendente"
     }).select("id").single();
     await supabaseAdmin().from("webhook_events").insert({
+      account_id: context.accountId,
       webhook_rule_id: rule.id,
       external_event_id: normalized.external_event_id,
       idempotency_key: idempotencyKey,

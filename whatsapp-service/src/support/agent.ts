@@ -55,11 +55,12 @@ function isInBusinessHours(businessHours: any): boolean {
   return current >= start && current < end;
 }
 
-async function getOrCreateConversation(agentId: string, contactJid: string, contactName: string) {
+async function getOrCreateConversation(accountId: string, agentId: string, contactJid: string, contactName: string) {
   const { data: existing } = await supabase
     .from("support_conversation")
     .select("*")
     .eq("agent_id", agentId)
+    .eq("account_id", accountId)
     .eq("contact_jid", contactJid)
     .maybeSingle();
 
@@ -68,6 +69,7 @@ async function getOrCreateConversation(agentId: string, contactJid: string, cont
   const { data: created } = await supabase
     .from("support_conversation")
     .insert({
+      account_id: accountId,
       agent_id: agentId,
       contact_jid: contactJid,
       contact_name: contactName,
@@ -80,10 +82,11 @@ async function getOrCreateConversation(agentId: string, contactJid: string, cont
   return created;
 }
 
-async function saveIncomingMessage(conversationId: string, waMessageId: string, content: string) {
+async function saveIncomingMessage(accountId: string, conversationId: string, waMessageId: string, content: string) {
   const { data, error } = await supabase
     .from("support_message")
     .insert({
+      account_id: accountId,
       conversation_id: conversationId,
       wa_message_id: waMessageId,
       direction: "in",
@@ -122,6 +125,7 @@ async function processAggregation(conversationId: string, agentId: string, sock:
       if (outId) {
         markAiSent(outId);
         await supabase.from("support_message").insert({
+          account_id: conv.account_id,
           conversation_id: conversationId,
           wa_message_id: outId,
           direction: "out",
@@ -199,6 +203,7 @@ async function processAggregation(conversationId: string, agentId: string, sock:
     if (outId) {
       markAiSent(outId);
       await supabase.from("support_message").insert({
+        account_id: conv.account_id,
         conversation_id: conversationId,
         wa_message_id: outId,
         direction: "out",
@@ -271,6 +276,7 @@ async function processAggregation(conversationId: string, agentId: string, sock:
   } catch (error: any) {
     const content = `Falha interna da IA: ${error.message}`;
     await supabase.from("support_message").insert({
+      account_id: conv.account_id,
       conversation_id: conversationId,
       wa_message_id: `ai_error_${Date.now()}`,
       direction: "out",
@@ -292,6 +298,7 @@ async function processAggregation(conversationId: string, agentId: string, sock:
   if (outId) {
     markAiSent(outId);
     await supabase.from("support_message").insert({
+      account_id: conv.account_id,
       conversation_id: conversationId,
       wa_message_id: outId,
       direction: "out",
@@ -332,7 +339,7 @@ export async function handleIncomingMessages(
           // Find the conversation
           const { data: conv } = await supabase
             .from("support_conversation")
-            .select("id, status")
+            .select("id,status,account_id")
             .eq("agent_id", agentId)
             .eq("contact_jid", jid)
             .maybeSingle();
@@ -347,6 +354,7 @@ export async function handleIncomingMessages(
 
             // Record the human-sent message
             await supabase.from("support_message").insert({
+              account_id: conv.account_id,
               conversation_id: conv.id,
               wa_message_id: waMessageId,
               direction: "out",
@@ -365,11 +373,11 @@ export async function handleIncomingMessages(
       }
 
       const pushName = msg.pushName || "";
-      const conv = await getOrCreateConversation(agentId, jid, pushName);
+      const conv = await getOrCreateConversation(agent.account_id, agentId, jid, pushName);
       if (!conv) continue;
 
       // Save with idempotency (UNIQUE wa_message_id)
-      const saved = await saveIncomingMessage(conv.id, waMessageId, text);
+      const saved = await saveIncomingMessage(agent.account_id, conv.id, waMessageId, text);
       if (!saved) continue; // already processed
       console.log(`[support] incoming saved conversation=${conv.id} jid=${jid}`);
 

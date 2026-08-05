@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, guardAdminMutation } from "@/lib/security";
+import { requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const { data: agent } = await supabase.from("support_agent").select("id").limit(1).maybeSingle();
+  const { data: agent } = await supabase.from("support_agent").select("id").eq("account_id", context.accountId).limit(1).maybeSingle();
   if (!agent) return NextResponse.json({ conversations: [] });
 
   const { data, error } = await supabase
     .from("support_conversation")
     .select("*")
     .eq("agent_id", agent.id)
+    .eq("account_id", context.accountId)
     .order("last_message_at", { ascending: false })
     .limit(100);
 

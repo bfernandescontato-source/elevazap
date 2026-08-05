@@ -22,12 +22,16 @@ export async function POST(request: NextRequest) {
       await auth.auth.signOut();
       return NextResponse.redirect(new URL(`/login?error=${profile.status}`, request.url), { status: 303 });
     }
-    await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
+    const account = Array.isArray(profile.accounts) ? profile.accounts[0] : profile.accounts;
+    if (!account || account.status !== "active") {
+      await auth.auth.signOut();
+      return NextResponse.redirect(new URL(`/login?error=${account?.status || "account"}`, request.url), { status: 303 });
+    }
+    await createSession({ userId: profile.id, accountId: profile.account_id, accountStatus: account.status, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
     return NextResponse.redirect(new URL("/dashboard", request.url), { status: 303 });
   }
 
   const legacyOk = await verifyPassword(email, password).catch(() => false);
   if (!legacyOk) return NextResponse.redirect(new URL("/login?error=invalid", request.url), { status: 303 });
-  await createSession({ email, role: "admin", source: "legacy" });
-  return NextResponse.redirect(new URL("/dashboard", request.url), { status: 303 });
+  return NextResponse.redirect(new URL("/login?error=legacy-disabled", request.url), { status: 303 });
 }

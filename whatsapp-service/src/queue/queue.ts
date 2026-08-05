@@ -145,6 +145,8 @@ export class GlobalSendQueue {
     if (!row) return;
 
     try {
+      const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
+      if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
       await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, this.execute(item, row));
     } catch (error) {
       const potentiallyDelivered = error instanceof OperationTimeoutError &&
@@ -165,7 +167,7 @@ export class GlobalSendQueue {
 
   private selectSocket(row: any, group = false) {
     if (row.whatsapp_session_name) {
-      const selected = getSenderSock(row.whatsapp_session_name);
+      const selected = getSenderSock(row.whatsapp_session_name, row.account_id);
       if (!selected) throw new Error("Número responsável pelo disparo está desconectado.");
       return selected;
     }
@@ -177,7 +179,7 @@ export class GlobalSendQueue {
   private async sendWelcome(row: any) {
     const sock = this.selectSocket(row);
     if (!sock) throw new Error("Nenhum número conectado para disparo 1x1.");
-    const optOuts = await dbResult<any[]>("queue.opt-out", supabase.from("opt_outs").select("id").or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1));
+    const optOuts = await dbResult<any[]>("queue.opt-out", supabase.from("opt_outs").select("id").eq("account_id", row.account_id).or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1));
     if (optOuts?.length) throw new Error("Contato em opt-out.");
     const jid = await this.resolveRecipientJid(sock, row);
     if (!jid) return;

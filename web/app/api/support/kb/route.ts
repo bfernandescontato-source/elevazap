@@ -1,30 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, guardAdminMutation } from "@/lib/security";
+import { requireAccountContext, guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
-async function getAgentId(supabase: ReturnType<typeof supabaseAdmin>) {
-  const { data } = await supabase.from("support_agent").select("id").limit(1).maybeSingle();
+async function getAgentId(supabase: ReturnType<typeof supabaseAdmin>, accountId: string) {
+  const { data } = await supabase.from("support_agent").select("id").eq("account_id", accountId).limit(1).maybeSingle();
   return data?.id ?? null;
 }
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const agentId = await getAgentId(supabase);
+  const agentId = await getAgentId(supabase, context.accountId);
   if (!agentId) return NextResponse.json({ kb: [] });
 
-  const { data } = await supabase.from("support_kb").select("*").eq("agent_id", agentId).order("created_at");
+  const { data } = await supabase.from("support_kb").select("*").eq("agent_id", agentId).eq("account_id", context.accountId).order("created_at");
   return NextResponse.json({ kb: data || [] });
 }
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const agentId = await getAgentId(supabase);
+  const agentId = await getAgentId(supabase, context.accountId);
   if (!agentId) return NextResponse.json({ error: "Agente não encontrado." }, { status: 404 });
 
   const { title, content } = await request.json();
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("support_kb")
-    .insert({ agent_id: agentId, title, content })
+    .insert({ account_id: context.accountId, agent_id: agentId, title, content })
     .select("*")
     .single();
 

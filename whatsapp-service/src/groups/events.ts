@@ -5,7 +5,11 @@ import { dbResult } from "../utils/db.js";
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
 async function persistForCampaigns(senderId: string | null, groupJid: string, sock: any) {
-  const [row] = await syncGroupMetadata(sock, [groupJid]);
+  if (!senderId) return;
+  const { data: sender } = await supabase.from("whatsapp_senders").select("account_id").eq("id", senderId).maybeSingle();
+  if (!sender?.account_id) return;
+  const accountId = sender.account_id;
+  const [row] = await syncGroupMetadata(sock, [groupJid], accountId);
   if (!row) return;
 
   const update: Record<string, unknown> = {
@@ -18,8 +22,9 @@ async function persistForCampaigns(senderId: string | null, groupJid: string, so
   }
   if (row.invite_url) update.invite_url = row.invite_url;
 
-  await dbResult("group-event.persist", supabase.from("campanha_grupos").update(update).eq("group_jid", groupJid));
+  await dbResult("group-event.persist", supabase.from("campanha_grupos").update(update).eq("account_id", accountId).eq("group_jid", groupJid));
   await dbResult("group-event.audit", supabase.from("group_participant_syncs").insert({
+    account_id: accountId,
     group_jid: groupJid,
     whatsapp_sender_id: senderId,
     participant_count: row.qtd_membros,

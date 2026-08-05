@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, guardAdminMutation } from "@/lib/security";
+import { requireAccountContext, guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await params;
 
   const supabase = supabaseAdmin();
@@ -12,6 +12,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     .from("support_conversation")
     .select("*")
     .eq("id", id)
+    .eq("account_id", context.accountId)
     .maybeSingle();
 
   if (!conv) return NextResponse.json({ error: "Conversa não encontrada." }, { status: 404 });
@@ -20,6 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     .from("support_message")
     .select("*")
     .eq("conversation_id", id)
+    .eq("account_id", context.accountId)
     .order("created_at", { ascending: true });
 
   return NextResponse.json({ conversation: conv, messages: messages || [] });
@@ -28,6 +30,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await params;
 
   const body = await request.json();
@@ -43,6 +47,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .from("support_conversation")
     .update(update)
     .eq("id", id)
+    .eq("account_id", context.accountId)
     .select("*")
     .single();
 

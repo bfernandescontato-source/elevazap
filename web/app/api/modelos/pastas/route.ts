@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { modeloPastaSchema } from "@/lib/schemas";
-import { guardAdminMutation, requireAdmin } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
-  const { data, error } = await supabaseAdmin().from("modelo_pastas").select("*").order("created_at", { ascending: false });
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
+  const { data, error } = await supabaseAdmin().from("modelo_pastas").select("*").eq("account_id", context.accountId).order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || []);
 }
@@ -14,9 +14,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const parsed = modeloPastaSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
-  const { data, error } = await supabaseAdmin().from("modelo_pastas").insert({ nome: parsed.data.nome }).select("*").single();
+  const { data, error } = await supabaseAdmin().from("modelo_pastas").insert({ nome: parsed.data.nome, account_id: context.accountId }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, pasta: data });
 }
@@ -24,9 +26,11 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const parsed = modeloPastaSchema.required({ id: true }).safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
-  const { error } = await supabaseAdmin().from("modelo_pastas").update({ nome: parsed.data.nome, updated_at: new Date().toISOString() }).eq("id", parsed.data.id);
+  const { error } = await supabaseAdmin().from("modelo_pastas").update({ nome: parsed.data.nome, updated_at: new Date().toISOString() }).eq("id", parsed.data.id).eq("account_id", context.accountId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
@@ -34,12 +38,14 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const guard = await guardAdminMutation(request, "modelos_ip");
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
   const sb = supabaseAdmin();
-  const { error: modelsError } = await sb.from("modelos_mensagem").delete().eq("pasta_id", id);
+  const { error: modelsError } = await sb.from("modelos_mensagem").delete().eq("pasta_id", id).eq("account_id", context.accountId);
   if (modelsError) return NextResponse.json({ error: modelsError.message }, { status: 500 });
-  const { error } = await sb.from("modelo_pastas").delete().eq("id", id);
+  const { error } = await sb.from("modelo_pastas").delete().eq("id", id).eq("account_id", context.accountId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

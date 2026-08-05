@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardAdminMutation } from "@/lib/security";
+import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
   const { id } = await params;
 
   const { action } = await request.json();
@@ -17,6 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .from("refund_request")
     .select("*")
     .eq("id", id)
+    .eq("account_id", context.accountId)
     .maybeSingle();
 
   if (!refund) return NextResponse.json({ error: "Solicitação não encontrada." }, { status: 404 });
@@ -27,7 +30,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       status: "rejected",
       decided_by: "admin",
       decided_at: new Date().toISOString()
-    }).eq("id", id);
+    }).eq("id", id).eq("account_id", context.accountId);
     return NextResponse.json({ ok: true, status: "rejected" });
   }
 
@@ -56,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       status: "processed",
       decided_by: "admin",
       decided_at: new Date().toISOString()
-    }).eq("id", id);
+    }).eq("id", id).eq("account_id", context.accountId);
 
     return NextResponse.json({ ok: true, status: "processed" });
   } catch (err: any) {

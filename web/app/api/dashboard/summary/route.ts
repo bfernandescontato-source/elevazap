@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/security";
+import { requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { maskPhone } from "@/lib/phone";
@@ -10,30 +10,26 @@ function maskedPhone(value?: string) {
 }
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const sb = supabaseAdmin();
-  const [campaigns, groups, senders, principal] = await Promise.all([
-    sb.from("campanhas").select("id", { count: "exact", head: true }),
-    sb.from("grupos").select("id", { count: "exact", head: true }),
-    sb.from("whatsapp_senders").select("session_name"),
-    callWhatsappService("/status").catch(() => ({ status: "disconnected", phone_number: "" }))
+  const [campaigns, groups, senders] = await Promise.all([
+    sb.from("campanhas").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
+    sb.from("grupos").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
+    sb.from("whatsapp_senders").select("session_name").eq("account_id", context.accountId)
   ]);
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
     callWhatsappService(`/senders/${sender.session_name}/status`).catch(() => ({ status: "disconnected", phone_number: "" }))
   ));
   const connectedAdditional = additionalStatuses.filter((sender) => sender.status === "connected");
-  const principalConnected = principal.status === "connected";
-  const firstConnectedPhone = principalConnected
-    ? principal.phone_number
-    : connectedAdditional.find((sender) => sender.phone_number)?.phone_number;
+  const firstConnectedPhone = connectedAdditional.find((sender) => sender.phone_number)?.phone_number;
 
   return NextResponse.json({
     connection: {
-      connected: principalConnected || connectedAdditional.length > 0,
-      count: (principalConnected ? 1 : 0) + connectedAdditional.length,
+      connected: connectedAdditional.length > 0,
+      count: connectedAdditional.length,
       phone: maskedPhone(firstConnectedPhone)
     },
     counts: {

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/security";
+import { requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const { data: agent } = await supabase.from("support_agent").select("id").limit(1).maybeSingle();
+  const { data: agent } = await supabase.from("support_agent").select("id").eq("account_id", context.accountId).limit(1).maybeSingle();
   if (!agent) return NextResponse.json({ qr: "", status: "disconnected" });
 
   try {

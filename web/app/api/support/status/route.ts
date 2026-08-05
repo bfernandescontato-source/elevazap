@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, guardAdminMutation } from "@/lib/security";
+import { requireAccountContext, guardAdminMutation } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { randomUUID } from "crypto";
 
 export async function GET() {
-  const guard = await requireAdmin();
-  if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const { data: agent } = await supabase.from("support_agent").select("id, whatsapp_session_id").limit(1).maybeSingle();
+  const { data: agent } = await supabase.from("support_agent").select("id, whatsapp_session_id").eq("account_id", context.accountId).limit(1).maybeSingle();
   if (!agent) return NextResponse.json({ status: "disconnected", qr: "" });
 
   try {
@@ -23,11 +23,14 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
   const { data: agent } = await supabase
     .from("support_agent")
     .select("id, whatsapp_session_id")
+    .eq("account_id", context.accountId)
     .limit(1)
     .maybeSingle();
 
@@ -52,9 +55,11 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const guard = await guardAdminMutation(request);
   if (guard) return guard;
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
 
   const supabase = supabaseAdmin();
-  const { data: agent } = await supabase.from("support_agent").select("id").limit(1).maybeSingle();
+  const { data: agent } = await supabase.from("support_agent").select("id").eq("account_id", context.accountId).limit(1).maybeSingle();
   if (!agent) return NextResponse.json({ ok: true });
 
   await callWhatsappService(`/support/${agent.id}/disconnect`, { method: "POST" }).catch(() => undefined);

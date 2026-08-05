@@ -17,6 +17,8 @@ export async function verifyPassword(email: string, password: string) {
 
 export type AppSession = {
   userId: string | null;
+  accountId: string | null;
+  accountStatus: "active" | "past_due" | "suspended" | "cancelled" | "expired" | "refunded" | null;
   email: string;
   name: string | null;
   role: "admin" | "operator";
@@ -27,6 +29,8 @@ export async function createSession(session?: Partial<AppSession>) {
   const e = env();
   const payload: AppSession = {
     userId: session?.userId || null,
+    accountId: session?.accountId || null,
+    accountStatus: session?.accountStatus || null,
     email: session?.email || e.ADMIN_EMAIL,
     name: session?.name || null,
     role: session?.role || "admin",
@@ -59,6 +63,8 @@ export async function getSession() {
     if (!payload.email || !["admin", "operator"].includes(String(payload.role))) return null;
     return {
       userId: typeof payload.userId === "string" ? payload.userId : null,
+      accountId: typeof payload.accountId === "string" ? payload.accountId : null,
+      accountStatus: typeof payload.accountStatus === "string" ? payload.accountStatus as AppSession["accountStatus"] : null,
       email: String(payload.email),
       name: typeof payload.name === "string" ? payload.name : null,
       role: payload.role as AppSession["role"],
