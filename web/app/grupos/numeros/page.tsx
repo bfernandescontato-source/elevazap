@@ -16,13 +16,6 @@ type Sender = {
   created_at?: string;
 };
 
-type PrincipalStatus = {
-  status?: string;
-  qr?: string;
-  phone_number?: string;
-  display_name?: string;
-};
-
 async function responseData(response: Response) {
   const text = await response.text();
   if (!text) return {} as Record<string, any>;
@@ -32,7 +25,6 @@ async function responseData(response: Response) {
 
 export default function NumerosPage() {
   const [senders, setSenders] = useState<Sender[]>([]);
-  const [principal, setPrincipal] = useState<PrincipalStatus>({});
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState("");
   const [label, setLabel] = useState("");
@@ -44,15 +36,10 @@ export default function NumerosPage() {
     if (loadingRef.current) return;
     loadingRef.current = true;
     try {
-    const [response, statusResponse, qrResponse] = await Promise.all([
-      fetch("/api/whatsapp/senders", { cache: "no-store" }),
-      fetch("/api/whatsapp/status", { cache: "no-store" }),
-      fetch("/api/whatsapp/qr", { cache: "no-store" })
-    ]);
-    const [data, status, qr] = await Promise.all([responseData(response), responseData(statusResponse), responseData(qrResponse)]);
+    const response = await fetch("/api/whatsapp/senders", { cache: "no-store" });
+    const data = await responseData(response);
     if (!response.ok) throw new Error(data.error || "Falha ao carregar números.");
     setSenders(data.senders || []);
-    setPrincipal({ ...status, qr: qr.qr || "" });
     } finally {
       loadingRef.current = false;
     }
@@ -113,22 +100,6 @@ export default function NumerosPage() {
     }
   }
 
-  async function principalAction(action: "restart" | "logout" | "refresh") {
-    setActionId(`principal:${action}`);
-    try {
-      const route = action === "restart" ? "/api/whatsapp/restart" : action === "logout" ? "/api/whatsapp/logout" : "/api/whatsapp/groups/refresh";
-      const response = await fetch(route, { method: "POST" });
-      const data = await responseData(response);
-      const fallbackError = action === "restart" ? `Falha ao gerar o QR Code (${response.status}). Tente novamente em alguns segundos.` : action === "logout" ? `Falha ao desconectar o número (${response.status}).` : `Falha ao atualizar os grupos (${response.status}).`;
-      if (!response.ok) throw new Error(data.error || fallbackError);
-      if (action === "restart" && data.qr) setPrincipal((current) => ({ ...current, ...data }));
-      setToast(action === "restart" ? data.qr ? "QR Code pronto. Escaneie com o WhatsApp." : "Novo QR Code solicitado. Aguarde alguns segundos." : action === "logout" ? "Número principal desconectado." : "Grupos atualizados.");
-      window.setTimeout(() => load().catch(() => undefined), 800);
-    } finally {
-      setActionId("");
-    }
-  }
-
   const fail = (error: any) => setToast(error?.message || "Algo deu errado.");
   const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Não disponível";
 
@@ -141,12 +112,6 @@ export default function NumerosPage() {
     </section>
 
     {loading ? <LoadingState /> : <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-      <article id="numero-principal" className="scroll-mt-28 rounded-lg border border-zinc-400 bg-panel p-5 shadow-soft">
-        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} /> <span className="truncate">Número principal</span></div><div className="mt-1 text-sm text-muted">{principal.phone_number || "Número aguardando conexão"}</div></div><StatusBadge status={principal.status} /></div>
-        <dl className="mt-5 grid gap-3 border-y border-line py-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted">Nome no WhatsApp</dt><dd className="text-right font-medium">{principal.display_name || "Não disponível"}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted">Uso</dt><dd className="text-right">Padrão para envios sem número selecionado</dd></div></dl>
-        {principal.qr ? <div className="mt-4"><p className="mb-3 text-center text-sm text-muted">Escaneie com o WhatsApp deste número</p><div className="flex justify-center rounded-lg bg-wash p-4"><Image src={principal.qr} alt="QR Code do número principal" width={224} height={224} unoptimized className="h-56 w-56 rounded-lg bg-white p-2" /></div></div> : null}
-        <div className="mt-4 flex flex-wrap gap-2"><ActionButton icon={<QrCode size={15} />} disabled={actionId.startsWith("principal") || principal.status === "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("restart").catch(fail)}>{actionId === "principal:restart" ? "Gerando QR..." : "Gerar QR"}</ActionButton><ActionButton icon={<RefreshCw size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("refresh").catch(fail)}>Atualizar grupos</ActionButton><ActionButton icon={<Unplug size={15} />} disabled={actionId.startsWith("principal") || principal.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => principalAction("logout").catch(fail)}>Desconectar</ActionButton></div>
-      </article>
       {senders.map((sender) => {
       const busy = actionId.startsWith(sender.id);
       return <article key={sender.id} className="rounded-lg border border-line bg-panel p-5 shadow-soft">
@@ -161,7 +126,7 @@ export default function NumerosPage() {
         </div>
       </article>;
     })}
-      {!senders.length ? <div className="lg:col-span-1"><EmptyState title="Nenhum número adicional" description="Adicione outro número para separar seus disparos por campanha." /></div> : null}
+      {!senders.length ? <div className="lg:col-span-2 2xl:col-span-3"><EmptyState title="Nenhum número conectado" description="Informe uma identificação acima para conectar seu primeiro WhatsApp." /></div> : null}
     </div>}
 
     <ConfirmModal open={Boolean(deleteTarget)} title="Excluir número?" onCancel={() => setDeleteTarget(null)} onConfirm={deleteSender} confirmLabel="Excluir número" loading={actionId.endsWith(":delete")} destructive>
