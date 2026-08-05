@@ -14,11 +14,17 @@ async function assertGroups(database: Database, accountId: string, groupJids: st
   if ((data || []).length !== groupJids.length) throw new Error("Um ou mais grupos não foram encontrados.");
 }
 
-async function assertSender(database: Database, accountId: string, senderId: string | null) {
-  if (!senderId) return;
+async function resolveSenderId(database: Database, accountId: string, senderId: string | null) {
+  if (!senderId) {
+    const { data, error } = await database.from("whatsapp_senders").select("id").eq("account_id", accountId).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Conecte um número WhatsApp antes de criar a campanha.");
+    return data.id as string;
+  }
   const { data, error } = await database.from("whatsapp_senders").select("id").eq("id", senderId).eq("account_id", accountId).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("Número responsável não encontrado.");
+  return data.id as string;
 }
 
 async function insertGroups(database: Database, accountId: string, campaignId: string, groupJids: string[]) {
@@ -47,9 +53,9 @@ export async function listCampaigns(database: Database, accountId: string) {
 }
 
 export async function createCampaign(database: Database, accountId: string, input: { nome: string; groupJids: string[]; senderId: string | null }) {
-  await Promise.all([assertGroups(database, accountId, input.groupJids), assertSender(database, accountId, input.senderId)]);
+  const [, senderId] = await Promise.all([assertGroups(database, accountId, input.groupJids), resolveSenderId(database, accountId, input.senderId)]);
   const { data: campaign, error } = await database.from("campanhas")
-    .insert({ account_id: accountId, nome: input.nome.trim(), whatsapp_sender_id: input.senderId })
+    .insert({ account_id: accountId, nome: input.nome.trim(), whatsapp_sender_id: senderId })
     .select("*").single();
   if (error) throw error;
   try {
@@ -93,8 +99,8 @@ export async function updateCampaign(database: Database, accountId: string, inpu
     if (result.error) throw result.error;
   }
   if (input.whatsapp_sender_id !== undefined) {
-    await assertSender(database, accountId, input.whatsapp_sender_id);
-    const result = await database.from("campanhas").update({ whatsapp_sender_id: input.whatsapp_sender_id, updated_at: new Date().toISOString() }).eq("id", input.id).eq("account_id", accountId);
+    const senderId = await resolveSenderId(database, accountId, input.whatsapp_sender_id);
+    const result = await database.from("campanhas").update({ whatsapp_sender_id: senderId, updated_at: new Date().toISOString() }).eq("id", input.id).eq("account_id", accountId);
     if (result.error) throw result.error;
   }
   return input.group_jids ? replaceGroups(database, accountId, input.id, input.group_jids) : { ok: true };
@@ -105,4 +111,3 @@ export async function deleteCampaign(database: Database, accountId: string, camp
   if (error) throw error;
   return { ok: true };
 }
-

@@ -23,10 +23,23 @@ export async function syncCampaignGroups(accountId: string, campaignId: string) 
 
   const groupJids = (campaign.campanha_grupos || []).map((item: any) => item.group_jid);
   if (!groupJids.length) return [];
-  const sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
-  const endpoint = sender?.session_name
-    ? `/senders/${sender.session_name}/groups/sync`
-    : "/groups/sync";
+  let sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
+  let senderId = campaign.whatsapp_sender_id as string | null;
+  if (!sender?.session_name) {
+    const { data: firstSender, error: senderError } = await sb.from("whatsapp_senders")
+      .select("id,session_name")
+      .eq("account_id", accountId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (senderError) throw senderError;
+    if (!firstSender) throw new Error("A campanha não possui um número WhatsApp conectado.");
+    sender = firstSender;
+    senderId = firstSender.id;
+    const { error: linkError } = await sb.from("campanhas").update({ whatsapp_sender_id: senderId, updated_at: new Date().toISOString() }).eq("id", campaignId).eq("account_id", accountId);
+    if (linkError) throw linkError;
+  }
+  const endpoint = `/senders/${sender.session_name}/groups/sync`;
 
   let rows: SyncedGroup[] = [];
   try {
@@ -39,7 +52,7 @@ export async function syncCampaignGroups(accountId: string, campaignId: string) 
     const message = currentError?.message || "Falha ao consultar o WhatsApp.";
     await Promise.all(groupJids.map(async (groupJid: string) => {
       await sb.from("campanha_grupos").update({ participants_sync_error: message, updated_at: new Date().toISOString() }).eq("campanha_id", campaignId).eq("account_id", accountId).eq("group_jid", groupJid);
-      await sb.from("group_participant_syncs").insert({ account_id: accountId, group_jid: groupJid, whatsapp_sender_id: campaign.whatsapp_sender_id, status: "erro", error: message });
+      await sb.from("group_participant_syncs").insert({ account_id: accountId, group_jid: groupJid, whatsapp_sender_id: senderId, status: "erro", error: message });
     }));
     throw currentError;
   }
@@ -58,7 +71,7 @@ export async function syncCampaignGroups(accountId: string, campaignId: string) 
     await sb.from("group_participant_syncs").insert({
       account_id: accountId,
       group_jid: row.group_jid,
-      whatsapp_sender_id: campaign.whatsapp_sender_id,
+      whatsapp_sender_id: senderId,
       participant_count: row.qtd_membros,
       status: row.participant_error ? "erro" : "sucesso",
       error: row.participant_error || row.invite_error || null,
