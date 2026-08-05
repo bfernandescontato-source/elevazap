@@ -132,7 +132,9 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
     await Promise.all([loadGroups(), loadCampaigns(), loadModelos(), loadSenders()]);
   }
 
-  useEffect(() => { loadAll(); }, []);
+  // Initial loaders only depend on stable state setters and the empty sender selection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadAll(); }, []);
 
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId), [campaigns, selectedCampaignId]);
   const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);

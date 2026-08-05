@@ -10,7 +10,9 @@
     "dev:service": "npm --workspace whatsapp-service run dev",
     "test": "npm --workspaces run test",
     "build": "npm --workspaces run build",
-    "load:test": "node scripts/load-test.mjs"
+    "load:test": "node scripts/load-test.mjs",
+    "architecture:check": "node scripts/check-architecture.mjs",
+    "validate": "npm run architecture:check && npm test && npm run build"
   },
   "overrides": {
     "body-parser": "1.20.6",

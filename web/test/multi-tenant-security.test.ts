@@ -31,8 +31,8 @@ describe("isolamento multi-tenant", () => {
       "web/app/api/webhooks/rules/route.ts"
     ]) {
       const source = read(route);
-      expect(source).toContain("requireAccountContext");
-      expect(source).toContain("context.accountId");
+      expect(source).toMatch(/require(AccountContext|TenantDatabase)/);
+      expect(source).toMatch(/(context|tenant)\.accountId/);
       expect(source).not.toMatch(/account_id:\s*(body|parsed\.data)\.account_id/);
     }
   });
@@ -94,5 +94,14 @@ describe("isolamento multi-tenant", () => {
     expect(service).toContain('app.get("/metrics"');
     expect(dashboard).toContain('.eq("account_id", context.accountId)');
     expect(dashboard).toContain("queueCounts");
+  });
+
+  it("mantém rotas finas e regras de domínio fora da camada HTTP", () => {
+    const route = read("web/app/api/campanhas/route.ts");
+    const service = read("web/modules/campaigns/server/campaign-service.ts");
+    expect(route).toContain("@/modules/campaigns/server/campaign-service");
+    expect(route.split("\n").length).toBeLessThan(100);
+    expect(service).toContain("export async function createCampaign");
+    expect(service).toContain('.eq("account_id", accountId)');
   });
 });

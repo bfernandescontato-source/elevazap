@@ -7,62 +7,26 @@ import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
 import { getSenderSock, hasConnectedSender } from "../senders/runtime.js";
-import { compatibleQueueUpdate, type DatabaseCapabilities, type QueueTable } from "../database-capabilities.js";
-
-type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
-type TableName = QueueTable;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-function retryDelay(attempts: number) {
-  if (attempts >= env.MAX_SEND_ATTEMPTS) return null;
-  return env.RETRY_BASE_DELAY_MS * (attempts <= 1 ? 1 : 5 ** (attempts - 1));
-}
-
-function isMissingRpc(error: any, name: string) {
-  return Boolean(error && (
-    error.code === "PGRST202" || error.code === "42883" ||
-    new RegExp(`could not find the function.*${name}|function.*${name}.*does not exist`, "i").test(error.message || "")
-  ));
-}
+import { compatibleQueueUpdate, type DatabaseCapabilities } from "../database-capabilities.js";
+import { QueueMetrics } from "./metrics.js";
+import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
+import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
   private running = false;
   private lastSendAt = 0;
-  private reconciliation = new Map<string, { table: TableName; row: any; messageId: string | null; reason: string }>();
-  private processed = 0;
-  private succeeded = 0;
-  private failed = 0;
-  private uncertain = 0;
-  private lastClaimAt: string | null = null;
-  private lastProcessedAt: string | null = null;
-  private lastError: string | null = null;
-  private startedAt = new Date().toISOString();
+  private reconciliation = new Map<string, QueueReconciliation>();
+  private metrics = new QueueMetrics();
 
   constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
-  private updateFields(table: TableName, values: Record<string, unknown>) {
+  private updateFields(table: QueueTableName, values: Record<string, unknown>) {
     return compatibleQueueUpdate(this.databaseCapabilities, table, values);
   }
 
   stats() {
-    return {
-      running: this.running,
-      size: this.buffer.length,
-      reconciliation: this.reconciliation.size,
-      highPriority: this.buffer.filter((item) => item.priority === "alta").length,
-      normalPriority: this.buffer.filter((item) => item.priority === "normal").length,
-      processed: this.processed,
-      succeeded: this.succeeded,
-      failed: this.failed,
-      uncertain: this.uncertain,
-      lastClaimAt: this.lastClaimAt,
-      lastProcessedAt: this.lastProcessedAt,
-      lastError: this.lastError,
-      startedAt: this.startedAt
-    };
+    return this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size);
   }
 
   start() {
@@ -85,17 +49,17 @@ export class GlobalSendQueue {
         await this.flushReconciliation();
         if (!this.hasAnyConnection()) {
           if (this.buffer.length) await this.returnQueuedToPending();
-          await sleep(3_000);
+          await queueSleep(3_000);
           continue;
         }
         if (!this.buffer.length) await this.claimNext();
         const item = this.buffer.shift();
         if (item) await this.process(item);
-        else await sleep(2_000);
+        else await queueSleep(2_000);
       } catch (error) {
-        this.lastError = error instanceof Error ? error.message : "Falha desconhecida na fila.";
+        this.metrics.loopError(error);
         console.error({ event: "queue.loop_failed", component: "queue", ...errorFields(error) });
-        await sleep(3_000);
+        await queueSleep(3_000);
       }
     }
   }
@@ -110,7 +74,7 @@ export class GlobalSendQueue {
     }
     if (!envio?.id) envio = await this.claimDirect("envios");
     if (envio?.id) {
-      this.lastClaimAt = new Date().toISOString();
+      this.metrics.claim();
       this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
       return;
     }
@@ -123,12 +87,12 @@ export class GlobalSendQueue {
     }
     if (!grupo?.id) grupo = await this.claimDirect("envios_grupo");
     if (grupo?.id) {
-      this.lastClaimAt = new Date().toISOString();
+      this.metrics.claim();
       this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
     }
   }
 
-  private async claimDirect(table: TableName) {
+  private async claimDirect(table: QueueTableName) {
     const now = new Date();
     const nowIso = now.toISOString();
     const { data: candidates, error: selectError } = await supabase.from(table)
@@ -151,7 +115,7 @@ export class GlobalSendQueue {
   }
 
   private async process(item: QueueItem) {
-    const table: TableName = item.kind === "envio" ? "envios" : "envios_grupo";
+    const table: QueueTableName = item.kind === "envio" ? "envios" : "envios_grupo";
     const now = new Date();
     const row = await dbResult<any>(
       "queue.mark-processing",
@@ -168,30 +132,24 @@ export class GlobalSendQueue {
       const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
       if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
       await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, this.execute(item, row));
-      this.processed += 1;
-      this.succeeded += 1;
-      this.lastProcessedAt = new Date().toISOString();
-      this.lastError = null;
+      this.metrics.success();
     } catch (error) {
       const potentiallyDelivered = error instanceof OperationTimeoutError &&
         ["queue.item", "whatsapp.sendMessage"].includes(error.operation);
       if (potentiallyDelivered) {
         await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
-        this.uncertain += 1;
+        this.metrics.uncertainResult(error);
       } else {
         await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
-        this.failed += 1;
+        this.metrics.failure(error);
       }
-      this.processed += 1;
-      this.lastProcessedAt = new Date().toISOString();
-      this.lastError = error instanceof Error ? error.message : "Falha no envio.";
     }
   }
 
   private async execute(item: QueueItem, row: any) {
     const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - this.lastSendAt));
-    if (throttleWait) await sleep(throttleWait);
-    if (item.kind === "envio" && row.source !== "massa_manual") await sleep(random(3_000, 8_000));
+    if (throttleWait) await queueSleep(throttleWait);
+    if (item.kind === "envio" && row.source !== "massa_manual") await queueSleep(randomDelay(3_000, 8_000));
     if (item.kind === "envio") await this.sendWelcome(row);
     else await this.sendGroup(row);
     this.lastSendAt = Date.now();
@@ -262,7 +220,7 @@ export class GlobalSendQueue {
       .filter((jid: string) => jid && !jid.startsWith(`${ownId}@`));
   }
 
-  private async persistSuccess(table: TableName, row: any, messageId: string | null) {
+  private async persistSuccess(table: QueueTableName, row: any, messageId: string | null) {
     if (!messageId) {
       await this.markUncertain(table, row, "O WhatsApp não retornou o identificador da mensagem.", "MISSING_MESSAGE_ID");
       return;
@@ -286,7 +244,7 @@ export class GlobalSendQueue {
     }
   }
 
-  private async markForReconciliation(table: TableName, row: any, messageId: string | null, cause: unknown) {
+  private async markForReconciliation(table: QueueTableName, row: any, messageId: string | null, cause: unknown) {
     const reason = "Mensagem aceita pelo WhatsApp, mas a confirmação não foi persistida. Não reenviar automaticamente.";
     const key = `${table}:${row.id}`;
     try {
@@ -329,7 +287,7 @@ export class GlobalSendQueue {
     }
   }
 
-  private async markFailure(table: TableName, row: any, message: string, code = "SEND_FAILED") {
+  private async markFailure(table: QueueTableName, row: any, message: string, code = "SEND_FAILED") {
     const disconnected = /desconectad|Nenhum número conectado|não autenticada/i.test(message);
     const attempts = disconnected ? (row.attempts || 0) : (row.attempts || 0) + 1;
     const delay = disconnected ? env.RETRY_BASE_DELAY_MS : retryDelay(attempts);
@@ -347,7 +305,7 @@ export class GlobalSendQueue {
     if (table === "envios_grupo") await this.recalc(row.lote_id);
   }
 
-  private async markUncertain(table: TableName, row: any, message: string, code: string) {
+  private async markUncertain(table: QueueTableName, row: any, message: string, code: string) {
     await dbResult("queue.mark-uncertain", supabase.from(table).update(this.updateFields(table, {
       status: "incerto",
       erro: message,
