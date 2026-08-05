@@ -97,6 +97,16 @@ describe("isolamento multi-tenant", () => {
     expect(route).not.toContain("ageSeconds > maxAge");
   });
 
+  it("vincula campanhas legadas ao primeiro número da própria conta", () => {
+    const webSync = read("web/lib/campaign-group-sync.ts");
+    const serviceSync = read("whatsapp-service/src/groups/campaign-sync.ts");
+    expect(webSync).toContain('from("whatsapp_senders")');
+    expect(webSync).toContain("whatsapp_sender_id: senderId");
+    expect(webSync).not.toContain('endpoint = sender?.session_name');
+    expect(serviceSync).toContain("firstSenderByAccount");
+    expect(serviceSync).toContain('eq("account_id", campaign.account_id)');
+  });
+
   it("usa o cliente autenticado com RLS nas APIs de leitura migradas", () => {
     for (const route of [
       "web/app/api/dashboard/summary/route.ts",

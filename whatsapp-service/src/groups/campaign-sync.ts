@@ -28,17 +28,26 @@ async function persist(accountId: string, campaignIds: string[], senderId: strin
 }
 
 export async function syncAllCampaignGroups() {
-  const { data: campaigns, error } = await supabase
-    .from("campanhas")
-    .select("id,account_id,whatsapp_sender_id,whatsapp_senders(session_name),campanha_grupos(group_jid)")
-    .eq("status", "ativa");
+  const [{ data: campaigns, error }, { data: senderRows, error: sendersError }] = await Promise.all([
+    supabase.from("campanhas").select("id,account_id,whatsapp_sender_id,whatsapp_senders(session_name),campanha_grupos(group_jid)").eq("status", "ativa"),
+    supabase.from("whatsapp_senders").select("id,account_id,session_name,created_at").order("created_at", { ascending: true })
+  ]);
   if (error) throw error;
+  if (sendersError) throw sendersError;
+
+  const firstSenderByAccount = new Map<string, { id: string; session_name: string }>();
+  for (const sender of senderRows || []) if (!firstSenderByAccount.has(sender.account_id)) firstSenderByAccount.set(sender.account_id, sender);
 
   const batches = new Map<string, { accountId: string; senderId: string | null; sessionName: string | null; campaignIds: string[]; groupJids: Set<string> }>();
   for (const campaign of campaigns || []) {
-    const sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
+    const linkedSender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
+    const fallbackSender = firstSenderByAccount.get(campaign.account_id);
+    const sender = linkedSender?.session_name ? { id: campaign.whatsapp_sender_id, session_name: linkedSender.session_name } : fallbackSender;
+    if (!campaign.whatsapp_sender_id && sender?.id) {
+      await dbResult("campaign-groups.link-sender", supabase.from("campanhas").update({ whatsapp_sender_id: sender.id, updated_at: new Date().toISOString() }).eq("id", campaign.id).eq("account_id", campaign.account_id));
+    }
     const key = `${campaign.account_id}:${sender?.session_name || "sem-sessao"}`;
-    const batch = batches.get(key) || { accountId: campaign.account_id, senderId: campaign.whatsapp_sender_id, sessionName: sender?.session_name || null, campaignIds: [] as string[], groupJids: new Set<string>() };
+    const batch = batches.get(key) || { accountId: campaign.account_id, senderId: sender?.id || null, sessionName: sender?.session_name || null, campaignIds: [] as string[], groupJids: new Set<string>() };
     batch.campaignIds.push(campaign.id);
     for (const item of campaign.campanha_grupos || []) batch.groupJids.add((item as any).group_jid);
     batches.set(key, batch);
