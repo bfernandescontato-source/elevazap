@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-// Removed from the active integration because one global secret cannot resolve
-// a tenant. Account-specific webhooks live at /api/webhooks/elevazap/[token].
+// Tombstone kept so callers of the retired legacy integration get an explicit
+// response instead of retrying indefinitely against a missing endpoint.
 export async function POST() {
-  return NextResponse.json({ error: "Webhook legado desativado. Use o webhook exclusivo da conta." }, { status: 410 });
+  return NextResponse.json({ error: "Integração legada desativada." }, { status: 410 });
 }

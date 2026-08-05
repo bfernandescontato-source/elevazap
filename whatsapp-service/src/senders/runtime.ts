@@ -1,5 +1,5 @@
 import { supabase } from "../supabase.js";
-import { createSupportSession, type SupportSession } from "../support/session.js";
+import { createWhatsAppSession, type WhatsAppSession } from "../whatsapp/session.js";
 import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "../groups/discovery.js";
 import { syncGroupMetadata } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
@@ -8,7 +8,7 @@ type SenderSession = {
   id: string;
   sessionName: string;
   label: string;
-  session: SupportSession;
+  session: WhatsAppSession;
   accountId: string;
 };
 
@@ -18,7 +18,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
   const current = senders.get(sender.session_name);
   if (current) return current;
 
-  const session = await createSupportSession(
+  const session = await createWhatsAppSession(
     sender.session_name,
     async () => undefined,
     async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock),
