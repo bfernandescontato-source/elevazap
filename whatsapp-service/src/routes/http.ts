@@ -2,13 +2,6 @@ import express from "express";
 import { execFile } from "child_process";
 import type { GlobalSendQueue } from "../queue/queue.js";
 import {
-  bootSupportRuntime,
-  reloadSupportAgent,
-  disconnectSupportSession,
-  getSupportSessionStatus,
-  startNewSupportSession
-} from "../support/runtime.js";
-import {
   disconnectSenderSession,
   getSenderStatus,
   refreshSenderGroups,
@@ -122,60 +115,5 @@ export function createHttpServer(
     }
   });
 
-  // Support agent routes
-  app.get("/support/:agentId/status", (req, res) => {
-    const info = getSupportSessionStatus(req.params.agentId);
-    res.json(info);
-  });
-
-  app.post("/support/:agentId/connect", async (req, res) => {
-    try {
-      const { sessionId } = req.body as { sessionId: string };
-      if (!sessionId) return res.status(400).json({ error: "sessionId obrigatório." });
-      await startNewSupportSession(req.params.agentId, sessionId);
-      res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/support/:agentId/reload", async (req, res) => {
-    try {
-      await reloadSupportAgent(req.params.agentId);
-      res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/support/:agentId/disconnect", async (req, res) => {
-    try {
-      await disconnectSupportSession(req.params.agentId);
-      res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // Human reply from panel — sends message via support session and marks message ID as human
-  app.post("/support/:agentId/send", async (req, res) => {
-    try {
-      const { jid, text } = req.body as { jid: string; text: string };
-      if (!jid || !text) return res.status(400).json({ error: "jid e text obrigatórios." });
-      const { getSupportSessionStatus } = await import("../support/runtime.js");
-      const info = getSupportSessionStatus(req.params.agentId);
-      if (info.status !== "connected") return res.status(503).json({ error: "Sessão de suporte não conectada." });
-
-      // Get the sock from runtime — we need a helper for this
-      const { sendViaAgent } = await import("../support/runtime.js");
-      const result = await sendViaAgent(req.params.agentId, jid, text);
-      res.json({ ok: true, waMessageId: result });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
   return app;
 }
-
-export { bootSupportRuntime };

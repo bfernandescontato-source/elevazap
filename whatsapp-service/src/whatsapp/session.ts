@@ -8,7 +8,7 @@ import { withTimeout } from "../utils/timeout.js";
 import { errorFields } from "../utils/log.js";
 import { getBaileysVersion } from "../utils/baileys-version.js";
 
-export type SupportSession = {
+export type WhatsAppSession = {
   sessionId: string;
   sock: any;
   getStatus: () => "idle" | "starting" | "waiting_qr" | "connected" | "reconnecting" | "logged_out" | "failed";
@@ -21,10 +21,10 @@ export type SupportSession = {
 type MessageHandler = (messages: any[]) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 
-export async function createSupportSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string): Promise<SupportSession> {
+export async function createWhatsAppSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string): Promise<WhatsAppSession> {
   let auth = await useSupabaseAuthState(sessionId, accountId);
   let sock: any = null;
-  let status: ReturnType<SupportSession["getStatus"]> = "idle";
+  let status: ReturnType<WhatsAppSession["getStatus"]> = "idle";
   let currentQr = "";
   let stopped = false;
   let starting = false;
@@ -50,12 +50,7 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
         auth = await useSupabaseAuthState(sessionId, accountId);
       }
       const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
-      sock = makeWASocket({
-        version,
-        auth: auth.state,
-        printQRInTerminal: false,
-        logger: pino({ level: "silent" })
-      });
+      sock = makeWASocket({ version, auth: auth.state, printQRInTerminal: false, logger: pino({ level: "silent" }) });
 
       sock.ev.on("creds.update", () => auth.saveCreds().catch((error) => {
         status = "failed";
@@ -84,12 +79,11 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
       });
 
       sock.ev.on("messages.upsert", async ({ messages }: { messages: any[] }) => {
-        try { await onMessages(messages); } catch (e) { console.error(`[support:${sessionId}] message error`, e); }
+        try { await onMessages(messages); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
       });
-
       if (onGroupParticipants) {
         sock.ev.on("group-participants.update", async (update: any) => {
-          try { await onGroupParticipants(update, sock); } catch (e) { console.error(`[support:${sessionId}] group update error`, e); }
+          try { await onGroupParticipants(update, sock); } catch (error) { console.error(`[whatsapp:${sessionId}] group update error`, error); }
         });
       }
     } catch (error) {
@@ -103,7 +97,6 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
   }
 
   await start();
-
   return {
     sessionId,
     get sock() { return sock; },
@@ -118,10 +111,6 @@ export async function createSupportSession(sessionId: string, onMessages: Messag
       currentQr = "";
       lastError = null;
     },
-    stop: () => {
-      stopped = true;
-      sock?.end(undefined);
-      status = "idle";
-    }
+    stop: () => { stopped = true; sock?.end(undefined); status = "idle"; }
   };
 }

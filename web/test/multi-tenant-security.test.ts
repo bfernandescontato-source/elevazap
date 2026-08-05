@@ -1,11 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(__dirname, "../..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 
 describe("isolamento multi-tenant", () => {
+  it("mantém IA de suporte e webhooks personalizados descontinuados", () => {
+    for (const removedPath of [
+      "web/app/api/support/agent/route.ts",
+      "web/app/api/webhooks/rules/route.ts",
+      "web/app/suporte/page.tsx",
+      "web/app/webhooks/page.tsx",
+      "whatsapp-service/src/support/runtime.ts"
+    ]) {
+      expect(existsSync(resolve(root, removedPath))).toBe(false);
+    }
+
+    const service = read("whatsapp-service/src/index.ts");
+    const migration = read("supabase/migrations/017_decommission_support_ai_and_custom_webhooks.sql");
+    expect(service).not.toContain("bootSupportRuntime");
+    expect(migration).toContain("set enabled = false");
+    expect(migration).toContain("set status = 'inactive'");
+  });
+
   it("cria conta, associa usuário e aplica RLS às tabelas tenant", () => {
     const migration = read("supabase/migrations/015_multi_tenant_accounts.sql");
     expect(migration).toContain("create table if not exists public.accounts");
@@ -27,8 +45,7 @@ describe("isolamento multi-tenant", () => {
       "web/app/api/campanhas/route.ts",
       "web/app/api/lotes/create/route.ts",
       "web/app/api/mensagem/bulk/route.ts",
-      "web/app/api/whatsapp/senders/route.ts",
-      "web/app/api/webhooks/rules/route.ts"
+      "web/app/api/whatsapp/senders/route.ts"
     ]) {
       const source = read(route);
       expect(source).toMatch(/require(AccountContext|TenantDatabase)/);

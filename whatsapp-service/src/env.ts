@@ -19,13 +19,7 @@ const schema = z.object({
   QUEUE_PROCESSING_TIMEOUT_MS: z.coerce.number().int().min(5000).default(120_000),
   MAX_SEND_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1000).default(60_000),
-  WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
-  LLM_PROVIDER: z.enum(["openai", "anthropic"]).default("openai"),
-  OPENAI_API_KEY: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  ELEVAPAY_API_URL: z.string().url().optional(),
-  ELEVAPAY_API_KEY: z.string().optional(),
-  SUPPORT_NOTIFY_JID: z.string().optional()
+  WELCOME_UNCERTAIN_POLICY: z.string().default("manual")
 });
 
 export const env = schema.parse(process.env);
