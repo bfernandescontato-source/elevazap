@@ -36,7 +36,7 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
         WhatsApp conectado{data.connection.phone ? ` · ${data.connection.phone}` : ""}
       </div> : <section className="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="font-semibold text-red-800">WhatsApp desconectado</h2><p className="mt-1 text-sm text-red-700">Suas campanhas estão pausadas até reconectar.</p></div>
-        <Link href="/grupos/numeros#numero-principal" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
+        <Link href="/grupos/numeros" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
       </section>}
 
       {!data.connection.connected && data.counts.campaigns === 0 ? <Onboarding data={data} /> : <div className="grid gap-4 sm:grid-cols-3">
@@ -69,7 +69,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function Onboarding({ data }: { data: DashboardData }) {
   const steps = [
-    { label: "Conectar WhatsApp", href: "/grupos/numeros#numero-principal", done: data.connection.connected },
+    { label: "Conectar WhatsApp", href: "/grupos/numeros", done: data.connection.connected },
     { label: "Escolher grupos", href: "/campanhas", done: data.counts.groups > 0 },
     { label: "Criar primeira campanha", href: "/campanhas", done: data.counts.campaigns > 0 }
   ];
