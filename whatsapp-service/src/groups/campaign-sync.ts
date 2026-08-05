@@ -1,4 +1,3 @@
-import type { WhatsAppRuntime } from "../whatsapp.js";
 import { supabase } from "../supabase.js";
 import { syncSenderGroups } from "../senders/runtime.js";
 import type { SyncedGroup } from "./sync.js";
@@ -28,7 +27,7 @@ async function persist(accountId: string, campaignIds: string[], senderId: strin
   }
 }
 
-export async function syncAllCampaignGroups(runtime: WhatsAppRuntime) {
+export async function syncAllCampaignGroups() {
   const { data: campaigns, error } = await supabase
     .from("campanhas")
     .select("id,account_id,whatsapp_sender_id,whatsapp_senders(session_name),campanha_grupos(group_jid)")
@@ -38,7 +37,7 @@ export async function syncAllCampaignGroups(runtime: WhatsAppRuntime) {
   const batches = new Map<string, { accountId: string; senderId: string | null; sessionName: string | null; campaignIds: string[]; groupJids: Set<string> }>();
   for (const campaign of campaigns || []) {
     const sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
-    const key = `${campaign.account_id}:${sender?.session_name || "principal"}`;
+    const key = `${campaign.account_id}:${sender?.session_name || "sem-sessao"}`;
     const batch = batches.get(key) || { accountId: campaign.account_id, senderId: campaign.whatsapp_sender_id, sessionName: sender?.session_name || null, campaignIds: [] as string[], groupJids: new Set<string>() };
     batch.campaignIds.push(campaign.id);
     for (const item of campaign.campanha_grupos || []) batch.groupJids.add((item as any).group_jid);
@@ -49,9 +48,8 @@ export async function syncAllCampaignGroups(runtime: WhatsAppRuntime) {
     const groupJids = Array.from(batch.groupJids);
     if (!groupJids.length) continue;
     try {
-      const rows = batch.sessionName
-        ? await syncSenderGroups(batch.sessionName, groupJids)
-        : await runtime.syncGroups(groupJids);
+      if (!batch.sessionName) throw new Error("Campanha sem número WhatsApp associado.");
+      const rows = await syncSenderGroups(batch.sessionName, groupJids);
       await persist(batch.accountId, batch.campaignIds, batch.senderId, rows);
     } catch (currentError: any) {
       const message = currentError?.message || "Falha ao sincronizar participantes.";

@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireAccountContext } from "@/lib/security";
-import { supabaseAdmin } from "@/lib/supabase";
+import { requireTenantDatabase } from "@/lib/tenant-database";
 
 export async function GET() {
-  const context = await requireAccountContext();
+  const context = await requireTenantDatabase();
   if (context.error) return context.error;
-  const { data, error } = await supabaseAdmin().from("envios_grupo_lotes").select("*").eq("account_id", context.accountId).order("created_at", { ascending: false }).limit(200);
+  const { data, error } = await context.database.from("envios_grupo_lotes").select("*").eq("account_id", context.accountId).order("created_at", { ascending: false }).limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || []);
 }

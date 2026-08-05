@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callWhatsappService } from "@/lib/whatsapp-service";
+import { requireTenantSender } from "@/lib/tenant-whatsapp";
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "admin_action_ip");
@@ -15,12 +16,17 @@ export async function POST(request: NextRequest) {
   if (!inviteUrl || inviteUrl.length > 500) return NextResponse.json({ error: "Cole um link de convite válido." }, { status: 400 });
 
   const sb = supabaseAdmin();
-  let servicePath = "/groups/resolve-invite";
+  let servicePath = "";
   if (senderId) {
     const { data: sender, error } = await sb.from("whatsapp_senders").select("id,session_name").eq("id", senderId).eq("account_id", context.accountId).maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
     servicePath = `/senders/${sender.session_name}/groups/resolve-invite`;
+  } else {
+    const tenantSender = await requireTenantSender();
+    if (tenantSender.error) return tenantSender.error;
+    if (!tenantSender.sender) return NextResponse.json({ error: "Cadastre um número WhatsApp antes de adicionar grupos." }, { status: 404 });
+    servicePath = `/senders/${tenantSender.sender.session_name}/groups/resolve-invite`;
   }
 
   try {
