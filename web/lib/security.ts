@@ -2,28 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "./env";
 import { getSession } from "./auth";
 import { supabaseAdmin } from "./supabase";
+import { supabaseAuth } from "./supabase-auth";
 
 export async function requireAdmin() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
-  if (!session.accountId || session.accountStatus !== "active") return NextResponse.json({ error: "Assinatura inativa.", code: session.accountStatus || "authentication_error" }, { status: 403 });
+  const context = await requireAccountContext();
+  if (context.error) return context.error;
+  if (context.session.role !== "admin") return NextResponse.json({ error: "Apenas administradores podem realizar esta ação." }, { status: 403 });
   return null;
 }
 
 export async function requireAccountContext() {
   const session = await getSession();
   if (!session?.userId || !session.accountId) return { error: NextResponse.json({ error: "Não autorizado." }, { status: 401 }) };
-  const { data } = await supabaseAdmin().from("app_users").select("account_id,status,accounts(status,plan,name)").eq("id", session.userId).eq("account_id", session.accountId).maybeSingle();
+  const database = await supabaseAuth();
+  const { data: authData, error: authError } = await database.auth.getUser();
+  if (authError || authData.user?.id !== session.userId) return { error: NextResponse.json({ error: "Sessão de autenticação inválida." }, { status: 401 }) };
+  const { data } = await database.from("app_users").select("account_id,status,accounts(status,plan,name)").eq("id", session.userId).eq("account_id", session.accountId).maybeSingle();
   const account = Array.isArray(data?.accounts) ? data.accounts[0] : data?.accounts;
   if (!data || data.status !== "active" || account?.status !== "active") return { error: NextResponse.json({ error: "Assinatura inativa.", code: account?.status || data?.status || "authentication_error" }, { status: 403 }) };
-  return { accountId: data.account_id as string, account, session };
+  return { accountId: data.account_id as string, account, session, database };
 }
 
 export async function requireAdminRole() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
-  if (session.role !== "admin") return NextResponse.json({ error: "Apenas administradores podem realizar esta ação." }, { status: 403 });
-  return null;
+  return requireAdmin();
 }
 
 export function requireValidOrigin(request: NextRequest) {

@@ -53,4 +53,46 @@ describe("isolamento multi-tenant", () => {
     expect(queue).toContain('account?.status !== "active"');
     expect(queue).toContain('.eq("account_id", row.account_id)');
   });
+
+  it("não possui sessão WhatsApp global nem fallback entre contas", () => {
+    const index = read("whatsapp-service/src/index.ts");
+    const queue = read("whatsapp-service/src/queue/queue.ts");
+    const runtime = read("whatsapp-service/src/senders/runtime.ts");
+    expect(index).not.toContain("createWhatsAppRuntime");
+    expect(queue).not.toContain("getFirstConnectedSenderSock");
+    expect(queue).toContain('getSenderSock(row.whatsapp_session_name, row.account_id)');
+    expect(queue).toContain('Envio sem número WhatsApp associado à conta.');
+    expect(runtime).toContain("managed.accountId !== accountId");
+  });
+
+  it("endurece o claim no banco para exigir sessão da mesma conta", () => {
+    const migration = read("supabase/migrations/016_tenant_queue_hardening.sql");
+    expect(migration).toContain("envios_active_job_requires_session");
+    expect(migration).toContain("s.account_id=e.account_id");
+    expect(migration).toContain("s.session_name=e.whatsapp_session_name");
+    expect(migration).toContain("grant execute on function public.claim_next_envio() to service_role");
+  });
+
+  it("usa o cliente autenticado com RLS nas APIs de leitura migradas", () => {
+    for (const route of [
+      "web/app/api/dashboard/summary/route.ts",
+      "web/app/api/envios/route.ts",
+      "web/app/api/envios-grupo/route.ts",
+      "web/app/api/lotes/route.ts",
+      "web/app/api/incertos/route.ts",
+      "web/app/api/whatsapp/groups/route.ts"
+    ]) {
+      const source = read(route);
+      expect(source).toContain("requireTenantDatabase");
+      expect(source).not.toContain("supabaseAdmin");
+    }
+  });
+
+  it("expõe monitoramento sem incluir identificadores de outras contas", () => {
+    const service = read("whatsapp-service/src/routes/http.ts");
+    const dashboard = read("web/app/api/dashboard/summary/route.ts");
+    expect(service).toContain('app.get("/metrics"');
+    expect(dashboard).toContain('.eq("account_id", context.accountId)');
+    expect(dashboard).toContain("queueCounts");
+  });
 });

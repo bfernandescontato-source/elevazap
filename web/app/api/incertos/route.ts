@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireAccountContext } from "@/lib/security";
-import { supabaseAdmin } from "@/lib/supabase";
+import { requireTenantDatabase } from "@/lib/tenant-database";
 
 export async function GET() {
-  const context = await requireAccountContext();
+  const context = await requireTenantDatabase();
   if (context.error) return context.error;
-  const sb = supabaseAdmin();
+  const sb = context.database;
   const [envios, grupos] = await Promise.all([
     sb.from("envios").select("*").eq("account_id", context.accountId).eq("status", "incerto").order("created_at", { ascending: false }),
     sb.from("envios_grupo").select("*").eq("account_id", context.accountId).eq("status", "incerto").order("created_at", { ascending: false })

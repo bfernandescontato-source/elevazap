@@ -6,8 +6,7 @@ import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
-import type { WhatsAppRuntime } from "../whatsapp.js";
-import { getFirstConnectedSenderSock, getSenderSock } from "../senders/runtime.js";
+import { getSenderSock, hasConnectedSender } from "../senders/runtime.js";
 import { compatibleQueueUpdate, type DatabaseCapabilities, type QueueTable } from "../database-capabilities.js";
 
 type QueueItem = { id: string; kind: "envio" | "grupo"; priority: "alta" | "normal"; claim_token: string };
@@ -33,8 +32,16 @@ export class GlobalSendQueue {
   private running = false;
   private lastSendAt = 0;
   private reconciliation = new Map<string, { table: TableName; row: any; messageId: string | null; reason: string }>();
+  private processed = 0;
+  private succeeded = 0;
+  private failed = 0;
+  private uncertain = 0;
+  private lastClaimAt: string | null = null;
+  private lastProcessedAt: string | null = null;
+  private lastError: string | null = null;
+  private startedAt = new Date().toISOString();
 
-  constructor(private runtime: WhatsAppRuntime, private databaseCapabilities: DatabaseCapabilities) {}
+  constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
   private updateFields(table: TableName, values: Record<string, unknown>) {
     return compatibleQueueUpdate(this.databaseCapabilities, table, values);
@@ -46,7 +53,15 @@ export class GlobalSendQueue {
       size: this.buffer.length,
       reconciliation: this.reconciliation.size,
       highPriority: this.buffer.filter((item) => item.priority === "alta").length,
-      normalPriority: this.buffer.filter((item) => item.priority === "normal").length
+      normalPriority: this.buffer.filter((item) => item.priority === "normal").length,
+      processed: this.processed,
+      succeeded: this.succeeded,
+      failed: this.failed,
+      uncertain: this.uncertain,
+      lastClaimAt: this.lastClaimAt,
+      lastProcessedAt: this.lastProcessedAt,
+      lastError: this.lastError,
+      startedAt: this.startedAt
     };
   }
 
@@ -61,7 +76,7 @@ export class GlobalSendQueue {
   }
 
   private hasAnyConnection() {
-    return this.runtime.getStatus() === "connected" || getFirstConnectedSenderSock() !== null;
+    return hasConnectedSender();
   }
 
   private async loop() {
@@ -78,6 +93,7 @@ export class GlobalSendQueue {
         if (item) await this.process(item);
         else await sleep(2_000);
       } catch (error) {
+        this.lastError = error instanceof Error ? error.message : "Falha desconhecida na fila.";
         console.error({ event: "queue.loop_failed", component: "queue", ...errorFields(error) });
         await sleep(3_000);
       }
@@ -94,6 +110,7 @@ export class GlobalSendQueue {
     }
     if (!envio?.id) envio = await this.claimDirect("envios");
     if (envio?.id) {
+      this.lastClaimAt = new Date().toISOString();
       this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
       return;
     }
@@ -105,14 +122,17 @@ export class GlobalSendQueue {
       grupo = await this.claimDirect("envios_grupo");
     }
     if (!grupo?.id) grupo = await this.claimDirect("envios_grupo");
-    if (grupo?.id) this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+    if (grupo?.id) {
+      this.lastClaimAt = new Date().toISOString();
+      this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+    }
   }
 
   private async claimDirect(table: TableName) {
     const now = new Date();
     const nowIso = now.toISOString();
     const { data: candidates, error: selectError } = await supabase.from(table)
-      .select("*").eq("status", "pendente").or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
+      .select("*").eq("status", "pendente").not("whatsapp_session_name", "is", null).or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
       .order("scheduled_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: true })
       .limit(20);
     if (selectError) throw selectError;
@@ -148,11 +168,23 @@ export class GlobalSendQueue {
       const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
       if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
       await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, this.execute(item, row));
+      this.processed += 1;
+      this.succeeded += 1;
+      this.lastProcessedAt = new Date().toISOString();
+      this.lastError = null;
     } catch (error) {
       const potentiallyDelivered = error instanceof OperationTimeoutError &&
         ["queue.item", "whatsapp.sendMessage"].includes(error.operation);
-      if (potentiallyDelivered) await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
-      else await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
+      if (potentiallyDelivered) {
+        await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
+        this.uncertain += 1;
+      } else {
+        await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
+        this.failed += 1;
+      }
+      this.processed += 1;
+      this.lastProcessedAt = new Date().toISOString();
+      this.lastError = error instanceof Error ? error.message : "Falha no envio.";
     }
   }
 
@@ -166,14 +198,10 @@ export class GlobalSendQueue {
   }
 
   private selectSocket(row: any, group = false) {
-    if (row.whatsapp_session_name) {
-      const selected = getSenderSock(row.whatsapp_session_name, row.account_id);
-      if (!selected) throw new Error("Número responsável pelo disparo está desconectado.");
-      return selected;
-    }
-    if (this.runtime.getStatus() === "connected") return this.runtime.sock;
-    if (!group) return getFirstConnectedSenderSock()?.sock || null;
-    throw new Error("Número principal desconectado.");
+    if (!row.whatsapp_session_name) throw new Error("Envio sem número WhatsApp associado à conta.");
+    const selected = getSenderSock(row.whatsapp_session_name, row.account_id);
+    if (!selected) throw new Error(group ? "Número responsável pelo grupo está desconectado." : "Número responsável pelo disparo está desconectado.");
+    return selected;
   }
 
   private async sendWelcome(row: any) {

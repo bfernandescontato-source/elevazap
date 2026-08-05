@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 type DashboardData = {
   connection: { connected: boolean; count: number; phone: string };
   counts: { campaigns: number; groups: number };
+  queue: { pendente: number; enfileirado: number; processando: number; sucesso: number; erro: number; incerto: number };
 };
 
 export default function DashboardPage() {
@@ -43,8 +44,23 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
         <Metric label="Campanhas" value={data.counts.campaigns} />
         <Metric label="Grupos" value={data.counts.groups} />
       </div>}
+
+      <section className="rounded-lg border border-line bg-white p-5">
+        <div className="flex items-center justify-between"><h2 className="font-semibold text-ink">Saúde da fila</h2><span className={`text-sm font-medium ${data.queue.erro || data.queue.incerto ? "text-amber-700" : "text-emerald-700"}`}>{data.queue.erro || data.queue.incerto ? "Requer atenção" : "Operação normal"}</span></div>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
+          <QueueMetric label="Pendentes" value={data.queue.pendente + data.queue.enfileirado} />
+          <QueueMetric label="Processando" value={data.queue.processando} />
+          <QueueMetric label="Sucesso" value={data.queue.sucesso} />
+          <QueueMetric label="Erros" value={data.queue.erro} />
+          <QueueMetric label="Incertos" value={data.queue.incerto} />
+        </div>
+      </section>
     </div>}
   </AppShell>;
+}
+
+function QueueMetric({ label, value }: { label: string; value: number }) {
+  return <div><div className="text-xs text-muted">{label}</div><div className="mt-1 text-xl font-semibold text-ink">{value}</div></div>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

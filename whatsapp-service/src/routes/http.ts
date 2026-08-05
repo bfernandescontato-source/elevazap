@@ -1,7 +1,6 @@
 import express from "express";
 import { execFile } from "child_process";
 import type { GlobalSendQueue } from "../queue/queue.js";
-import type { WhatsAppRuntime } from "../whatsapp.js";
 import {
   bootSupportRuntime,
   reloadSupportAgent,
@@ -15,7 +14,8 @@ import {
   refreshSenderGroups,
   resolveSenderGroupInvite,
   syncSenderGroups,
-  startSenderSessionByName
+  startSenderSessionByName,
+  getSenderRuntimeStats
 } from "../senders/runtime.js";
 import { waitForSessionReady } from "../utils/session-ready.js";
 
@@ -37,7 +37,6 @@ export type ServiceReadiness = {
 };
 
 export function createHttpServer(
-  runtimeRef: { current: WhatsAppRuntime | null },
   queueRef: { current: GlobalSendQueue | null },
   readiness: ServiceReadiness
 ) {
@@ -48,95 +47,29 @@ export function createHttpServer(
   // Existing routes
   app.get("/health", (_req, res) => res.json({ ok: true, process: "alive" }));
   app.get("/ready", (_req, res) => {
-    const runtime = runtimeRef.current;
-    const state = runtime?.getStatus() || "idle";
-    const ready = readiness.supabase && readiness.queue && state === "connected";
+    const senders = getSenderRuntimeStats();
+    const ready = readiness.supabase && readiness.queue;
     res.status(ready ? 200 : 503).json({
       ready,
       process_started: readiness.processStarted,
       supabase_accessible: readiness.supabase,
       queue_active: readiness.queue,
-      whatsapp_available: state === "connected",
-      whatsapp_state: state,
-      last_error: runtime?.getLastError() || readiness.lastError
+      whatsapp_available: senders.connected > 0,
+      sender_sessions: senders,
+      last_error: readiness.lastError
     });
   });
   app.get("/status", async (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ status: "idle", error: "Serviço WhatsApp ainda está inicializando." });
-    const user = runtime.sock?.user;
-    const phoneNumber = user?.id ? user.id.split(":")[0].split("@")[0] : "";
+    const senders = getSenderRuntimeStats();
     res.json({
-      status: runtime.getStatus(),
-      phone_number: phoneNumber,
-      display_name: user?.name || "",
+      status: senders.connected > 0 ? "connected" : "disconnected",
+      senders,
       queue: queueRef.current?.stats() || { running: false, size: 0 },
       lock: "active",
       ffmpeg: await ffmpegStatus()
     });
   });
-  app.get("/qr", (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    return res.json({ qr: runtime.getQr(), status: runtime.getStatus() });
-  });
-  app.post("/restart", async (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    try {
-      await runtime.restart();
-      const result = await waitForSessionReady(() => ({
-        status: runtime.getStatus(),
-        qr: runtime.getQr(),
-        error: runtime.getLastError()
-      }));
-      if (result.status === "failed" || result.status === "logged_out") {
-        return res.status(503).json({ ...result, error: result.error || "Não foi possível gerar o QR Code." });
-      }
-      return res.status(result.qr || result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
-    } catch (e: any) {
-      return res.status(503).json({ error: e?.message || "Não foi possível gerar o QR Code." });
-    }
-  });
-  app.post("/logout", async (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    await runtime.logout();
-    return res.json({ ok: true });
-  });
-  app.get("/groups", async (_req, res) => {
-    const runtime = runtimeRef.current;
-    if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-    return res.json({ groups: await runtime.refreshGroups() });
-  });
-  app.post("/refresh-groups", async (_req, res) => {
-    try {
-      const runtime = runtimeRef.current;
-      if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-      return res.json({ groups: await runtime.refreshGroups() });
-    } catch (e: any) {
-      return res.status(503).json({ error: e?.message || "Não foi possível atualizar os grupos." });
-    }
-  });
-  app.post("/groups/resolve-invite", async (req, res) => {
-    try {
-      const runtime = runtimeRef.current;
-      if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-      res.json({ group: await runtime.resolveGroupInvite(String(req.body?.inviteUrl || "")) });
-    } catch (e: any) {
-      res.status(400).json({ error: e.message });
-    }
-  });
-  app.post("/groups/sync", async (req, res) => {
-    try {
-      const runtime = runtimeRef.current;
-      if (!runtime) return res.status(503).json({ error: "Serviço WhatsApp ainda está inicializando." });
-      const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
-      res.json({ groups: await runtime.syncGroups(groupJids) });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  app.get("/metrics", (_req, res) => res.json({ queue: queueRef.current?.stats() || { running: false }, senders: getSenderRuntimeStats() }));
 
   app.get("/senders/:sessionName/status", (req, res) => {
     res.json(getSenderStatus(req.params.sessionName));

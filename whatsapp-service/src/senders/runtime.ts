@@ -77,13 +77,19 @@ export function getSenderSock(sessionName: string, accountId?: string) {
   return managed.session.sock;
 }
 
-export function getFirstConnectedSenderSock() {
-  for (const managed of senders.values()) {
-    if (managed.session.getStatus() === "connected") {
-      return { sock: managed.session.sock, sessionName: managed.sessionName, label: managed.label };
-    }
-  }
-  return null;
+export function hasConnectedSender() {
+  return Array.from(senders.values()).some((managed) => managed.session.getStatus() === "connected");
+}
+
+export function getSenderRuntimeStats() {
+  const sessions = Array.from(senders.values());
+  return {
+    total: sessions.length,
+    connected: sessions.filter((item) => item.session.getStatus() === "connected").length,
+    waiting_qr: sessions.filter((item) => item.session.getStatus() === "waiting_qr").length,
+    reconnecting: sessions.filter((item) => item.session.getStatus() === "reconnecting").length,
+    failed: sessions.filter((item) => ["failed", "logged_out"].includes(item.session.getStatus())).length
+  };
 }
 
 export async function refreshSenderGroups(sessionName: string) {

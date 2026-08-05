@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAccountContext } from "@/lib/security";
-import { supabaseAdmin } from "@/lib/supabase";
+import { requireTenantDatabase } from "@/lib/tenant-database";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { maskPhone } from "@/lib/phone";
 
@@ -10,14 +9,18 @@ function maskedPhone(value?: string) {
 }
 
 export async function GET() {
-  const context = await requireAccountContext();
+  const context = await requireTenantDatabase();
   if (context.error) return context.error;
 
-  const sb = supabaseAdmin();
-  const [campaigns, groups, senders] = await Promise.all([
+  const sb = context.database;
+  const statuses = ["pendente", "enfileirado", "processando", "sucesso", "erro", "incerto"] as const;
+  const [campaigns, groups, senders, ...queueCounts] = await Promise.all([
     sb.from("campanhas").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
     sb.from("grupos").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
-    sb.from("whatsapp_senders").select("session_name").eq("account_id", context.accountId)
+    sb.from("whatsapp_senders").select("session_name").eq("account_id", context.accountId),
+    ...statuses.flatMap((status) => ["envios", "envios_grupo"].map((table) =>
+      sb.from(table).select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("status", status)
+    ))
   ]);
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
@@ -25,6 +28,10 @@ export async function GET() {
   ));
   const connectedAdditional = additionalStatuses.filter((sender) => sender.status === "connected");
   const firstConnectedPhone = connectedAdditional.find((sender) => sender.phone_number)?.phone_number;
+
+  const queue = Object.fromEntries(statuses.map((status, index) => [status,
+    (queueCounts[index * 2]?.count || 0) + (queueCounts[index * 2 + 1]?.count || 0)
+  ]));
 
   return NextResponse.json({
     connection: {
@@ -35,6 +42,7 @@ export async function GET() {
     counts: {
       campaigns: campaigns.count || 0,
       groups: groups.count || 0
-    }
+    },
+    queue
   });
 }
