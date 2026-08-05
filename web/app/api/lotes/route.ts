@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireTenantDatabase } from "@/lib/tenant-database";
+import { listDispatchBatches } from "@/modules/dispatches/server/dispatch-query-service";
+import { serverError } from "@/shared/http/responses";
 
 export async function GET() {
   const context = await requireTenantDatabase();
   if (context.error) return context.error;
-  const { data, error } = await context.database.from("envios_grupo_lotes").select("*").eq("account_id", context.accountId).order("created_at", { ascending: false }).limit(200);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data || []);
+  try { return NextResponse.json(await listDispatchBatches(context.database, context.accountId)); }
+  catch (error) { return serverError(error, "Não foi possível carregar os lotes."); }
 }

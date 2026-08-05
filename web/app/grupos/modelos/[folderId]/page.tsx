@@ -3,7 +3,7 @@
 import { ActionButton, AppShell, ConfirmModal, FileDropzone, LoadingState, MediaPreview, SearchInput, Toast } from "@/components/ui";
 import { ChevronRight, FileText, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
 
@@ -72,7 +72,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
     );
   }, [modelos, query]);
 
-  async function load() {
+  const load = useCallback(async () => {
     const [pr, mr] = await Promise.all([
       fetch("/api/modelos/pastas"),
       fetch(`/api/modelos?pasta_id=${folderId}`),
@@ -85,11 +85,11 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       : null;
     setPasta(found);
     setModelos(Array.isArray(models) ? models : []);
-  }
+  }, [folderId]);
 
   useEffect(() => {
     load().catch((e: any) => setToast(e.message)).finally(() => setLoading(false));
-  }, [folderId]);
+  }, [load]);
 
   function showMsg(msg: string) {
     setToast(msg);

@@ -2,7 +2,7 @@
 
 import { ActionButton, AppShell, CopyButton, DataTable, StatusBadge, Toast } from "@/components/ui";
 import { Check, Edit3, Eye, Play, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Tab = "configs" | "auth" | "history";
 
@@ -83,14 +83,14 @@ export default function WebhooksPage() {
     setRules(Array.isArray(data) ? data : []);
   }
 
-  async function loadEvents() {
+  const loadEvents = useCallback(async () => {
     const url = historyStatus ? `/api/webhooks/events?status=${historyStatus}` : "/api/webhooks/events";
     const data = await fetch(url, { cache: "no-store" }).then((r) => r.json());
     setEvents(Array.isArray(data) ? data : []);
-  }
+  }, [historyStatus]);
 
   useEffect(() => { loadRules(); }, []);
-  useEffect(() => { loadEvents(); }, [historyStatus]);
+  useEffect(() => { void loadEvents(); }, [loadEvents]);
 
   function openRule(rule?: any) {
     if (!rule) {
@@ -154,7 +154,7 @@ export default function WebhooksPage() {
     await loadEvents();
   }
 
-  const rows = useMemo(() => rules.map((rule) => {
+  const rows = rules.map((rule) => {
     const url = `${origin}/api/webhooks/elevazap/${rule.webhook_token}`;
     return [
       <div key="n"><div className="font-medium text-ink">{rule.name}</div><div className="mt-1 text-xs text-muted">{rule.payload_format}</div></div>,
@@ -164,7 +164,7 @@ export default function WebhooksPage() {
       <StatusBadge key="s" status={rule.status === "active" ? "sucesso" : "pausado"} />,
       <div key="a" className="flex gap-2"><button title="Editar" className="rounded-lg border border-line p-2" onClick={() => openRule(rule)}><Edit3 size={16} /></button><button title="Excluir" className="rounded-lg border border-line p-2 text-red-600" onClick={() => deleteRule(rule.id)}><Trash2 size={16} /></button></div>
     ];
-  }), [rules, origin]);
+  });
 
   return <AppShell title="Webhooks" subtitle="Automações de WhatsApp por eventos externos">
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
