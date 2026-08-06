@@ -302,6 +302,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       body: JSON.stringify({
         titulo: campaignTitle,
         campanha_id: selectedCampaignId,
+        modelo_mensagem_id: messageSource === "modelo" && selectedModelo ? selectedModelo.id : undefined,
         group_jids: selected,
         whatsapp_sender_id: selectedSenderId || selectedCampaign?.whatsapp_sender_id || undefined,
         tipo: activeTipo,

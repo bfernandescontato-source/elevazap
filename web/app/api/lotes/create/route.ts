@@ -36,6 +36,7 @@ async function createLoteFallback(sb: any, accountId: string, body: any, groupJi
     account_id: accountId,
     titulo: body.titulo.trim(),
     campanha_id: body.campanha_id || null,
+    modelo_mensagem_id: body.modelo_mensagem_id || null,
     whatsapp_sender_id: sender?.id || null,
     whatsapp_session_name: sender?.session_name || null,
     tipo: body.tipo,
