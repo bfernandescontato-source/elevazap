@@ -96,7 +96,9 @@ export class GlobalSendQueue {
     const now = new Date();
     const nowIso = now.toISOString();
     const { data: candidates, error: selectError } = await supabase.from(table)
-      .select("*").eq("status", "pendente").not("whatsapp_session_name", "is", null).or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
+      .select("*").eq("status", "pendente").not("whatsapp_session_name", "is", null)
+      .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
+      .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
       .order("scheduled_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: true })
       .limit(20);
     if (selectError) throw selectError;
