@@ -18,7 +18,17 @@ export async function listDispatchBatches(database: Database, accountId: string)
     .eq("account_id", accountId)
     .order("created_at", { ascending: false })
     .limit(200);
-  if (error) throw error;
+  // If the join fails (e.g. migration not yet applied), fall back to plain select
+  if (error) {
+    const fallback = await database
+      .from("envios_grupo_lotes")
+      .select("*")
+      .eq("account_id", accountId)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (fallback.error) throw fallback.error;
+    return fallback.data || [];
+  }
   return data || [];
 }
 
