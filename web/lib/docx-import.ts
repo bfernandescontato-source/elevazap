@@ -23,10 +23,19 @@ function extToMime(filename: string): string {
   return map[ext] ?? "image/jpeg";
 }
 
+// getElementsByTagNameNS with wildcard fallback — handles Pages/LibreOffice exports where
+// the namespace prefix may differ from what DOMParser resolves.
+function getElems(parent: Element | Document, ns: string, localName: string): Element[] {
+  const result = Array.from(parent.getElementsByTagNameNS(ns, localName));
+  if (result.length > 0) return result;
+  // Fallback: match any namespace — Pages DOCX exports sometimes use default namespaces
+  return Array.from(parent.getElementsByTagNameNS("*", localName));
+}
+
 function parseImageRels(xml: string): Map<string, string> {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   const map = new Map<string, string>();
-  for (const el of Array.from(doc.getElementsByTagNameNS(PKG_REL, "Relationship"))) {
+  for (const el of getElems(doc, PKG_REL, "Relationship")) {
     const type = el.getAttribute("Type") ?? "";
     if (!type.endsWith("/image")) continue;
     const id = el.getAttribute("Id") ?? "";
@@ -37,43 +46,60 @@ function parseImageRels(xml: string): Map<string, string> {
 }
 
 function boolProp(rPr: Element, localName: string): boolean {
-  const els = rPr.getElementsByTagNameNS(W, localName);
+  const els = getElems(rPr, W, localName);
   if (!els.length) return false;
-  const val = els[0].getAttributeNS(W, "val");
+  const val = els[0].getAttributeNS(W, "val") ?? els[0].getAttribute("w:val");
   return val !== "0" && val !== "false";
 }
 
+// Extracts formatted (WhatsApp markdown) text from a paragraph.
+// Used for the actual message body lines after the NOME: marker.
 function extractParaText(para: Element): string {
   let out = "";
-  for (const run of Array.from(para.getElementsByTagNameNS(W, "r"))) {
-    // Skip runs that contain drawings (images) — they produce no text
-    if (run.getElementsByTagNameNS(W, "drawing").length) continue;
-    const rPr = run.getElementsByTagNameNS(W, "rPr")[0];
+  for (const run of getElems(para, W, "r")) {
+    if (getElems(run, W, "drawing").length) continue;
+    const rPrList = getElems(run, W, "rPr");
+    const rPr = rPrList[0] ?? null;
     const bold = rPr ? boolProp(rPr, "b") : false;
     const italic = rPr ? boolProp(rPr, "i") : false;
-    for (const t of Array.from(run.getElementsByTagNameNS(W, "t"))) {
+    for (const t of getElems(run, W, "t")) {
       const s = t.textContent ?? "";
       if (!s) continue;
-      // Convert Word bold/italic to WhatsApp markdown
       out += bold && italic ? `*_${s}_*` : bold ? `*${s}*` : italic ? `_${s}_` : s;
     }
-    // Hard line break inside a run
-    if (run.getElementsByTagNameNS(W, "br").length) out += "\n";
+    if (getElems(run, W, "br").length) out += "\n";
+  }
+  // Fallback: if namespace queries found nothing, use plain textContent
+  if (!out) {
+    const raw = para.textContent ?? "";
+    // Only use raw if there are no image drawings (which produce no visible text)
+    if (getElems(para, A_DML, "blip").length === 0) out = raw;
   }
   return out;
 }
 
+// Extracts the relationship ID of the first image embedded in a paragraph.
 function extractParaImageRId(para: Element): string | null {
-  const blips = para.getElementsByTagNameNS(A_DML, "blip");
-  return blips.length ? (blips[0].getAttributeNS(R_REL, "embed") ?? null) : null;
+  const blips = getElems(para, A_DML, "blip");
+  if (!blips.length) return null;
+  // r:embed attribute — try namespace-qualified first, then plain attribute
+  return (
+    blips[0].getAttributeNS(R_REL, "embed") ??
+    blips[0].getAttribute("r:embed") ??
+    null
+  );
+}
+
+// Strips invisible Unicode characters that Pages/Word sometimes insert.
+function stripInvisible(s: string): string {
+  // Removes: zero-width space, ZWNJ, ZWJ, BOM, soft-hyphen, non-breaking space variants
+  return s.replace(/[​-‍﻿­⁠]/g, "");
 }
 
 export async function parseDOCX(file: File): Promise<ParsedImportModel[]> {
-  // Dynamic import keeps jszip out of the initial bundle — loaded only on demand
   const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
 
-  // Build image relationship map: rId → target path
   const relsEntry = zip.file("word/_rels/document.xml.rels");
   const imageRels = relsEntry
     ? parseImageRels(await relsEntry.async("string"))
@@ -84,29 +110,44 @@ export async function parseDOCX(file: File): Promise<ParsedImportModel[]> {
 
   const docXml = await docEntry.async("string");
   const doc = new DOMParser().parseFromString(docXml, "application/xml");
-  const paragraphs = Array.from(doc.getElementsByTagNameNS(W, "p"));
 
-  // Group paragraphs into blocks delimited by "NOME:"
+  // DOMParser never throws — check for a parseerror document instead
+  const parseErr = doc.getElementsByTagName("parsererror")[0];
+  if (parseErr) throw new Error("O XML do documento está corrompido ou mal-formado.");
+
+  const paragraphs = getElems(doc, W, "p");
+
   type Block = { nome: string; lines: string[]; firstRId: string | null };
   const blocks: Block[] = [];
   let cur: Block | null = null;
 
   for (const para of paragraphs) {
-    const text = extractParaText(para);
+    // Use textContent for NOME: detection — immune to bold/italic/color formatting.
+    // extractParaText would produce "*NOME: X*" for bold text, breaking the regex.
+    const rawText = stripInvisible(para.textContent ?? "").trimStart();
     const rId = extractParaImageRId(para);
-    const trimmed = text.trimStart();
 
-    if (/^NOME:\s*/i.test(trimmed)) {
+    // Match "NOME:" regardless of surrounding formatting, spaces, or alternative colons (：)
+    if (/^NOME\s*[:：]\s*/i.test(rawText)) {
       if (cur) blocks.push(cur);
-      cur = { nome: trimmed.replace(/^NOME:\s*/i, "").trim(), lines: [], firstRId: null };
+      const nome = rawText.replace(/^NOME\s*[:：]\s*/i, "").trim();
+      cur = { nome, lines: [], firstRId: null };
     } else if (cur) {
       if (rId && !cur.firstRId) cur.firstRId = rId;
-      cur.lines.push(text); // empty lines (blank paragraphs) are kept as separators
+      // Use formatted text for message body — preserves WhatsApp bold/italic
+      const formattedText = extractParaText(para);
+      cur.lines.push(formattedText);
     }
   }
   if (cur) blocks.push(cur);
 
-  if (!blocks.length) throw new Error('Nenhum marcador "NOME:" encontrado. Verifique o formato do documento.');
+  if (!blocks.length) {
+    throw new Error(
+      'Nenhum marcador "NOME:" encontrado. ' +
+      'Cada modelo deve começar com uma linha "NOME: Nome do Produto". ' +
+      'Certifique-se de exportar o arquivo como .docx (Word) pelo Pages.'
+    );
+  }
 
   const models: ParsedImportModel[] = [];
 
@@ -114,7 +155,6 @@ export async function parseDOCX(file: File): Promise<ParsedImportModel[]> {
     const warnings: string[] = [];
     if (!block.nome) warnings.push("Nome está vazio.");
 
-    // Collapse 3+ consecutive newlines to a double newline, trim edges
     const texto = block.lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     if (!texto) warnings.push("Mensagem vazia.");
 
@@ -123,10 +163,7 @@ export async function parseDOCX(file: File): Promise<ParsedImportModel[]> {
     if (block.firstRId) {
       const target = imageRels.get(block.firstRId);
       if (target) {
-        // Target can be "media/image1.jpeg" (relative to word/) or "../media/..." (package-relative)
-        const imgPath = target.startsWith("../")
-          ? target.slice(3)
-          : `word/${target}`;
+        const imgPath = target.startsWith("../") ? target.slice(3) : `word/${target}`;
         const imgEntry = zip.file(imgPath);
         if (imgEntry) {
           const blob = await imgEntry.async("blob");
