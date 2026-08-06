@@ -16,6 +16,7 @@ export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
   private running = false;
   private lastSendAt = 0;
+  private lastStaleCleanupAt = 0;
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
 
@@ -43,9 +44,27 @@ export class GlobalSendQueue {
     return hasConnectedSender();
   }
 
+  private async resetStaleItems() {
+    if (Date.now() - this.lastStaleCleanupAt < 30_000) return;
+    this.lastStaleCleanupAt = Date.now();
+    const now = new Date().toISOString();
+    for (const table of ["envios", "envios_grupo"] as const) {
+      await supabase.from(table).update(this.updateFields(table, {
+        status: "pendente",
+        claim_token: null,
+        processing_deadline_at: null,
+        updated_at: now,
+      }))
+        .in("status", ["enfileirado", "processando"])
+        .not("processing_deadline_at", "is", null)
+        .lt("processing_deadline_at", now);
+    }
+  }
+
   private async loop() {
     while (this.running) {
       try {
+        await this.resetStaleItems();
         await this.flushReconciliation();
         if (!this.hasAnyConnection()) {
           if (this.buffer.length) await this.returnQueuedToPending();
