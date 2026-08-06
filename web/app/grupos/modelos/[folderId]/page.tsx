@@ -1,7 +1,8 @@
 "use client";
 
 import { ActionButton, AppShell, ConfirmModal, FileDropzone, LoadingState, MediaPreview, SearchInput, Toast } from "@/components/ui";
-import { ChevronRight, FileText, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { type ParsedImportModel, parseDOCX } from "@/lib/docx-import";
+import { CheckCircle2, ChevronRight, Download, FileText, Loader2, Pencil, Plus, Trash2, TriangleAlert, X, XCircle } from "lucide-react";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,6 +23,9 @@ type Modelo = {
   file_size_bytes?: number | null;
   updated_at?: string | null;
 };
+
+type ImportStep = "idle" | "parsing" | "preview" | "importing" | "done";
+type ImportResult = { nome: string; ok: boolean; error?: string };
 
 const tipoLabels: Record<MessageKind, string> = {
   texto: "Mensagem de texto",
@@ -61,6 +65,15 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
   const [modelKind, setModelKind] = useState<MessageKind>("texto");
   const [modelText, setModelText] = useState("");
   const [modelFile, setModelFile] = useState<File | null>(null);
+
+  // ── Import state ────────────────────────────────────────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [importStep, setImportStep] = useState<ImportStep>("idle");
+  const [importDocxFile, setImportDocxFile] = useState<File | null>(null);
+  const [parsedModels, setParsedModels] = useState<ParsedImportModel[]>([]);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0, label: "" });
+  const [importResults, setImportResults] = useState<ImportResult[]>([]);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredModelos = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -126,6 +139,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
     setModelFile(null);
   }
 
+  // ── Shared upload helper (reused by manual save AND import) ─────────────────
   async function uploadMedia(file: File, kind: MessageKind) {
     const res = await fetch("/api/upload/signed-url", {
       method: "POST",
@@ -221,21 +235,101 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
     }
   }
 
+  // ── Import handlers ─────────────────────────────────────────────────────────
+  function openImport() {
+    setImportOpen(true);
+    setImportStep("idle");
+    setImportDocxFile(null);
+    setParsedModels([]);
+    setImportResults([]);
+    setImportProgress({ current: 0, total: 0, label: "" });
+  }
+
+  function closeImport() {
+    if (importStep === "importing") return;
+    setImportOpen(false);
+    setImportStep("idle");
+    setImportDocxFile(null);
+  }
+
+  async function handleProcessDocx() {
+    if (!importDocxFile) return;
+    setImportStep("parsing");
+    try {
+      const models = await parseDOCX(importDocxFile);
+      setParsedModels(models);
+      setImportStep("preview");
+    } catch (e: any) {
+      showMsg(e.message);
+      setImportStep("idle");
+    }
+  }
+
+  async function handleImportAll() {
+    if (!parsedModels.length) return;
+    setImportStep("importing");
+    const results: ImportResult[] = [];
+
+    for (let i = 0; i < parsedModels.length; i++) {
+      const m = parsedModels[i];
+      setImportProgress({ current: i + 1, total: parsedModels.length, label: m.nome });
+      try {
+        let media = null;
+        if (m.imageFile) {
+          media = await uploadMedia(m.imageFile, "imagem");
+        }
+        const res = await fetch("/api/modelos", {
+          method: "POST",
+          body: JSON.stringify({
+            pasta_id: folderId,
+            nome: m.nome,
+            tipo: m.imageFile ? "imagem" : "texto",
+            texto: m.texto || null,
+            media,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Falha ao criar modelo.");
+        results.push({ nome: m.nome, ok: true });
+      } catch (e: any) {
+        results.push({ nome: m.nome, ok: false, error: e.message });
+      }
+    }
+
+    setImportResults(results);
+    setImportStep("done");
+    await load(); // refresh models list immediately — no page reload needed
+  }
+
   const modelCount = modelos.length;
   const hasQuery = query.trim().length > 0;
+
+  // Preview stats
+  const previewWarningCount = parsedModels.filter((m) => m.warnings.length > 0).length;
+  const importSuccessCount = importResults.filter((r) => r.ok).length;
+  const importFailCount = importResults.filter((r) => !r.ok).length;
 
   return (
     <AppShell
       title={pasta?.nome || "Pasta"}
       subtitle={`${modelCount} ${modelCount === 1 ? "modelo salvo" : "modelos salvos"}`}
       action={
-        <ActionButton
-          icon={<Plus size={16} />}
-          onClick={openCreate}
-          className="bg-black text-white hover:bg-zinc-800"
-        >
-          Novo modelo
-        </ActionButton>
+        <>
+          <ActionButton
+            icon={<Download size={16} />}
+            onClick={openImport}
+            className="border border-line bg-white text-ink hover:bg-wash"
+          >
+            Importar modelos
+          </ActionButton>
+          <ActionButton
+            icon={<Plus size={16} />}
+            onClick={openCreate}
+            className="bg-black text-white hover:bg-zinc-800"
+          >
+            Novo modelo
+          </ActionButton>
+        </>
       }
     >
       {/* Breadcrumb */}
@@ -259,7 +353,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       {loading ? (
         <LoadingState />
       ) : modelCount === 0 ? (
-        /* Empty folder */
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full border border-line bg-panel mb-4">
             <FileText size={28} className="text-muted" />
@@ -277,7 +370,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
           </ActionButton>
         </div>
       ) : filteredModelos.length === 0 && hasQuery ? (
-        /* No results from search */
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <h2 className="text-lg font-semibold text-ink">Nenhum modelo encontrado</h2>
           <p className="mt-2 text-sm text-muted">
@@ -285,7 +377,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
           </p>
         </div>
       ) : (
-        /* Models grid */
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredModelos.map((modelo) => (
             <article
@@ -329,7 +420,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
         </div>
       )}
 
-      {/* Create / Edit model modal */}
+      {/* ── Create / Edit model modal ─────────────────────────────────────────── */}
       {showModelModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
@@ -341,7 +432,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
             className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal header */}
             <div className="flex items-center justify-between border-b border-line px-6 py-5">
               <h2 className="text-lg font-semibold text-ink">
                 {editingModel ? "Editar modelo" : "Novo modelo"}
@@ -356,7 +446,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               </button>
             </div>
 
-            {/* Modal body */}
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
               <div>
                 <label className="text-sm font-medium text-ink">Nome do modelo</label>
@@ -413,7 +502,6 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               )}
             </div>
 
-            {/* Modal footer */}
             <div className="flex justify-end gap-3 border-t border-line px-6 py-4">
               <ActionButton
                 disabled={saving}
@@ -430,6 +518,242 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               >
                 {editingModel ? "Salvar alterações" : "Salvar modelo"}
               </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import modal ──────────────────────────────────────────────────────── */}
+      {importOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          onClick={() => importStep !== "importing" && closeImport()}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between border-b border-line px-6 py-5">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">
+                  {importStep === "idle" && "Importar modelos"}
+                  {importStep === "parsing" && "Processando documento..."}
+                  {importStep === "preview" && `Revisão · ${parsedModels.length} ${parsedModels.length === 1 ? "modelo encontrado" : "modelos encontrados"}`}
+                  {importStep === "importing" && "Importando modelos..."}
+                  {importStep === "done" && "Importação concluída"}
+                </h2>
+                {importStep === "idle" && (
+                  <p className="mt-0.5 text-sm text-muted">
+                    Pasta atual: <span className="font-medium text-ink">{pasta?.nome}</span>
+                  </p>
+                )}
+              </div>
+              {importStep !== "importing" && (
+                <button
+                  type="button"
+                  onClick={closeImport}
+                  aria-label="Fechar"
+                  className="rounded-lg p-1.5 text-muted hover:bg-wash hover:text-ink"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+
+            {/* Modal body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+
+              {/* Step: idle — file selector */}
+              {importStep === "idle" && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted">
+                    Selecione um arquivo <span className="font-medium text-ink">.docx</span> com os modelos organizados pelo marcador <span className="font-mono font-medium text-ink">NOME:</span>.
+                  </p>
+                  <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-line bg-wash p-8 text-center transition hover:border-zinc-300 hover:bg-white">
+                    <Download size={28} className="text-muted" />
+                    <div>
+                      <p className="text-sm font-medium text-ink">
+                        {importDocxFile ? importDocxFile.name : "Selecionar arquivo .docx"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {importDocxFile
+                          ? `${(importDocxFile.size / 1024).toFixed(1)} KB · clique para trocar`
+                          : "Clique para selecionar ou arraste aqui"}
+                      </p>
+                    </div>
+                    <input
+                      ref={importFileInputRef}
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (!f.name.toLowerCase().endsWith(".docx")) {
+                          showMsg("Selecione um arquivo .docx válido.");
+                          return;
+                        }
+                        setImportDocxFile(f);
+                      }}
+                    />
+                  </label>
+                  <div className="rounded-lg border border-line bg-wash p-4 text-xs text-muted space-y-1">
+                    <p className="font-medium text-ink">Formato esperado do documento:</p>
+                    <p>Cada modelo começa com <span className="font-mono">NOME: Nome do modelo</span></p>
+                    <p>Seguido pela mensagem e por uma imagem incorporada no documento.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: parsing — spinner */}
+              {importStep === "parsing" && (
+                <div className="flex flex-col items-center justify-center py-10 gap-4">
+                  <Loader2 size={36} className="animate-spin text-muted" />
+                  <div className="text-center">
+                    <p className="font-medium text-ink">Lendo modelos...</p>
+                    <p className="mt-1 text-sm text-muted">Extraindo texto e imagens do documento.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: preview — review list */}
+              {importStep === "preview" && (
+                <div className="space-y-3">
+                  {previewWarningCount > 0 && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      <TriangleAlert size={15} className="mt-0.5 shrink-0" />
+                      <span>{previewWarningCount} {previewWarningCount === 1 ? "modelo possui avisos" : "modelos possuem avisos"} — eles ainda serão importados.</span>
+                    </div>
+                  )}
+                  <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                    {parsedModels.map((m, i) => (
+                      <div key={i} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium text-ink truncate">{m.nome || <span className="italic text-muted">Sem nome</span>}</p>
+                          {m.warnings.length === 0
+                            ? <CheckCircle2 size={15} className="shrink-0 text-emerald-500 mt-0.5" />
+                            : <TriangleAlert size={15} className="shrink-0 text-amber-500 mt-0.5" />}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                          <span className={`flex items-center gap-1 text-xs ${m.texto ? "text-emerald-600" : "text-red-500"}`}>
+                            {m.texto ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                            Mensagem
+                          </span>
+                          <span className={`flex items-center gap-1 text-xs ${m.imageFile ? "text-emerald-600" : "text-amber-600"}`}>
+                            {m.imageFile ? <CheckCircle2 size={11} /> : <TriangleAlert size={11} />}
+                            Imagem
+                          </span>
+                        </div>
+                        {m.warnings.length > 0 && (
+                          <ul className="mt-2 space-y-0.5">
+                            {m.warnings.map((w, wi) => (
+                              <li key={wi} className="text-xs text-amber-700">⚠ {w}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Step: importing — progress */}
+              {importStep === "importing" && (
+                <div className="space-y-4 py-4">
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-ink">
+                      Criando modelo {importProgress.current} de {importProgress.total}
+                    </p>
+                    <p className="mt-1 text-xs text-muted truncate">{importProgress.label}</p>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-wash">
+                    <div
+                      className="h-full rounded-full bg-black transition-all duration-300"
+                      style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <p className="text-center text-xs text-muted">
+                    Não feche esta janela até a importação terminar.
+                  </p>
+                </div>
+              )}
+
+              {/* Step: done — results */}
+              {importStep === "done" && (
+                <div className="space-y-4">
+                  <div className={`flex items-center gap-3 rounded-xl p-4 ${importFailCount === 0 ? "border border-emerald-200 bg-emerald-50" : "border border-amber-200 bg-amber-50"}`}>
+                    {importFailCount === 0
+                      ? <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
+                      : <TriangleAlert size={20} className="shrink-0 text-amber-600" />}
+                    <div>
+                      <p className="text-sm font-semibold text-ink">
+                        {importSuccessCount} {importSuccessCount === 1 ? "modelo importado" : "modelos importados"} com sucesso.
+                      </p>
+                      {importFailCount > 0 && (
+                        <p className="text-sm text-amber-800">
+                          {importFailCount} {importFailCount === 1 ? "modelo com erro" : "modelos com erro"}.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {importFailCount > 0 && (
+                    <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                      {importResults.filter((r) => !r.ok).map((r, i) => (
+                        <div key={i} className="flex items-start gap-2 px-4 py-3">
+                          <XCircle size={14} className="mt-0.5 shrink-0 text-red-500" />
+                          <div>
+                            <p className="text-sm font-medium text-ink">{r.nome}</p>
+                            <p className="text-xs text-red-600">{r.error}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex justify-end gap-3 border-t border-line px-6 py-4">
+              {importStep === "idle" && (
+                <>
+                  <ActionButton onClick={closeImport} className="border border-line bg-white text-ink hover:bg-wash">
+                    Cancelar
+                  </ActionButton>
+                  <ActionButton
+                    disabled={!importDocxFile}
+                    icon={<Download size={15} />}
+                    onClick={handleProcessDocx}
+                    className="bg-black text-white hover:bg-zinc-800"
+                  >
+                    Processar arquivo
+                  </ActionButton>
+                </>
+              )}
+
+              {importStep === "preview" && (
+                <>
+                  <ActionButton onClick={closeImport} className="border border-line bg-white text-ink hover:bg-wash">
+                    Cancelar
+                  </ActionButton>
+                  <ActionButton
+                    disabled={parsedModels.length === 0}
+                    onClick={handleImportAll}
+                    className="bg-black text-white hover:bg-zinc-800"
+                  >
+                    Importar {parsedModels.length} {parsedModels.length === 1 ? "modelo" : "modelos"}
+                  </ActionButton>
+                </>
+              )}
+
+              {importStep === "done" && (
+                <ActionButton onClick={closeImport} className="bg-black text-white hover:bg-zinc-800">
+                  Fechar
+                </ActionButton>
+              )}
             </div>
           </div>
         </div>
