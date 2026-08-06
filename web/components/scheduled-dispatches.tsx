@@ -11,6 +11,7 @@ type Batch = {
   status?: string | null;
   scheduled_at?: string | null;
   created_at?: string | null;
+  modelos_mensagem?: { id: string; nome: string } | null;
 };
 
 type GroupDispatch = {
@@ -100,6 +101,7 @@ export function ScheduledDispatches() {
         return {
           ...dispatch,
           campaign: campaignMap.get(batch.campanha_id || "") || batch.titulo || "Campanha não informada",
+          modeloNome: batch.modelos_mensagem?.nome || null,
           scheduledAt: dispatch.scheduled_at || batch.scheduled_at,
           scheduledDisplay: scheduledParts(dispatch.scheduled_at || batch.scheduled_at),
           programmedAt: batch.created_at || dispatch.created_at,
@@ -130,7 +132,7 @@ export function ScheduledDispatches() {
       </div>
       <div className="divide-y divide-line">
         {rows.map((row) => row ? <article key={row.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(160px,1.2fr)_minmax(180px,1.4fr)_minmax(130px,0.8fr)_minmax(160px,1fr)_minmax(160px,1fr)] lg:items-center">
-          <div><div className="text-xs text-muted lg:hidden">Campanha</div><div className="mt-1 font-medium text-ink lg:mt-0">{row.campaign}</div></div>
+          <div><div className="text-xs text-muted lg:hidden">Campanha</div><div className="mt-1 font-medium text-ink lg:mt-0">{row.campaign}</div>{row.modeloNome && <div className="mt-0.5 text-xs text-muted">{row.modeloNome}</div>}</div>
           <div className="min-w-0"><div className="text-xs text-muted lg:hidden">Grupo</div><div className="mt-1 truncate text-sm text-ink lg:mt-0">{row.nome_grupo || row.group_jid}</div></div>
           <div><div className="mb-1 text-xs text-muted lg:hidden">Status</div><StatusBadge status={row.visibleStatus} /></div>
           <div><div className="text-xs text-muted lg:hidden">Data e horário do disparo</div><div className="mt-1 text-sm font-medium text-ink lg:mt-0">{row.scheduledDisplay.date}</div><div className="mt-0.5 text-sm text-muted">às {row.scheduledDisplay.time}</div></div>
