@@ -6,6 +6,7 @@ import { createHttpServer, type ServiceReadiness } from "./routes/http.js";
 import { bootSenderSessions } from "./senders/runtime.js";
 import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
 import { detectDatabaseCapabilities } from "./database-capabilities.js";
+import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
 
 async function main() {
   const queueRef: { current: GlobalSendQueue | null } = { current: null };
@@ -20,6 +21,7 @@ async function main() {
 
     const databaseCapabilities = await detectDatabaseCapabilities();
     await recoverStuckJobsOnBoot(databaseCapabilities);
+    await repairPendingGroupJobsWithoutSession();
     const queue = new GlobalSendQueue(databaseCapabilities);
     queueRef.current = queue;
     queue.start();
