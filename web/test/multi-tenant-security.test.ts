@@ -92,7 +92,7 @@ describe("isolamento multi-tenant", () => {
 
   it("mantém o redirecionador funcional quando a sincronização de participantes atrasa", () => {
     const route = read("web/app/c/[slug]/route.ts");
-    expect(route).toContain('data?.reason === "nenhum_grupo_confiavel"');
+    expect(route).toContain("if (redirectError) {");
     expect(route).toContain("resolveRedirectFallback(sb, slug)");
     expect(route).not.toContain("ageSeconds > maxAge");
   });

@@ -108,6 +108,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       console.error("campaign redirect fallback failed", fallbackError);
     }
   }
+  // A disponibilidade do grupo não deve depender das métricas do RPC. Se ele
+  // falhar por um problema transitório de banco/schema, ainda tentamos resolver
+  // o destino diretamente antes de devolver erro ao visitante.
+  if (redirectError) {
+    try {
+      const fallback = await resolveRedirectFallback(sb, slug);
+      if (fallback?.destination_url || fallback?.fallback_url) {
+        data = fallback;
+        redirectError = null;
+      }
+    } catch (fallbackError) {
+      console.error("campaign redirect error fallback failed", fallbackError);
+    }
+  }
   if (!redirectError && !data?.destination_url && !data?.not_found && !data?.rate_limited) {
     try {
       const fallback = await resolveRedirectFallback(sb, slug);
