@@ -6,7 +6,7 @@ import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
-import { getSenderSock, hasConnectedSender } from "../senders/runtime.js";
+import { getSenderSock, getSenderSockById, hasConnectedSender } from "../senders/runtime.js";
 import { compatibleQueueUpdate, type DatabaseCapabilities } from "../database-capabilities.js";
 import { QueueMetrics } from "./metrics.js";
 import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
@@ -199,8 +199,9 @@ export class GlobalSendQueue {
   }
 
   private selectSocket(row: any, group = false) {
-    if (!row.whatsapp_session_name) throw new Error("Envio sem número WhatsApp associado à conta.");
-    const selected = getSenderSock(row.whatsapp_session_name, row.account_id);
+    if (!row.whatsapp_session_name && !row.whatsapp_sender_id) throw new Error("Envio sem número WhatsApp associado à conta.");
+    const selected = (row.whatsapp_session_name ? getSenderSock(row.whatsapp_session_name, row.account_id) : null)
+      || (row.whatsapp_sender_id ? getSenderSockById(row.whatsapp_sender_id, row.account_id) : null);
     if (!selected) throw new Error(group ? "Número responsável pelo grupo está desconectado." : "Número responsável pelo disparo está desconectado.");
     return selected;
   }

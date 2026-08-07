@@ -64,10 +64,11 @@ export default function LoteDetailPage({ params }: { params: Promise<{ id: strin
       </div>
     </section> : null}
 
-    {tab === "envios" ? <DataTable columns={["Grupo", "Mensagem", "Status", "Enviado em"]} rows={sends.map((item) => [
+    {tab === "envios" ? <DataTable columns={["Grupo", "Mensagem", "Status", "Erro", "Enviado em"]} rows={sends.map((item) => [
       item.nome_grupo || "—",
       item.texto || item.legenda || item.file_name || "—",
       <StatusBadge key="status" status={item.status} />,
+      item.erro || "—",
       formatDate(item.sent_at || item.created_at)
     ])} /> : null}
 

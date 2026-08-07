@@ -77,6 +77,13 @@ export function getSenderSock(sessionName: string, accountId?: string) {
   return managed.session.sock;
 }
 
+export function getSenderSockById(senderId: string, accountId?: string) {
+  const managed = Array.from(senders.values()).find((item) =>
+    item.id === senderId && (!accountId || item.accountId === accountId) && item.session.getStatus() === "connected"
+  );
+  return managed?.session.sock || null;
+}
+
 export function hasConnectedSender() {
   return Array.from(senders.values()).some((managed) => managed.session.getStatus() === "connected");
 }
