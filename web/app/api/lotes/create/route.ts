@@ -18,6 +18,8 @@ async function createLoteFallback(sb: any, accountId: string, body: any, groupJi
   if (groupsError) throw groupsError;
   if ((groups || []).length !== groupJids.length) throw new Error("Um ou mais grupos não foram encontrados.");
 
+  // Always resolve a session. Queue claims deliberately ignore jobs without one.
+  // Priority: explicit sender > campaign sender > first account sender.
   let sender: any = null;
   if (body.whatsapp_sender_id) {
     const { data, error } = await sb.from("whatsapp_senders").select("id,session_name").eq("id", body.whatsapp_sender_id).eq("account_id", accountId).maybeSingle();
@@ -26,9 +28,20 @@ async function createLoteFallback(sb: any, accountId: string, body: any, groupJi
     sender = data;
   }
   if (body.campanha_id) {
-    const { data, error } = await sb.from("campanhas").select("id").eq("id", body.campanha_id).eq("account_id", accountId).maybeSingle();
+    const { data, error } = await sb.from("campanhas").select("id,whatsapp_sender_id").eq("id", body.campanha_id).eq("account_id", accountId).maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("Campanha não encontrada.");
+    if (!sender && data.whatsapp_sender_id) {
+      const { data: campaignSender, error: campaignSenderError } = await sb.from("whatsapp_senders").select("id,session_name").eq("id", data.whatsapp_sender_id).eq("account_id", accountId).maybeSingle();
+      if (campaignSenderError) throw campaignSenderError;
+      sender = campaignSender;
+    }
+  }
+  if (!sender) {
+    const { data: fallbackSender, error: fallbackSenderError } = await sb.from("whatsapp_senders").select("id,session_name").eq("account_id", accountId).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (fallbackSenderError) throw fallbackSenderError;
+    if (!fallbackSender?.session_name) throw new Error("Nenhum número WhatsApp conectado. Adicione um número em Configurações.");
+    sender = fallbackSender;
   }
 
   const media = body.media || {};
