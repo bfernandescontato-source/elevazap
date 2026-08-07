@@ -2,7 +2,8 @@
 
 import { ActionButton, AppShell, ConfirmModal, DateTimePicker, FileDropzone, MediaPreview, Toast } from "@/components/ui";
 import { ScheduledDispatches } from "@/components/scheduled-dispatches";
-import { FolderPlus, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { BulkScheduleModal } from "@/components/bulk-schedule-modal";
+import { CalendarPlus, FolderPlus, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Grupo = {
@@ -45,7 +46,7 @@ type Tab = "campanhas" | "disparo";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
 type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
-type DispatchSection = "novo" | "programados";
+type DispatchSection = "novo" | "programados" | "agendamento-massa";
 
 const messageKindLabels: Record<MessageKind, string> = {
   texto: "Apenas texto",
@@ -97,6 +98,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   const [scheduled, setScheduled] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [dispatchSection, setDispatchSection] = useState<DispatchSection>("novo");
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
 
   async function loadGroups(senderId = "") {
     const data = await fetch(`/api/whatsapp/groups${senderId ? `?sender_id=${senderId}` : ""}`).then((r) => r.json());
@@ -404,9 +406,10 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       </div>
     </div> : null}
 
-    {tab === "disparo" ? <div className="mb-6 flex gap-2 border-b border-line pb-3" role="tablist" aria-label="Áreas de disparos">
+    {tab === "disparo" ? <div className="mb-6 flex flex-wrap gap-2 border-b border-line pb-3" role="tablist" aria-label="Áreas de disparos">
       <button type="button" role="tab" aria-selected={dispatchSection === "novo"} onClick={() => setDispatchSection("novo")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "novo" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Novo disparo</button>
       <button type="button" role="tab" aria-selected={dispatchSection === "programados"} onClick={() => setDispatchSection("programados")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "programados" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Programados</button>
+      <button type="button" onClick={() => setBulkScheduleOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-muted hover:text-ink"><CalendarPlus size={15} /> Agendar em massa</button>
     </div> : null}
 
     {tab === "disparo" && dispatchSection === "novo" ? <div className="max-w-4xl">
@@ -492,6 +495,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       </div>
     </ConfirmModal>
     <ConfirmModal open={confirm} title="Confirmar disparo" onCancel={() => setConfirm(false)} onConfirm={() => createLote().catch(showError)}><div className="space-y-3"><p>A mensagem será enviada para {selected.length} grupo(s) da campanha “{selectedCampaign?.nome}”.</p><div className="rounded-lg bg-wash p-3"><div className="text-xs font-medium uppercase text-muted">Data e horário do disparo</div><div className="mt-1 font-semibold text-ink">{scheduled ? `${formatScheduledInput(scheduled)} (horário de Brasília)` : "Envio imediato"}</div></div></div></ConfirmModal>
+    <BulkScheduleModal open={bulkScheduleOpen} onClose={() => setBulkScheduleOpen(false)} onSuccess={() => { setBulkScheduleOpen(false); setDispatchSection("programados"); }} />
     <Toast message={toast} />
   </AppShell>;
 }
