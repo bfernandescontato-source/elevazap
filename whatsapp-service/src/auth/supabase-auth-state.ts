@@ -32,16 +32,28 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
       creds,
       keys: {
         get: async (type: string, ids: string[]) => {
-          const rows = await dbResult(
-            `auth.keys.get:${sessionName}`,
-            supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", ids)
-          );
-          const result: Record<string, any> = {};
-          for (const id of ids) {
-            const row = rows?.find((r) => r.key_id === id);
-            if (row?.key_data) result[id] = deserialize(row.key_data);
+          if (!ids.length) return {};
+          let lastError: unknown;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              const rows = await dbResult(
+                `auth.keys.get:${sessionName}`,
+                supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", ids)
+              );
+              const result: Record<string, any> = {};
+              for (const id of ids) {
+                const row = rows?.find((r) => r.key_id === id);
+                if (row?.key_data) result[id] = deserialize(row.key_data);
+              }
+              return result;
+            } catch (error) {
+              lastError = error;
+              const isFetchError = /fetch failed|network|econnreset|enotfound|econnrefused/i.test((error as Error)?.message || "");
+              if (!isFetchError || attempt === 3) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+            }
           }
-          return result;
+          throw lastError;
         },
         set: async (data: SignalDataSet) => {
           for (const [type, records] of Object.entries(data)) {
