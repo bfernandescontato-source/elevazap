@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, GripVertical, Loader2, X } from "lucide-react";
 
 type Pasta = { id: string; nome: string };
-type Modelo = { id: string; nome: string; tipo: string; pasta_id?: string | null; texto?: string | null; media_path?: string | null };
+type Modelo = { id: string; nome: string; tipo: string; pasta_id?: string | null; texto?: string | null; media_path?: string | null; created_at?: string | null };
 type Campaign = { id: string; nome: string; whatsapp_sender_id?: string | null; grupos: { group_jid: string; nome?: string }[] };
 type Sender = { id: string; label: string };
 type ScheduleItem = { modelo: Modelo; scheduledAt: Date | null };
@@ -179,11 +179,21 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
     setSelectedJids(camp ? camp.grupos.map((g) => g.group_jid) : []);
   }, [campaignId, campaigns]);
 
-  const orderedModelos = useMemo(() => {
-    const selected = manualOrder.filter((m) => selectedIds.has(m.id));
-    if (orderMode === "antigas") return [...selected].sort((a, b) => a.id.localeCompare(b.id));
-    return selected; // "pasta" = current manual/load order
-  }, [manualOrder, selectedIds, orderMode]);
+  // displayList: order shown in step 1 list AND used for send order
+  const displayList = useMemo(() => {
+    if (orderMode === "antigas") return [...allModelos].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+    return manualOrder;
+  }, [allModelos, manualOrder, orderMode]);
+
+  // orderedModelos: selected items in display order (same order sent to preview)
+  const orderedModelos = useMemo(() => displayList.filter((m) => selectedIds.has(m.id)), [displayList, selectedIds]);
+
+  // send position per model id (1-based, only for selected)
+  const sendPositionMap = useMemo(() => {
+    const map = new Map<string, number>();
+    orderedModelos.forEach((m, i) => map.set(m.id, i + 1));
+    return map;
+  }, [orderedModelos]);
 
   function moveModelo(index: number, direction: number) {
     const next = [...manualOrder];
@@ -312,22 +322,27 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                         </button>
                       </div>
                       <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
-                        {manualOrder.map((m, index) => (
-                          <div key={m.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-wash">
-                            <span className="w-5 shrink-0 text-xs text-muted text-right">{index + 1}.</span>
-                            <input type="checkbox" checked={selectedIds.has(m.id)} onChange={(e) => {
-                              const next = new Set(selectedIds);
-                              e.target.checked ? next.add(m.id) : next.delete(m.id);
-                              setSelectedIds(next);
-                            }} className="shrink-0" />
-                            <span className="flex-1 truncate text-sm text-ink">{m.nome}</span>
-                            <span className="shrink-0 rounded bg-wash px-1.5 py-0.5 text-xs text-muted">{m.tipo}</span>
-                            <div className="flex shrink-0 gap-0.5">
-                              <button type="button" disabled={index === 0} onClick={() => moveModelo(index, -1)} className="grid h-6 w-6 place-items-center rounded text-muted disabled:opacity-30 hover:bg-line"><ArrowUp size={12} /></button>
-                              <button type="button" disabled={index === manualOrder.length - 1} onClick={() => moveModelo(index, 1)} className="grid h-6 w-6 place-items-center rounded text-muted disabled:opacity-30 hover:bg-line"><ArrowDown size={12} /></button>
+                        {displayList.map((m, index) => {
+                          const pos = sendPositionMap.get(m.id);
+                          return (
+                            <div key={m.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-wash">
+                              <span className="w-6 shrink-0 text-right text-xs font-medium text-muted">{pos ?? "—"}</span>
+                              <input type="checkbox" checked={selectedIds.has(m.id)} onChange={(e) => {
+                                const next = new Set(selectedIds);
+                                e.target.checked ? next.add(m.id) : next.delete(m.id);
+                                setSelectedIds(next);
+                              }} className="shrink-0" />
+                              <span className="flex-1 truncate text-sm text-ink">{m.nome}</span>
+                              <span className="shrink-0 rounded bg-wash px-1.5 py-0.5 text-xs text-muted">{m.tipo}</span>
+                              {orderMode === "pasta" && (
+                                <div className="flex shrink-0 gap-0.5">
+                                  <button type="button" disabled={index === 0} onClick={() => moveModelo(index, -1)} className="grid h-6 w-6 place-items-center rounded text-muted disabled:opacity-30 hover:bg-line"><ArrowUp size={12} /></button>
+                                  <button type="button" disabled={index === manualOrder.length - 1} onClick={() => moveModelo(index, 1)} className="grid h-6 w-6 place-items-center rounded text-muted disabled:opacity-30 hover:bg-line"><ArrowDown size={12} /></button>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
