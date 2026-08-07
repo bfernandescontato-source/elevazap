@@ -17,6 +17,7 @@ export class GlobalSendQueue {
   private running = false;
   private lastSendAt = 0;
   private lastStaleCleanupAt = 0;
+  private consecutiveWelcomeClaims = 0;
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
 
@@ -84,6 +85,19 @@ export class GlobalSendQueue {
   }
 
   private async claimNext() {
+    // Do not let the high-priority 1x1 stream starve campaigns forever.
+    // After a small burst, give one due group job a turn, then resume 1x1.
+    if (this.consecutiveWelcomeClaims >= 5) {
+      const group = await this.claimGroup();
+      if (group) return;
+    }
+
+    const welcome = await this.claimWelcome();
+    if (welcome) return;
+    await this.claimGroup();
+  }
+
+  private async claimWelcome() {
     let envio: any;
     try {
       envio = await dbResult<any>("queue.claim.envio", supabase.rpc("claim_next_envio"));
@@ -95,8 +109,13 @@ export class GlobalSendQueue {
     if (envio?.id) {
       this.metrics.claim();
       this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
-      return;
+      this.consecutiveWelcomeClaims += 1;
+      return true;
     }
+    return false;
+  }
+
+  private async claimGroup() {
     let grupo: any;
     try {
       grupo = await dbResult<any>("queue.claim.group", supabase.rpc("claim_next_envio_grupo"));
@@ -108,7 +127,10 @@ export class GlobalSendQueue {
     if (grupo?.id) {
       this.metrics.claim();
       this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
+      this.consecutiveWelcomeClaims = 0;
+      return true;
     }
+    return false;
   }
 
   private async claimDirect(table: QueueTableName) {
