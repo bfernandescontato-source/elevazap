@@ -33,27 +33,45 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
       keys: {
         get: async (type: string, ids: string[]) => {
           if (!ids.length) return {};
-          let lastError: unknown;
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-              const rows = await dbResult(
-                `auth.keys.get:${sessionName}`,
-                supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", ids)
-              );
-              const result: Record<string, any> = {};
-              for (const id of ids) {
-                const row = rows?.find((r) => r.key_id === id);
-                if (row?.key_data) result[id] = deserialize(row.key_data);
+          const result: Record<string, any> = {};
+
+          async function fetchBatch(batch: string[]): Promise<void> {
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                const rows = await dbResult(
+                  `auth.keys.get:${sessionName}`,
+                  supabase.from("whatsapp_auth_keys").select("key_id,key_data").eq("session_name", sessionName).eq("account_id", accountId).eq("key_type", type).in("key_id", batch)
+                );
+                for (const id of batch) {
+                  const row = (rows as any[])?.find((r) => r.key_id === id);
+                  if (row?.key_data) result[id] = deserialize(row.key_data);
+                }
+                return;
+              } catch (error) {
+                const msg = (error as Error)?.message || "";
+                const isNetwork = /fetch failed|network|econnreset|enotfound|econnrefused/i.test(msg);
+                const isBadRequest = /bad request/i.test(msg);
+                if (isNetwork && attempt < 3) {
+                  await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+                  continue;
+                }
+                // Bad Request with multiple keys: isolate the bad key by trying one-by-one
+                if (isBadRequest && batch.length > 1) {
+                  for (const id of batch) await fetchBatch([id]).catch(() => undefined);
+                  return;
+                }
+                // Single bad key or persistent failure: skip — Baileys re-creates missing keys on next send
+                console.warn({ event: "auth.keys.get.skipped", sessionName, type, keys: batch.length, reason: msg });
+                return;
               }
-              return result;
-            } catch (error) {
-              lastError = error;
-              const isFetchError = /fetch failed|network|econnreset|enotfound|econnrefused/i.test((error as Error)?.message || "");
-              if (!isFetchError || attempt === 3) throw error;
-              await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
             }
           }
-          throw lastError;
+
+          // Batch to 50 keys per request to keep URLs within server limits
+          for (let i = 0; i < ids.length; i += 50) {
+            await fetchBatch(ids.slice(i, i + 50));
+          }
+          return result;
         },
         set: async (data: SignalDataSet) => {
           for (const [type, records] of Object.entries(data)) {
