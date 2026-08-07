@@ -14,13 +14,8 @@ async function assertGroups(database: Database, accountId: string, groupJids: st
   if ((data || []).length !== groupJids.length) throw new Error("Um ou mais grupos não foram encontrados.");
 }
 
-async function resolveSenderId(database: Database, accountId: string, senderId: string | null) {
-  if (!senderId) {
-    const { data, error } = await database.from("whatsapp_senders").select("id").eq("account_id", accountId).order("created_at", { ascending: true }).limit(1).maybeSingle();
-    if (error) throw error;
-    if (!data) throw new Error("Conecte um número WhatsApp antes de criar a campanha.");
-    return data.id as string;
-  }
+async function resolveSenderId(database: Database, accountId: string, senderId: string | null): Promise<string | null> {
+  if (!senderId) return null;
   const { data, error } = await database.from("whatsapp_senders").select("id").eq("id", senderId).eq("account_id", accountId).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("Número responsável não encontrado.");

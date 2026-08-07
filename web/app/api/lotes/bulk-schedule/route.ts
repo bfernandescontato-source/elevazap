@@ -47,8 +47,9 @@ export async function POST(request: NextRequest) {
   const modeloMap = new Map((modelos || []).map((m: any) => [m.id, m]));
   const groupByJid = new Map((groups || []).map((g: any) => [g.group_jid, g]));
 
-  // Resolve sender — explicit > campaign sender > first account sender
-  // whatsapp_session_name must NOT be null or the queue will skip the row
+  // Sender is always resolved at dispatch time: explicit selection > first account sender.
+  // Campaign sender is never inherited — dispatch number must be chosen by the user.
+  // whatsapp_session_name must NOT be null or the queue will skip the row.
   let sender: any = null;
   if (whatsapp_sender_id) {
     const { data: senderData, error: senderError } = await sb.from("whatsapp_senders").select("id,session_name").eq("id", whatsapp_sender_id).eq("account_id", accountId).maybeSingle();
@@ -57,14 +58,10 @@ export async function POST(request: NextRequest) {
     sender = senderData;
   }
 
-  // Validate campaign and inherit its sender if none selected
+  // Validate campaign belongs to account
   if (campanha_id) {
-    const { data: camp } = await sb.from("campanhas").select("id,whatsapp_sender_id").eq("id", campanha_id).eq("account_id", accountId).maybeSingle();
+    const { data: camp } = await sb.from("campanhas").select("id").eq("id", campanha_id).eq("account_id", accountId).maybeSingle();
     if (!camp) return NextResponse.json({ error: "Campanha não encontrada." }, { status: 400 });
-    if (!sender && camp.whatsapp_sender_id) {
-      const { data: campSender } = await sb.from("whatsapp_senders").select("id,session_name").eq("id", camp.whatsapp_sender_id).eq("account_id", accountId).maybeSingle();
-      if (campSender) sender = campSender;
-    }
   }
 
   // Fallback: first available sender for the account

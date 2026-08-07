@@ -153,7 +153,9 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
       fetch("/api/whatsapp/senders", { cache: "no-store" }).then((r) => r.json())
     ]).then(([camps, snd]) => {
       setCampaigns(Array.isArray(camps) ? camps : []);
-      setSenders(Array.isArray(snd?.senders) ? snd.senders : []);
+      const senderList: Sender[] = Array.isArray(snd?.senders) ? snd.senders : [];
+      setSenders(senderList);
+      if (senderList.length === 1) setSenderId(senderList[0].id);
       setCampaignsLoaded(true);
     }).catch(() => setCampaignsLoaded(true));
   }, [open, campaignsLoaded]);
@@ -215,7 +217,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
 
   // Step validation
   const step1Valid = orderedModelos.length > 0;
-  const step2Valid = selectedJids.length > 0;
+  const step2Valid = selectedJids.length > 0 && senderId !== "";
   const step3Valid = firstDate && firstTime && intervalMinutes >= 1;
   const step4Valid = scheduled.length > 0;
 
@@ -379,11 +381,12 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-ink">Número de envio</label>
+                <label className="block text-sm font-medium text-ink">Número de envio <span className="text-red-500">*</span></label>
                 <select value={senderId} onChange={(e) => setSenderId(e.target.value)} className="focus-ring mt-1 h-10 w-full rounded-lg border border-line bg-white px-3 text-sm">
-                  <option value="">Número principal</option>
+                  <option value="" disabled>Selecione um número…</option>
                   {senders.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
+                {!senderId && <p className="mt-1 text-xs text-red-600">Selecione o número que será usado no envio.</p>}
               </div>
             </div>
           ) : step === 3 ? (
@@ -463,9 +466,10 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                   <div><span className="text-muted">Pasta:</span> <span className="font-medium text-ink">{pastas.find((p) => p.id === pastaId)?.nome}</span></div>
                   <div><span className="text-muted">Campanha:</span> <span className="font-medium text-ink">{selectedCampaign?.nome || "—"}</span></div>
                   <div><span className="text-muted">Grupos:</span> <span className="font-medium text-ink">{selectedJids.length}</span></div>
+                  <div><span className="text-muted">Número:</span> <span className="font-medium text-ink">{senders.find((s) => s.id === senderId)?.label || "—"}</span></div>
                   <div><span className="text-muted">Início:</span> <span className="font-medium text-ink">{firstDate ? new Date(`${firstDate}T${firstTime}`).toLocaleString("pt-BR") : "—"}</span></div>
                   <div><span className="text-muted">Intervalo:</span> <span className="font-medium text-ink">{intervalMinutes} min</span></div>
-                  <div><span className="text-muted">Agendamentos:</span> <span className="font-medium text-emerald-600">{scheduled.length}</span>{skipped > 0 && <span className="ml-1 text-amber-600">({skipped} ignorados)</span>}</div>
+                  <div className="col-span-2 sm:col-span-3"><span className="text-muted">Agendamentos:</span> <span className="font-medium text-emerald-600">{scheduled.length}</span>{skipped > 0 && <span className="ml-1 text-amber-600">({skipped} ignorados)</span>}</div>
                 </div>
               </div>
 
