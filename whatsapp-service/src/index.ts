@@ -27,6 +27,10 @@ async function main() {
     queue.start();
     readiness.queue = true;
 
+    setInterval(() => repairPendingGroupJobsWithoutSession().catch((error) => {
+      console.error("[queue] pending group session repair failed", error);
+    }), 30_000);
+
     setInterval(async () => {
       const ok = await renewLock().catch(() => false);
       if (!ok) {
