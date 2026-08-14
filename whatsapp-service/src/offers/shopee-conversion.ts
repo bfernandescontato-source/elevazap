@@ -14,12 +14,12 @@ function log(event: string, context: ConversionContext, fields: Record<string, u
 export class ShopeeOfferConverter {
   constructor(private database: SupabaseClient, private shopee = new RealShopeeAffiliateService()) {}
 
-  async convert(parsed: ParsedOffer, context: ConversionContext): Promise<ConversionResult> {
+  async convert(parsed: ParsedOffer, context: ConversionContext, initialText = parsed.text): Promise<ConversionResult> {
     const { data: integration, error } = await this.database.from("affiliate_integrations").select("app_id,encrypted_app_secret,credential_fingerprint,status")
       .eq("account_id", context.accountId).eq("provider", "shopee").eq("status", "connected").maybeSingle();
     if (error) throw error;
     if (!integration) throw new Error("Conecte sua conta Shopee Affiliate antes de ativar a conversão.");
-    let processedText = parsed.text;
+    let processedText = initialText;
     let primary: Omit<ConversionResult, "processedText" | "converted"> | undefined;
     for (const originalLink of parsed.shopeeLinks) {
       log("shopee_url_detected", context);
@@ -37,7 +37,7 @@ export class ShopeeOfferConverter {
       const resolvedHash = createHash("sha256").update(resolvedUrl).digest("hex");
       const { data: cached } = await this.database.from("affiliate_link_cache").select("affiliate_link").eq("account_id", context.accountId)
         .eq("provider", "shopee").eq("credential_fingerprint", integration.credential_fingerprint).eq("resolved_url_hash", resolvedHash)
-        .gt("expires_at", new Date().toISOString()).maybeSingle();
+        .eq("affiliate_tag", "").gt("expires_at", new Date().toISOString()).maybeSingle();
       let affiliateLink = cached?.affiliate_link;
       if (!affiliateLink) {
         await this.database.from("captured_offers").update({ affiliate_conversion_status: "generating", updated_at: new Date().toISOString() })
@@ -53,8 +53,9 @@ export class ShopeeOfferConverter {
         const { error: cacheError } = await this.database.from("affiliate_link_cache").upsert({
           account_id: context.accountId, provider: "shopee", credential_fingerprint: integration.credential_fingerprint,
           item_id: identifiers.itemId, resolved_url_hash: resolvedHash, resolved_url: resolvedUrl, affiliate_link: affiliateLink,
+          affiliate_tag: "",
           expires_at: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString()
-        }, { onConflict: "account_id,provider,credential_fingerprint,resolved_url_hash" });
+        }, { onConflict: "account_id,provider,credential_fingerprint,resolved_url_hash,affiliate_tag" });
         if (cacheError) throw cacheError;
       }
       processedText = replaceUrlPreservingText(processedText, originalLink, affiliateLink);

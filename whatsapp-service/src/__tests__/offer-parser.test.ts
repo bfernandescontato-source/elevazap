@@ -16,6 +16,18 @@ describe("OfferParser", () => {
     expect(result.shopeeLinks).toEqual(["https://s.shopee.com.br/abc"]);
     expect(result.sourceGroupId).toBe("120363000000@g.us");
   });
+
+  it("classifica Shopee e Mercado Livre na mesma mensagem", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-2", sourceGroupId: "120363000000@g.us",
+      text: "Shopee https://s.shopee.com.br/abc\nML https://meli.la/xyz", timestamp: new Date()
+    });
+    expect(result.mercadoLivreLinks).toEqual(["https://meli.la/xyz"]);
+    expect(result.affiliateLinks).toEqual([
+      { provider: "shopee", url: "https://s.shopee.com.br/abc" },
+      { provider: "mercado_livre", url: "https://meli.la/xyz" }
+    ]);
+  });
 });
 
 describe("unwrapMessage", () => {

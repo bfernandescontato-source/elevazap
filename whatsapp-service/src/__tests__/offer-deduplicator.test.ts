@@ -12,4 +12,9 @@ describe("OfferDeduplicator", () => {
     const history = [{ id: "first", original_link: "https://s.shopee.com.br/a", content_hash: "a", item_id: "456" }];
     expect(classifyDuplicate(history, { links: ["https://s.shopee.com.br/b"], contentHash: "b", itemId: "456" })).toBe("first");
   });
+
+  it("marca dois meli.la do mesmo MLB como duplicados", () => {
+    const history = [{ id: "ml-first", original_link: "https://meli.la/AAA", content_hash: "a", item_id: "MLB4049279695" }];
+    expect(classifyDuplicate(history, { links: ["https://meli.la/BBB"], contentHash: "b", itemId: "MLB4049279695" })).toBe("ml-first");
+  });
 });

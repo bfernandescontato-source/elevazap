@@ -8,13 +8,14 @@ type Sender = { id: string; label: string; session_name: string };
 type Group = { group_jid: string; nome?: string; foto_url?: string };
 type Offer = { id: string; original_text?: string; processed_text?: string; original_link?: string; affiliate_link?: string; affiliate_conversion_status?: string; affiliate_conversion_error?: string; status: string; captured_at: string; scheduled_at?: string; source_group_id?: string; grupos?: { nome?: string } | { nome?: string }[] };
 type Data = {
-  automation?: { id: string; whatsapp_sender_id: string; enabled: boolean; interval_minutes: number; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
+  automation?: { id: string; whatsapp_sender_id: string; enabled: boolean; interval_minutes: number; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; mercado_livre_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
   shopee_integration?: { app_id: string; status: string; last_tested_at?: string; last_error?: string } | null;
+  mercado_livre_integration?: { status: string; affiliate_tag?: string; last_tested_at?: string; last_error?: string } | null;
   senders: Sender[]; groups: Group[]; source_group_ids: string[]; destination_group_ids: string[]; offers: Offer[];
   metrics: { captured_today: number; converted: number; queued: number; sent_today: number; ignored: number; conversion_failed: number };
 };
 
-const defaults = { whatsapp_sender_id: "", enabled: false, interval_minutes: 30, operating_start: "07:30", operating_end: "22:30", timezone: "America/Sao_Paulo", keep_original_text: true, keep_original_media: true, avoid_duplicates: true, ai_rewrite_enabled: false, shopee_conversion_enabled: false, conversion_failure_policy: "pause" as "pause" | "send_original", source_group_ids: [] as string[], destination_group_ids: [] as string[] };
+const defaults = { whatsapp_sender_id: "", enabled: false, interval_minutes: 30, operating_start: "07:30", operating_end: "22:30", timezone: "America/Sao_Paulo", keep_original_text: true, keep_original_media: true, avoid_duplicates: true, ai_rewrite_enabled: false, shopee_conversion_enabled: false, mercado_livre_conversion_enabled: false, conversion_failure_policy: "pause" as "pause" | "send_original", source_group_ids: [] as string[], destination_group_ids: [] as string[] };
 const statusLabel: Record<string, string> = { captured: "Capturada", processing: "Processando", ready: "Pronta", scheduled: "Agendada", sending: "Enviando", sent: "Enviada", ignored: "Ignorada", duplicate: "Duplicada", processing_failed: "Falha no processamento", send_failed: "Falha no envio" };
 
 export default function AutopilotPage() {
@@ -27,6 +28,7 @@ export default function AutopilotPage() {
   const [shopeeAppId, setShopeeAppId] = useState("");
   const [shopeeSecret, setShopeeSecret] = useState("");
   const [testingShopee, setTestingShopee] = useState(false);
+  const [connectingMercadoLivre, setConnectingMercadoLivre] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +67,30 @@ export default function AutopilotPage() {
       setShopeeSecret(""); setNotice("Shopee Affiliate conectada com sucesso."); await load();
     } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível conectar à Shopee."); }
     finally { setTestingShopee(false); }
+  }
+  async function connectMercadoLivre() {
+    setConnectingMercadoLivre(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/piloto-automatico/mercado-livre/connect", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Não foi possível iniciar a conexão.");
+      const result = await new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
+        const listener = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin || event.data?.type !== "DISPAREI_ML_CONNECTION_RESULT") return;
+          window.clearTimeout(timeout); window.removeEventListener("message", listener); resolve(event.data);
+        };
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", listener);
+          reject(new Error("A extensão Disparei — Mercado Livre não respondeu."));
+        }, 15_000);
+        window.addEventListener("message", listener);
+        window.postMessage({ type: "DISPAREI_ML_CONNECT", nonce: body.nonce, backendOrigin: window.location.origin }, window.location.origin);
+      });
+      if (!result.ok) throw new Error(result.error || "A extensão não conseguiu validar o Mercado Livre.");
+      setNotice("Extensão vinculada. Estamos executando um teste real de geração de link.");
+      window.setTimeout(() => void load(), 4_000);
+    } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível conectar ao Mercado Livre."); }
+    finally { setConnectingMercadoLivre(false); }
   }
   function toggle(list: "source_group_ids" | "destination_group_ids", id: string) {
     setForm((current) => ({ ...current, [list]: current[list].includes(id) ? current[list].filter((value) => value !== id) : [...current[list], id] }));
@@ -106,14 +132,16 @@ export default function AutopilotPage() {
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Shopee Affiliate" description="Conecte sua conta para transformar automaticamente ofertas no seu link de comissão." />{data.shopee_integration?.status === "connected" ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="font-medium text-emerald-800">● Shopee conectada</div><div className="mt-2 text-sm text-emerald-700">App ID: {data.shopee_integration.app_id}<br />App Secret: ••••••••••••••</div></div> : data.shopee_integration?.status === "error" ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><div className="font-medium text-red-800">● Não foi possível conectar</div><div className="mt-1 text-sm text-red-700">{data.shopee_integration.last_error || "Verifique App ID e App Secret."}</div></div> : null}<div className="mt-5 grid gap-4 md:grid-cols-2"><Field label="App ID"><input value={shopeeAppId} onChange={(event) => setShopeeAppId(event.target.value)} autoComplete="off" className="focus-ring h-11 w-full rounded-lg border border-line px-3" /></Field><Field label="App Secret"><input type="password" value={shopeeSecret} onChange={(event) => setShopeeSecret(event.target.value)} autoComplete="new-password" placeholder={data.shopee_integration ? "Informe para substituir as credenciais" : "App Secret"} className="focus-ring h-11 w-full rounded-lg border border-line px-3" /></Field></div><button type="button" onClick={() => void connectShopee()} disabled={testingShopee || !shopeeAppId || !shopeeSecret} className="mt-4 h-10 rounded-lg border border-line bg-white px-4 text-sm font-medium disabled:opacity-40">{testingShopee ? "Testando..." : "Testar conexão"}</button></section>
 
+      <section className="rounded-xl border border-line bg-white p-5"><Heading title="Mercado Livre" description="Vincule sua própria conta para gerar links pelo Portal oficial sem compartilhar senha ou cookies." />{data.mercado_livre_integration?.status === "connected" ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="font-medium text-emerald-800">● Mercado Livre conectado</div>{data.mercado_livre_integration.affiliate_tag ? <div className="mt-1 text-sm text-emerald-700">Etiqueta: {data.mercado_livre_integration.affiliate_tag}</div> : null}</div> : data.mercado_livre_integration?.status === "connecting" ? <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">● Validando sua conta com uma geração real…</div> : data.mercado_livre_integration?.status === "expired" ? <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">● Sua sessão expirou. Reconecte o Mercado Livre.</div> : data.mercado_livre_integration?.status === "error" ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">● {data.mercado_livre_integration.last_error || "Não foi possível validar a conexão."}</div> : null}<button type="button" onClick={() => void connectMercadoLivre()} disabled={connectingMercadoLivre} className="mt-4 h-10 rounded-lg border border-line bg-white px-4 text-sm font-medium disabled:opacity-40">{connectingMercadoLivre ? "Conectando…" : data.mercado_livre_integration?.status === "connected" ? "Reconectar Mercado Livre" : "Conectar Mercado Livre"}</button></section>
+
       <div className="grid gap-6 xl:grid-cols-2">
         <GroupPicker title="Grupos Fonte" description="Escolha os grupos onde o Disparei irá buscar novas ofertas automaticamente." groups={data.groups} selected={form.source_group_ids} onToggle={(id) => toggle("source_group_ids", id)} source />
         <GroupPicker title="Grupos de destino" description="Escolha os grupos que receberão as ofertas automaticamente." groups={data.groups} selected={form.destination_group_ids} onToggle={(id) => toggle("destination_group_ids", id)} />
       </div>
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Configuração da automação" description="Defina o ritmo e o horário em que as ofertas podem ser enviadas." /><div className="mt-5 grid gap-5 md:grid-cols-3"><Field label="Enviar 1 oferta a cada"><div className="flex items-center gap-2"><input type="number" min={5} max={1440} value={form.interval_minutes} onChange={(event) => setForm({ ...form, interval_minutes: Number(event.target.value) })} className="focus-ring h-11 w-24 rounded-lg border border-line px-3" /><span className="text-sm text-muted">minutos</span></div></Field><Field label="Início"><input type="time" value={form.operating_start} onChange={(event) => setForm({ ...form, operating_start: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field><Field label="Fim"><input type="time" value={form.operating_end} onChange={(event) => setForm({ ...form, operating_end: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field></div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2"><Check label="Manter texto da oferta" checked={form.keep_original_text} onChange={(checked) => setForm({ ...form, keep_original_text: checked, ai_rewrite_enabled: checked ? form.ai_rewrite_enabled : false })} /><Check label="Manter imagem original" checked={form.keep_original_media} onChange={(checked) => setForm({ ...form, keep_original_media: checked })} /><Check label="Evitar ofertas repetidas" checked={form.avoid_duplicates} onChange={(checked) => setForm({ ...form, avoid_duplicates: checked })} /><Check label="Trocar link Shopee automaticamente" checked={form.shopee_conversion_enabled} onChange={(checked) => setForm({ ...form, shopee_conversion_enabled: checked })} /><Check label="Reescrever mensagem com IA" checked={form.ai_rewrite_enabled} onChange={(checked) => setForm({ ...form, ai_rewrite_enabled: checked, keep_original_text: checked ? true : form.keep_original_text })} /></div>
-        {form.shopee_conversion_enabled ? <div className="mt-5"><div className="mb-2 text-sm font-medium">Em caso de erro na conversão</div><label className="mr-5 text-sm"><input type="radio" className="mr-2 accent-black" checked={form.conversion_failure_policy === "pause"} onChange={() => setForm({ ...form, conversion_failure_policy: "pause" })} />Pausar esta oferta</label><label className="text-sm"><input type="radio" className="mr-2 accent-black" checked={form.conversion_failure_policy === "send_original"} onChange={() => setForm({ ...form, conversion_failure_policy: "send_original" })} />Enviar mesmo assim</label></div> : null}
+        <div className="mt-6 grid gap-3 sm:grid-cols-2"><Check label="Manter texto da oferta" checked={form.keep_original_text} onChange={(checked) => setForm({ ...form, keep_original_text: checked, ai_rewrite_enabled: checked ? form.ai_rewrite_enabled : false })} /><Check label="Manter imagem original" checked={form.keep_original_media} onChange={(checked) => setForm({ ...form, keep_original_media: checked })} /><Check label="Evitar ofertas repetidas" checked={form.avoid_duplicates} onChange={(checked) => setForm({ ...form, avoid_duplicates: checked })} /><Check label="Trocar link Shopee automaticamente" checked={form.shopee_conversion_enabled} onChange={(checked) => setForm({ ...form, shopee_conversion_enabled: checked })} /><Check label="Trocar link Mercado Livre automaticamente" checked={form.mercado_livre_conversion_enabled} onChange={(checked) => setForm({ ...form, mercado_livre_conversion_enabled: checked })} /><Check label="Reescrever mensagem com IA" checked={form.ai_rewrite_enabled} onChange={(checked) => setForm({ ...form, ai_rewrite_enabled: checked, keep_original_text: checked ? true : form.keep_original_text })} /></div>
+        {form.shopee_conversion_enabled || form.mercado_livre_conversion_enabled ? <div className="mt-5"><div className="mb-2 text-sm font-medium">Em caso de erro na conversão</div><label className="mr-5 text-sm"><input type="radio" className="mr-2 accent-black" checked={form.conversion_failure_policy === "pause"} onChange={() => setForm({ ...form, conversion_failure_policy: "pause" })} />Pausar esta oferta</label><label className="text-sm"><input type="radio" className="mr-2 accent-black" checked={form.conversion_failure_policy === "send_original"} onChange={() => setForm({ ...form, conversion_failure_policy: "send_original" })} />Enviar mesmo assim</label></div> : null}
       </section>
 
       <section className="rounded-xl border border-line bg-white"><div className="border-b border-line p-5"><Heading title="Ofertas capturadas" description="Acompanhe o que entrou e quando cada oferta será distribuída." /></div>{data.offers.length ? <div className="divide-y divide-line">{data.offers.map((offer) => <OfferRow key={offer.id} offer={offer} onOpen={() => void openOffer(offer.id)} onAction={action} />)}</div> : <div className="p-10 text-center text-sm text-muted">Nenhuma oferta capturada ainda.</div>}</section>

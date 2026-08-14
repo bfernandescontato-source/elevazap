@@ -1,0 +1,7 @@
+{
+  "name": "@disparei/mercado-livre-extension",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "devDependencies": { "@types/chrome": "0.0.302", "typescript": "5.7.2" }
+}

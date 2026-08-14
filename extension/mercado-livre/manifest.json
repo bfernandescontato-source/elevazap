@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Disparei — Mercado Livre",
+  "version": "0.1.0",
+  "description": "Conecta sua própria conta Mercado Livre ao Piloto Automático do Disparei.",
+  "permissions": ["alarms", "storage", "tabs"],
+  "host_permissions": ["https://*.mercadolivre.com.br/*", "https://meli.la/*", "https://*.disparei.pro/*"],
+  "background": { "service_worker": "dist/service-worker.js", "type": "module" },
+  "action": { "default_popup": "popup/index.html", "default_title": "Disparei — Mercado Livre" },
+  "content_scripts": [
+    { "matches": ["https://*.disparei.pro/*"], "js": ["dist/disparei-bridge.js"], "run_at": "document_start" },
+    { "matches": ["https://*.mercadolivre.com.br/afiliados/linkbuilder*"], "js": ["dist/mercado-livre-bridge.js"], "run_at": "document_idle" }
+  ]
+}

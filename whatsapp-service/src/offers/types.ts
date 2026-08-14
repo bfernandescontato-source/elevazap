@@ -21,11 +21,24 @@ export type ParsedOffer = {
   media: RawOfferMessage["media"];
   links: string[];
   shopeeLinks: string[];
+  mercadoLivreLinks: string[];
+  affiliateLinks: Array<{ provider: AffiliateProviderName; url: string }>;
   sourceMessageId: string;
   sourceGroupId: string;
   senderId?: string;
   capturedAt: Date;
   contentHash: string;
+};
+
+export type AffiliateProviderName = "shopee" | "mercado_livre";
+
+export type ResolvedAffiliateProduct = {
+  provider: AffiliateProviderName;
+  originalUrl: string;
+  resolvedUrl: string;
+  itemId?: string;
+  catalogProductId?: string;
+  shopId?: string;
 };
 
 export type AutomationSchedule = {

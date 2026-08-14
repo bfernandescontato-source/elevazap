@@ -6,6 +6,7 @@ function enabled(value: string | undefined, fallback = false) {
 export const offerFeatureFlags = {
   pilotAutomation: enabled(process.env.PILOT_AUTOMATION, true),
   shopeeLinkConversion: enabled(process.env.SHOPEE_LINK_CONVERSION),
+  mercadoLivreLinkConversion: enabled(process.env.MERCADO_LIVRE_LINK_CONVERSION),
   aiRewrite: enabled(process.env.AI_REWRITE),
   shopeeOfferFinder: enabled(process.env.SHOPEE_OFFER_FINDER)
 } as const;

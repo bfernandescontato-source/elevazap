@@ -7,6 +7,7 @@ import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
 import { OfferAiRewriter, sanitizeSourcePromotion } from "./offer-ai-rewriter.js";
+import { MercadoLivreOfferConverter } from "./mercado-livre-conversion.js";
 
 type Automation = {
   id: string;
@@ -23,6 +24,7 @@ type Automation = {
   deduplication_window_hours: number;
   ai_rewrite_enabled: boolean;
   shopee_conversion_enabled: boolean;
+  mercado_livre_conversion_enabled: boolean;
   conversion_failure_policy: "pause" | "send_original";
   whatsapp_senders: { session_name: string } | { session_name: string }[];
 };
@@ -44,7 +46,9 @@ export class OfferProcessor {
       ? await findDuplicate(this.database, automation.account_id, automation.id, parsed, automation.deduplication_window_hours)
       : null;
 
-    const conversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
+    const shopeeConversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
+    const mercadoLivreConversionRequired = parsed.mercadoLivreLinks.length > 0 && automation.mercado_livre_conversion_enabled;
+    const conversionRequired = shopeeConversionRequired || mercadoLivreConversionRequired;
     const { data: offer, error: insertError } = await this.database.from("captured_offers").insert({
       ...common,
       user_id: automation.created_by,
@@ -56,8 +60,10 @@ export class OfferProcessor {
       original_link: parsed.shopeeLinks[0] || parsed.links[0] || null,
       links: parsed.links,
       shopee_links: parsed.shopeeLinks,
+      mercado_livre_links: parsed.mercadoLivreLinks,
+      affiliate_provider: parsed.affiliateLinks.length > 1 ? "multiple" : parsed.affiliateLinks[0]?.provider || null,
       content_hash: parsed.contentHash,
-      affiliate_conversion_status: parsed.shopeeLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
+      affiliate_conversion_status: parsed.affiliateLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
       ai_rewrite_status: automation.ai_rewrite_enabled ? "pending" : "not_enabled",
       status: duplicateId ? "duplicate" : "processing",
       captured_at: parsed.capturedAt.toISOString()
@@ -85,14 +91,14 @@ export class OfferProcessor {
       }
       let processedText = parsed.text;
       let linkUsed = parsed.shopeeLinks[0] || parsed.links[0] || null;
-      if (conversionRequired) {
+      if (shopeeConversionRequired) {
         try {
           if (!offerFeatureFlags.shopeeLinkConversion) throw new Error("Conversão Shopee desativada no ambiente.");
           await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
             .eq("id", offer.id).eq("account_id", automation.account_id);
           const conversion = await new ShopeeOfferConverter(this.database).convert(parsed, {
             accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
-          });
+          }, processedText);
           if (conversion.duplicateOfferId) {
             await this.database.from("captured_offers").update({
               status: "duplicate", affiliate_conversion_status: "not_required", resolved_url: conversion.resolvedUrl || null,
@@ -117,6 +123,46 @@ export class OfferProcessor {
             error_code: "SHOPEE_CONVERSION_FAILED", error_message: conversionMessage, processed_at: new Date().toISOString()
           }).eq("id", offer.id).eq("account_id", automation.account_id);
           console.error({ event: "shopee_affiliate_failed", component: "shopee-affiliate", ...common, offer_id: offer.id, error_kind: conversionError instanceof Error ? conversionError.name : "unknown" });
+          if (automation.conversion_failure_policy !== "send_original") {
+            await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
+            return { ...offer, status: "processing_failed" };
+          }
+        }
+      }
+      if (mercadoLivreConversionRequired) {
+        try {
+          if (!offerFeatureFlags.mercadoLivreLinkConversion) throw new Error("Conversão Mercado Livre desativada no ambiente.");
+          await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
+            .eq("id", offer.id).eq("account_id", automation.account_id);
+          const conversion = await new MercadoLivreOfferConverter(this.database).convert(parsed, {
+            accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
+          }, processedText);
+          if (conversion.duplicateOfferId) {
+            await this.database.from("captured_offers").update({
+              status: "duplicate", affiliate_conversion_status: "not_required", resolved_url: conversion.resolvedUrl || null,
+              item_id: conversion.itemId || conversion.catalogProductId || null, catalog_product_id: conversion.catalogProductId || null,
+              processed_at: new Date().toISOString()
+            }).eq("id", offer.id).eq("account_id", automation.account_id);
+            log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: conversion.duplicateOfferId, item_id: conversion.itemId });
+            return { ...offer, status: "duplicate" };
+          }
+          if (!conversion.converted || !conversion.affiliateLink) throw new Error("O link encontrado não pôde ser associado com segurança a um produto Mercado Livre.");
+          processedText = conversion.processedText;
+          linkUsed = conversion.affiliateLink;
+          await this.database.from("captured_offers").update({
+            processed_text: processedText, original_link: conversion.originalLink || linkUsed,
+            resolved_url: conversion.resolvedUrl || null, item_id: conversion.itemId || conversion.catalogProductId || null,
+            catalog_product_id: conversion.catalogProductId || null, affiliate_link: conversion.affiliateLink,
+            affiliate_tag: conversion.affiliateTag || null, affiliate_conversion_status: "converted",
+            affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+        } catch (conversionError) {
+          const conversionMessage = conversionError instanceof Error ? conversionError.message : "Falha na conversão Mercado Livre.";
+          await this.database.from("captured_offers").update({
+            affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
+            error_code: "MERCADO_LIVRE_CONVERSION_FAILED", error_message: conversionMessage, processed_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          console.error({ event: "mercado_livre_affiliate_failed", component: "mercado-livre-affiliate", ...common, offer_id: offer.id, error_kind: conversionError instanceof Error ? conversionError.name : "unknown" });
           if (automation.conversion_failure_policy !== "send_original") {
             await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
             return { ...offer, status: "processing_failed" };

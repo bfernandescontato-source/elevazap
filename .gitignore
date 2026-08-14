@@ -8,3 +8,10 @@ coverage
 *.tsbuildinfo
 .vercel
 .env*
+# Local system and Supabase CLI state
+.DS_Store
+supabase/.temp/
+
+# Keep the compiled unpacked Mercado Livre extension in version control
+!extension/mercado-livre/dist/
+!extension/mercado-livre/dist/*.js
