@@ -113,11 +113,16 @@ export class MercadoLivreUrlResolver {
         if (typeof options === "object" && options.all) return callback(null, [address]);
         return callback(null, address.address, address.family);
       } });
+      // Mercado Livre omite os componentes personalizados (inclusive o produto em
+      // destaque das páginas /social/) quando detecta um user-agent não-navegador.
       const response = await axios.get(current.toString(), {
         maxRedirects: 0, timeout: 7_000, responseType: "text", httpsAgent,
         maxContentLength: 6_000_000, maxBodyLength: 6_000_000,
         validateStatus: (status) => status >= 200 && status < 400,
-        headers: { "user-agent": "Disparei/1.0 (+https://www.disparei.pro)" }
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          "accept-language": "pt-BR,pt;q=0.9"
+        }
       });
       if (response.status < 300) {
         const resolvedUrl = sanitizeMercadoLivreProductUrl(current.toString());
