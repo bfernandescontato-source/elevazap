@@ -36,7 +36,25 @@ function log(event: string, fields: Record<string, unknown>) {
 export class OfferProcessor {
   constructor(private database: SupabaseClient) {}
 
+  private async automationEnabled(automation: Automation) {
+    const { data, error } = await this.database.from("offer_automations").select("enabled")
+      .eq("id", automation.id).eq("account_id", automation.account_id).maybeSingle();
+    if (error) throw error;
+    return data?.enabled === true;
+  }
+
+  private async stopIfDisabled(automation: Automation, offerId: string) {
+    if (await this.automationEnabled(automation)) return false;
+    await this.database.from("captured_offers").update({
+      status: "ignored", error_code: "PILOT_DISABLED", error_message: "Piloto Automático desativado.",
+      processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+    }).eq("id", offerId).eq("account_id", automation.account_id);
+    log("offer_cancelled_pilot_disabled", { account_id: automation.account_id, automation_id: automation.id, offer_id: offerId });
+    return true;
+  }
+
   async process(automation: Automation, message: RawOfferMessage) {
+    if (!(await this.automationEnabled(automation))) return null;
     const parsed = parseOffer(message);
     if (!parsed.text && !parsed.media) return null;
     const common = { account_id: automation.account_id, automation_id: automation.id, source_group_id: parsed.sourceGroupId };
@@ -91,6 +109,7 @@ export class OfferProcessor {
       }
       let processedText = parsed.text;
       let linkUsed = parsed.shopeeLinks[0] || parsed.links[0] || null;
+      if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
       if (shopeeConversionRequired) {
         try {
           if (!offerFeatureFlags.shopeeLinkConversion) throw new Error("Conversão Shopee desativada no ambiente.");
@@ -116,7 +135,9 @@ export class OfferProcessor {
             affiliate_link: conversion.affiliateLink, affiliate_conversion_status: "converted",
             affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
           }).eq("id", offer.id).eq("account_id", automation.account_id);
+          if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         } catch (conversionError) {
+          if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
           const conversionMessage = conversionError instanceof Error ? conversionError.message : "Falha na conversão Shopee.";
           await this.database.from("captured_offers").update({
             affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
@@ -130,6 +151,7 @@ export class OfferProcessor {
         }
       }
       if (mercadoLivreConversionRequired) {
+        if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         try {
           if (!offerFeatureFlags.mercadoLivreLinkConversion) throw new Error("Conversão Mercado Livre desativada no ambiente.");
           await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
@@ -156,7 +178,9 @@ export class OfferProcessor {
             affiliate_tag: conversion.affiliateTag || null, affiliate_conversion_status: "converted",
             affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
           }).eq("id", offer.id).eq("account_id", automation.account_id);
+          if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         } catch (conversionError) {
+          if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
           const conversionMessage = conversionError instanceof Error ? conversionError.message : "Falha na conversão Mercado Livre.";
           await this.database.from("captured_offers").update({
             affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
@@ -170,6 +194,7 @@ export class OfferProcessor {
         }
       }
       if (automation.ai_rewrite_enabled) {
+        if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         processedText = sanitizeSourcePromotion(processedText, linkUsed);
         try {
           if (!offerFeatureFlags.aiRewrite) throw new Error("Reescrita com IA desativada no ambiente.");
@@ -205,6 +230,7 @@ export class OfferProcessor {
         .select("whatsapp_group_id,grupos(nome)").eq("account_id", automation.account_id)
         .eq("automation_id", automation.id).eq("enabled", true);
       if (destinationsError) throw destinationsError;
+      if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
       if (!destinations?.length) {
         await this.database.from("captured_offers").update({ ...mediaFields, status: "ready", processed_at: new Date().toISOString() })
           .eq("id", offer.id).eq("account_id", automation.account_id);
@@ -227,6 +253,8 @@ export class OfferProcessor {
       const type = parsed.media && automation.keep_original_media ? "imagem" : "texto";
       const text = automation.keep_original_text ? processedText : "";
 
+      if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
+
       const { data: lote, error: loteError } = await this.database.from("envios_grupo_lotes").insert({
         account_id: automation.account_id,
         titulo: `Piloto Automático · ${parsed.text.slice(0, 70) || "Oferta"}`,
@@ -245,6 +273,11 @@ export class OfferProcessor {
         scheduled_at: scheduledAt.toISOString()
       }).select("id").single();
       if (loteError) throw loteError;
+      if (await this.stopIfDisabled(automation, offer.id)) {
+        await this.database.from("envios_grupo_lotes").update({ status: "cancelado", pendentes: 0, cancelados: destinations.length, updated_at: new Date().toISOString() })
+          .eq("id", lote.id).eq("account_id", automation.account_id);
+        return { ...offer, status: "ignored" };
+      }
 
       const dispatchRows = destinations.map((destination) => ({
         account_id: automation.account_id,

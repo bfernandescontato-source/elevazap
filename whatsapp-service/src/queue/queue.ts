@@ -171,6 +171,7 @@ export class GlobalSendQueue {
     );
     if (!row) return;
 
+    if (table === "envios_grupo" && await this.cancelIfPilotDisabled(row)) return;
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "sending");
 
     try {
@@ -189,6 +190,31 @@ export class GlobalSendQueue {
         this.metrics.failure(error);
       }
     }
+  }
+
+  private async cancelIfPilotDisabled(row: any) {
+    const { data: delivery, error } = await supabase.from("offer_deliveries").select("offer_id")
+      .eq("group_dispatch_id", row.id).maybeSingle();
+    if (error) {
+      if (["42P01", "PGRST205"].includes(error.code || "")) return false;
+      throw error;
+    }
+    if (!delivery) return false;
+    const { data: offer, error: offerError } = await supabase.from("captured_offers").select("automation_id")
+      .eq("id", delivery.offer_id).eq("account_id", row.account_id).maybeSingle();
+    if (offerError) throw offerError;
+    if (!offer) return false;
+    const { data: automation, error: automationError } = await supabase.from("offer_automations").select("enabled")
+      .eq("id", offer.automation_id).eq("account_id", row.account_id).maybeSingle();
+    if (automationError) throw automationError;
+    if (automation?.enabled !== false) return false;
+    await dbResult("queue.cancel-disabled-pilot", supabase.from("envios_grupo").update(this.updateFields("envios_grupo", {
+      status: "cancelado", claim_token: null, processing_deadline_at: null,
+      erro: "Piloto Automático desativado.", updated_at: new Date().toISOString()
+    })).eq("id", row.id));
+    await this.syncOfferDelivery(row.id, "cancelled", "Piloto Automático desativado.");
+    await this.recalc(row.lote_id);
+    return true;
   }
 
   private async execute(item: QueueItem, row: any) {
@@ -367,7 +393,7 @@ export class GlobalSendQueue {
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "uncertain", message);
   }
 
-  private async syncOfferDelivery(dispatchId: string, status: "scheduled" | "sending" | "sent" | "failed" | "uncertain", errorMessage?: string | null, sentAt?: string) {
+  private async syncOfferDelivery(dispatchId: string, status: "scheduled" | "sending" | "sent" | "failed" | "uncertain" | "cancelled", errorMessage?: string | null, sentAt?: string) {
     const values = { status, error_message: errorMessage || null, sent_at: sentAt || null, updated_at: new Date().toISOString() };
     const { data: delivery, error } = await supabase.from("offer_deliveries").update(values)
       .eq("group_dispatch_id", dispatchId).select("offer_id,account_id").maybeSingle();
@@ -381,9 +407,10 @@ export class GlobalSendQueue {
     if (rowsError) throw rowsError;
     const statuses = (rows || []).map((row) => row.status);
     const allSent = statuses.length > 0 && statuses.every((value) => value === "sent");
+    const allCancelled = statuses.length > 0 && statuses.every((value) => value === "cancelled");
     const allTerminal = statuses.every((value) => ["sent", "failed", "uncertain", "cancelled"].includes(value));
     const hasSuccess = statuses.includes("sent");
-    const offerStatus = allSent || (allTerminal && hasSuccess) ? "sent" : allTerminal ? "send_failed" : statuses.includes("sending") ? "sending" : "scheduled";
+    const offerStatus = allCancelled ? "ignored" : allSent || (allTerminal && hasSuccess) ? "sent" : allTerminal ? "send_failed" : statuses.includes("sending") ? "sending" : "scheduled";
     const offerValues: Record<string, unknown> = { status: offerStatus, updated_at: new Date().toISOString() };
     if (offerStatus === "sent") offerValues.sent_at = sentAt || new Date().toISOString();
     await supabase.from("captured_offers").update(offerValues).eq("id", delivery.offer_id).eq("account_id", delivery.account_id);

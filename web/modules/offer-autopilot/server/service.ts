@@ -55,11 +55,11 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
   ]);
   if (!sender) throw new Error("Número responsável não pertence à sua conta.");
   assertOwnedGroupSelection(uniqueGroups, senderGroups || []);
-  if (input.shopee_conversion_enabled) {
+  if (input.enabled && input.shopee_conversion_enabled) {
     const { data: integration } = await database.from("affiliate_integrations").select("id").eq("account_id", accountId).eq("provider", "shopee").eq("status", "connected").maybeSingle();
     if (!integration) throw new Error("Conecte a Shopee Affiliate antes de ativar a conversão.");
   }
-  if (input.mercado_livre_conversion_enabled) {
+  if (input.enabled && input.mercado_livre_conversion_enabled) {
     const { data: integration } = await database.from("affiliate_integrations").select("id").eq("account_id", accountId).eq("provider", "mercado_livre").eq("status", "connected").maybeSingle();
     if (!integration) throw new Error("Conecte o Mercado Livre antes de ativar a conversão.");
   }
