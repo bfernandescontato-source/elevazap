@@ -7,7 +7,7 @@ security invoker
 set search_path = public
 as $$
 begin
-  if old.enabled and not new.enabled then
+  if not new.enabled then
     update public.affiliate_generation_jobs
        set status = 'expired', error_message = 'Piloto Automático desativado.', updated_at = now()
      where account_id = new.account_id
@@ -73,7 +73,7 @@ drop trigger if exists stop_offer_automation_on_disable on public.offer_automati
 create trigger stop_offer_automation_on_disable
 after update of enabled on public.offer_automations
 for each row
-when (old.enabled is true and new.enabled is false)
+when (new.enabled is false)
 execute function public.stop_disabled_offer_automation();
 
 commit;
