@@ -23,6 +23,23 @@ function urls(text: string) {
   return (text.match(URL_PATTERN) || []).map((value) => value.replace(/[),.!?;:]+$/g, ""));
 }
 
+const SOURCE_PROMOTION_PATTERN = /(?:nos\s+siga|siga\s+(?:nosso|a\s+gente|no|na)|instagram|chame\s+(?:suas?|os?)\s+amig|entre\s+no\s+(?:nosso\s+)?grupo|acompanhe\s+(?:nosso|a\s+gente))/i;
+
+export function sanitizeSourcePromotion(text: string, purchaseLink?: string | null) {
+  const withoutPromotion = text
+    .split(/\n\s*\n/)
+    .filter((block) => !SOURCE_PROMOTION_PATTERN.test(block))
+    .join("\n\n");
+  const withoutUnauthorizedLinks = withoutPromotion.replace(URL_PATTERN, (value) => {
+    const clean = value.replace(/[),.!?;:]+$/g, "");
+    return purchaseLink && clean === purchaseLink ? value : "";
+  });
+  return withoutUnauthorizedLinks
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function validateRewrite(original: string, rewritten: string, purchaseLink?: string | null) {
   const output = rewritten.trim();
   if (output.length < 15 || output.length > 4_000) throw new Error("A copy gerada possui tamanho inválido.");
@@ -52,6 +69,7 @@ export class OfferAiRewriter {
 
   async rewrite(input: RewriteInput): Promise<RewriteResult> {
     const purchaseLink = input.purchaseLink || null;
+    const sanitizedText = sanitizeSourcePromotion(input.text, purchaseLink);
     const response = await this.client.responses.create({
       model: this.model,
       reasoning: { effort: "low" },
@@ -72,7 +90,7 @@ export class OfferAiRewriter {
         {
           role: "user",
           content: JSON.stringify({
-            original_message: input.text,
+            original_message: sanitizedText,
             authorized_purchase_link: purchaseLink,
             detected_links: input.links
           })
@@ -94,6 +112,6 @@ export class OfferAiRewriter {
     });
     if (response.status !== "completed" || !response.output_text) throw new Error("A OpenAI não retornou uma copy válida.");
     const parsed = RewriteOutput.parse(JSON.parse(response.output_text));
-    return { text: validateRewrite(input.text, parsed.rewritten_text, purchaseLink), model: this.model };
+    return { text: validateRewrite(sanitizedText, parsed.rewritten_text, purchaseLink), model: this.model };
   }
 }

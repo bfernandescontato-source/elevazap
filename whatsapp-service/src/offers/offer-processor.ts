@@ -6,7 +6,7 @@ import { nextOfferSlot } from "./offer-scheduler.js";
 import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
-import { OfferAiRewriter } from "./offer-ai-rewriter.js";
+import { OfferAiRewriter, sanitizeSourcePromotion } from "./offer-ai-rewriter.js";
 
 type Automation = {
   id: string;
@@ -124,6 +124,7 @@ export class OfferProcessor {
         }
       }
       if (automation.ai_rewrite_enabled) {
+        processedText = sanitizeSourcePromotion(processedText, linkUsed);
         try {
           if (!offerFeatureFlags.aiRewrite) throw new Error("Reescrita com IA desativada no ambiente.");
           const rewritten = await new OfferAiRewriter().rewrite({

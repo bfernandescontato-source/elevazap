@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OfferAiRewriter, validateRewrite } from "../offers/offer-ai-rewriter.js";
+import { OfferAiRewriter, sanitizeSourcePromotion, validateRewrite } from "../offers/offer-ai-rewriter.js";
 
 describe("OfferAiRewriter", () => {
   it("aceita copy que preserva preço e link autorizado", () => {
@@ -27,5 +27,14 @@ describe("OfferAiRewriter", () => {
     });
     expect(result.model).toBe("gpt-test");
     expect(result.text).toContain("R$ 49,99");
+  });
+
+  it("remove deterministicamente a divulgação do grupo fonte", () => {
+    const link = "https://s.shopee.com.br/5LB6yUc6Fe?lp=aff";
+    const original = `🛍️ Short linho feminino\n\n🔥 Por: R$ 69,99\n\n🔗 Link de compra:\n${link}\n\n💖 Nos siga no instagram @achadosdadianadiniz; @achadosdadim e chame suas amigas: https://achadosdadianadiniz.com.br/`;
+    const sanitized = sanitizeSourcePromotion(original, link);
+    expect(sanitized).toContain("R$ 69,99");
+    expect(sanitized).toContain(link);
+    expect(sanitized).not.toMatch(/instagram|@achados|achadosdadianadiniz\.com/i);
   });
 });
