@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseOffer } from "../offers/offer-parser.js";
-import { unwrapMessage } from "../offers/whatsapp-monitor.js";
+import { mediaFrom, unwrapMessage } from "../offers/whatsapp-monitor.js";
 
 describe("OfferParser", () => {
   it("extrai texto, grupo e link Shopee", () => {
@@ -28,5 +28,14 @@ describe("unwrapMessage", () => {
   it("abre imagem enviada como documento com legenda", () => {
     const imageMessage = { mimetype: "image/png", caption: "Oferta" };
     expect(unwrapMessage({ documentWithCaptionMessage: { message: { imageMessage } } })).toEqual({ imageMessage });
+  });
+
+  it("captura a imagem embutida na prévia de um link", async () => {
+    const jpegThumbnail = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    await expect(mediaFrom({ extendedTextMessage: { jpegThumbnail } })).resolves.toEqual({
+      buffer: jpegThumbnail,
+      mimeType: "image/jpeg",
+      extension: "jpg"
+    });
   });
 });

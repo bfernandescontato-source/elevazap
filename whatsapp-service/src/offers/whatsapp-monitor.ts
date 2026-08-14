@@ -19,15 +19,35 @@ export function unwrapMessage(message: any): any {
   return current;
 }
 
-async function mediaFrom(message: any): Promise<RawOfferMessage["media"]> {
+export async function mediaFrom(message: any): Promise<RawOfferMessage["media"]> {
   const image = message?.imageMessage;
-  if (!image) return undefined;
-  const stream = await downloadContentFromMessage(image, "image");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  const mimeType = image.mimetype || "image/jpeg";
-  const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
-  return { buffer: Buffer.concat(chunks), mimeType, extension };
+  if (image) {
+    const stream = await downloadContentFromMessage(image, "image");
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const mimeType = image.mimetype || "image/jpeg";
+    const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+    return { buffer: Buffer.concat(chunks), mimeType, extension };
+  }
+
+  const preview = message?.extendedTextMessage;
+  if (!preview) return undefined;
+  if (preview.thumbnailDirectPath && preview.mediaKey) {
+    try {
+      const stream = await downloadContentFromMessage({
+        directPath: preview.thumbnailDirectPath,
+        mediaKey: preview.mediaKey
+      }, "thumbnail-link");
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+      const buffer = Buffer.concat(chunks);
+      if (buffer.length) return { buffer, mimeType: "image/jpeg", extension: "jpg" };
+    } catch {
+      // Some link previews only keep the embedded JPEG fallback.
+    }
+  }
+  const thumbnail = preview.jpegThumbnail ? Buffer.from(preview.jpegThumbnail) : null;
+  return thumbnail?.length ? { buffer: thumbnail, mimeType: "image/jpeg", extension: "jpg" } : undefined;
 }
 
 export async function monitorOfferMessages(
