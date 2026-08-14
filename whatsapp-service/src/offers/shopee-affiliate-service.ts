@@ -22,7 +22,10 @@ const ENDPOINT = "https://open-api.affiliate.shopee.com.br/graphql";
 
 function wait(milliseconds: number) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 function safeSubIds(metadata: AffiliateMetadata = {}) {
-  return Object.entries(metadata).slice(0, 5).map(([key, value]) => `${key}-${value}`.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64));
+  return Object.entries(metadata)
+    .slice(0, 5)
+    .map(([key, value]) => `${key}${value}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32))
+    .filter(Boolean);
 }
 function graphQlString(value: string) { return JSON.stringify(value); }
 
@@ -37,7 +40,8 @@ export class RealShopeeAffiliateService implements ShopeeAffiliateService {
   async generateAffiliateLink(url: string, credentials: ShopeeCredentials, metadata: AffiliateMetadata = {}) {
     const originUrl = this.normalizeProductUrl(url);
     const subIds = safeSubIds(metadata);
-    const query = `mutation { generateShortLink(input: { originUrl: ${graphQlString(originUrl)}, subIds: [${subIds.map(graphQlString).join(",")}] }) { shortLink } }`;
+    const subIdsInput = subIds.length ? `, subIds: [${subIds.map(graphQlString).join(",")}]` : "";
+    const query = `mutation { generateShortLink(input: { originUrl: ${graphQlString(originUrl)}${subIdsInput} }) { shortLink } }`;
     const payload = JSON.stringify({ query });
     const delays = [0, 5_000, 30_000, 120_000];
     let lastError: unknown;
