@@ -61,7 +61,7 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
 
   const { source_group_ids, destination_group_ids, ...config } = input;
   const { data: automation, error } = await database.from("offer_automations").upsert({
-    ...config, account_id: accountId, created_by: userId, ai_rewrite_enabled: false, shopee_conversion_enabled: false, updated_at: new Date().toISOString()
+    ...config, account_id: accountId, created_by: userId, ai_rewrite_enabled: false, updated_at: new Date().toISOString()
   }, { onConflict: "account_id" }).select("*").single();
   if (error) throw error;
   await Promise.all([
