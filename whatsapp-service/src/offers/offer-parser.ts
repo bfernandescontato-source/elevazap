@@ -15,11 +15,18 @@ export function isMercadoLivreUrl(value: string) {
   return getAffiliateProviderName(value) === "mercado_livre";
 }
 
+const AMAZON_HOSTS = new Set(["amazon.com.br", "www.amazon.com.br", "amazon.com", "www.amazon.com", "amzn.to", "a.co"]);
+export function isAmazonUrl(value: string) {
+  try { return AMAZON_HOSTS.has(new URL(value).hostname.toLowerCase()); }
+  catch { return false; }
+}
+
 export function parseOffer(message: RawOfferMessage): ParsedOffer {
   const text = [message.text, message.caption].filter(Boolean).join("\n").trim();
   const links = Array.from(new Set((text.match(URL_PATTERN) || []).map(trimUrl)));
   const shopeeLinks = links.filter(isShopeeUrl);
   const mercadoLivreLinks = links.filter(isMercadoLivreUrl);
+  const amazonLinks = links.filter(isAmazonUrl);
   const affiliateLinks: Array<{ provider: AffiliateProviderName; url: string }> = [];
   for (const url of links) {
     const provider = getAffiliateProviderName(url);
@@ -32,6 +39,7 @@ export function parseOffer(message: RawOfferMessage): ParsedOffer {
     links,
     shopeeLinks,
     mercadoLivreLinks,
+    amazonLinks,
     affiliateLinks,
     sourceMessageId: message.sourceMessageId,
     sourceGroupId: message.sourceGroupId,

@@ -22,6 +22,7 @@ export type ParsedOffer = {
   links: string[];
   shopeeLinks: string[];
   mercadoLivreLinks: string[];
+  amazonLinks: string[];
   affiliateLinks: Array<{ provider: AffiliateProviderName; url: string }>;
   sourceMessageId: string;
   sourceGroupId: string;

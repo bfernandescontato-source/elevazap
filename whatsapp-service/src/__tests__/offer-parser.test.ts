@@ -28,6 +28,23 @@ describe("OfferParser", () => {
       { provider: "mercado_livre", url: "https://meli.la/xyz" }
     ]);
   });
+
+  it("identifica link da Amazon sem tratá-lo como afiliado suportado", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-3", sourceGroupId: "120363000000@g.us",
+      text: "Fone bom https://www.amazon.com.br/dp/B0ABCDEFG", timestamp: new Date()
+    });
+    expect(result.amazonLinks).toEqual(["https://www.amazon.com.br/dp/B0ABCDEFG"]);
+    expect(result.affiliateLinks).toEqual([]);
+  });
+
+  it("identifica link curto amzn.to", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-4", sourceGroupId: "120363000000@g.us",
+      text: "https://amzn.to/abc123", timestamp: new Date()
+    });
+    expect(result.amazonLinks).toEqual(["https://amzn.to/abc123"]);
+  });
 });
 
 describe("unwrapMessage", () => {

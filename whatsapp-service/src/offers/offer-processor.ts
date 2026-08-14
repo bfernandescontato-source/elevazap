@@ -98,6 +98,15 @@ export class OfferProcessor {
       log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: duplicateId });
       return offer;
     }
+    if (parsed.amazonLinks.length > 0) {
+      const message = "Amazon ainda não integrado ao Piloto Automático; oferta ignorada.";
+      await this.database.from("captured_offers").update({
+        status: "ignored", error_code: "AMAZON_NOT_SUPPORTED_YET", error_message: message,
+        processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", automation.account_id);
+      log("offer_ignored_amazon_not_supported", { ...common, offer_id: offer.id });
+      return { ...offer, status: "ignored" };
+    }
     if (unsafeUnconvertedMercadoLivreLink) {
       const message = "Link curto do Mercado Livre bloqueado porque a conversão afiliada não está ativada.";
       await this.database.from("captured_offers").update({
