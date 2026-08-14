@@ -10,6 +10,7 @@ export const automationConfigSchema = z.object({
   keep_original_text: z.boolean(),
   keep_original_media: z.boolean(),
   avoid_duplicates: z.boolean(),
+  ai_rewrite_enabled: z.boolean(),
   shopee_conversion_enabled: z.boolean(),
   conversion_failure_policy: z.enum(["pause", "send_original"]),
   source_group_ids: z.array(z.string().endsWith("@g.us")).max(500),
@@ -18,6 +19,7 @@ export const automationConfigSchema = z.object({
   if (value.operating_start >= value.operating_end) context.addIssue({ code: "custom", message: "O horário inicial deve ser anterior ao final." });
   if (value.enabled && !value.source_group_ids.length) context.addIssue({ code: "custom", message: "Escolha ao menos um grupo fonte." });
   if (value.enabled && !value.destination_group_ids.length) context.addIssue({ code: "custom", message: "Escolha ao menos um grupo de destino." });
+  if (value.ai_rewrite_enabled && !value.keep_original_text) context.addIssue({ code: "custom", message: "Ative o envio de texto para usar a reescrita com IA." });
 });
 
 export const offerActionSchema = z.discriminatedUnion("action", [

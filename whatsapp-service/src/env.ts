@@ -20,7 +20,9 @@ const schema = z.object({
   MAX_SEND_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1000).default(60_000),
   WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
-  INTEGRATION_ENCRYPTION_KEY: z.string().optional()
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-5.6")
 });
 
 export const env = schema.parse(process.env);

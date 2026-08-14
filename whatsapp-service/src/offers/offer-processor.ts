@@ -6,6 +6,7 @@ import { nextOfferSlot } from "./offer-scheduler.js";
 import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
+import { OfferAiRewriter } from "./offer-ai-rewriter.js";
 
 type Automation = {
   id: string;
@@ -20,6 +21,7 @@ type Automation = {
   keep_original_media: boolean;
   avoid_duplicates: boolean;
   deduplication_window_hours: number;
+  ai_rewrite_enabled: boolean;
   shopee_conversion_enabled: boolean;
   conversion_failure_policy: "pause" | "send_original";
   whatsapp_senders: { session_name: string } | { session_name: string }[];
@@ -56,6 +58,7 @@ export class OfferProcessor {
       shopee_links: parsed.shopeeLinks,
       content_hash: parsed.contentHash,
       affiliate_conversion_status: parsed.shopeeLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
+      ai_rewrite_status: automation.ai_rewrite_enabled ? "pending" : "not_enabled",
       status: duplicateId ? "duplicate" : "processing",
       captured_at: parsed.capturedAt.toISOString()
     }).select("*").single();
@@ -118,6 +121,37 @@ export class OfferProcessor {
             await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
             return { ...offer, status: "processing_failed" };
           }
+        }
+      }
+      if (automation.ai_rewrite_enabled) {
+        try {
+          if (!offerFeatureFlags.aiRewrite) throw new Error("Reescrita com IA desativada no ambiente.");
+          const rewritten = await new OfferAiRewriter().rewrite({
+            text: processedText,
+            purchaseLink: linkUsed,
+            links: parsed.links
+          });
+          processedText = rewritten.text;
+          await this.database.from("captured_offers").update({
+            processed_text: processedText,
+            ai_rewrite_status: "rewritten",
+            ai_rewrite_attempts: 1,
+            ai_rewrite_model: rewritten.model,
+            ai_rewrite_error: null,
+            ai_rewritten_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          log("offer_ai_rewritten", { ...common, offer_id: offer.id, model: rewritten.model });
+        } catch (rewriteError) {
+          const rewriteMessage = rewriteError instanceof Error ? rewriteError.message : "Falha na reescrita com IA.";
+          await this.database.from("captured_offers").update({
+            processed_text: processedText,
+            ai_rewrite_status: "fallback",
+            ai_rewrite_attempts: 1,
+            ai_rewrite_error: rewriteMessage,
+            updated_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          console.error({ event: "offer_ai_rewrite_fallback", component: "offer-autopilot", ...common, offer_id: offer.id, error_kind: rewriteError instanceof Error ? rewriteError.name : "unknown" });
         }
       }
       const { data: destinations, error: destinationsError } = await this.database.from("automation_destinations")
