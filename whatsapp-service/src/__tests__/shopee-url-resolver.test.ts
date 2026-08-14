@@ -12,6 +12,12 @@ describe("ShopeeUrlResolver", () => {
     expect(extractShopeeProductIdentifiers(result)).toEqual({ shopId: "123", itemId: "456" });
   });
 
+  it("reconhece o formato de produto retornado por links curtos", () => {
+    const result = sanitizeShopeeProductUrl("https://shopee.com.br/opaanlp/1425525131/22794190920?__mobile__=1&exp_group=rollout&gads_t_sig=old&mmp_pid=affiliate&utm_source=old");
+    expect(result).toBe("https://shopee.com.br/opaanlp/1425525131/22794190920");
+    expect(extractShopeeProductIdentifiers(result)).toEqual({ shopId: "1425525131", itemId: "22794190920" });
+  });
+
   it("substitui apenas o link classificado como produto", () => {
     const coupon = "https://shopee.com.br/cupom";
     const product = "https://shopee.com.br/Produto-i.123.456";

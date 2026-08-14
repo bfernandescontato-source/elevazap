@@ -5,7 +5,10 @@ import { Agent } from "https";
 
 const INPUT_HOSTS = new Set(["shopee.com.br", "www.shopee.com.br", "s.shopee.com.br"]);
 const MAX_REDIRECTS = 5;
-const TRACKING_PARAMS = [/^utm_/i, /^uls_/i, /^affiliate_/i, /^sub_id$/i, /^af_/i, /^gclid$/i, /^fbclid$/i];
+const TRACKING_PARAMS = [
+  /^utm_/i, /^uls_/i, /^affiliate_/i, /^sub_id$/i, /^af_/i, /^gclid$/i, /^fbclid$/i,
+  /^gads_t_sig$/i, /^mmp_pid$/i, /^exp_group$/i, /^__mobile__$/i, /^smtt$/i, /^sp_atk$/i, /^xptdk$/i
+];
 
 export type ShopeeProductIdentifiers = { shopId?: string; itemId?: string };
 
@@ -44,7 +47,8 @@ export function extractShopeeProductIdentifiers(value: string): ShopeeProductIde
   const path = decodeURIComponent(url.pathname);
   const legacy = path.match(/-i\.(\d+)\.(\d+)(?:$|[/?])/i);
   const product = path.match(/\/product\/(\d+)\/(\d+)(?:$|[/?])/i);
-  const match = legacy || product;
+  const storefront = path.match(/^\/[^/]+\/(\d+)\/(\d+)\/?$/i);
+  const match = legacy || product || storefront;
   return match ? { shopId: match[1], itemId: match[2] } : {};
 }
 
