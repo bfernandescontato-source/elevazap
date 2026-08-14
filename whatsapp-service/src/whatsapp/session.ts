@@ -18,7 +18,7 @@ export type WhatsAppSession = {
   stop: () => void;
 };
 
-type MessageHandler = (messages: any[]) => Promise<void>;
+type MessageHandler = (messages: any[], upsertType?: string) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 
 export async function createWhatsAppSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string): Promise<WhatsAppSession> {
@@ -78,8 +78,8 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         }
       });
 
-      sock.ev.on("messages.upsert", async ({ messages }: { messages: any[] }) => {
-        try { await onMessages(messages); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
+      sock.ev.on("messages.upsert", async ({ messages, type }: { messages: any[]; type?: string }) => {
+        try { await onMessages(messages, type); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
       });
       if (onGroupParticipants) {
         sock.ev.on("group-participants.update", async (update: any) => {

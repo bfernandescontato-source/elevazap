@@ -3,6 +3,7 @@ import { createWhatsAppSession, type WhatsAppSession } from "../whatsapp/session
 import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "../groups/discovery.js";
 import { syncGroupMetadata } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
+import { monitorOfferMessages } from "../offers/whatsapp-monitor.js";
 
 type SenderSession = {
   id: string;
@@ -20,7 +21,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
 
   const session = await createWhatsAppSession(
     sender.session_name,
-    async () => undefined,
+    async (messages, upsertType) => upsertType === "notify" ? monitorOfferMessages(supabase, { id: sender.id, accountId: sender.account_id }, messages) : undefined,
     async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock),
     sender.account_id
   );

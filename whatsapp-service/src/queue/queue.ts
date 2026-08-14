@@ -171,6 +171,8 @@ export class GlobalSendQueue {
     );
     if (!row) return;
 
+    if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "sending");
+
     try {
       const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
       if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
@@ -282,6 +284,7 @@ export class GlobalSendQueue {
         updated_at: new Date().toISOString()
       })).eq("id", row.id).eq("claim_token", row.claim_token));
       if (table === "envios_grupo") await this.recalc(row.lote_id);
+      if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "sent", null, new Date().toISOString());
       console.info({ event: "queue.sent", component: "queue", jobId: correlationId(row.id), messageId: correlationId(messageId) });
     } catch (error) {
       await this.markForReconciliation(table, row, messageId, error);
@@ -347,6 +350,7 @@ export class GlobalSendQueue {
       updated_at: new Date().toISOString()
     })).eq("id", row.id));
     if (table === "envios_grupo") await this.recalc(row.lote_id);
+    if (table === "envios_grupo") await this.syncOfferDelivery(row.id, delay ? "scheduled" : "failed", message);
   }
 
   private async markUncertain(table: QueueTableName, row: any, message: string, code: string) {
@@ -360,6 +364,30 @@ export class GlobalSendQueue {
       updated_at: new Date().toISOString()
     })).eq("id", row.id));
     if (table === "envios_grupo") await this.recalc(row.lote_id);
+    if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "uncertain", message);
+  }
+
+  private async syncOfferDelivery(dispatchId: string, status: "scheduled" | "sending" | "sent" | "failed" | "uncertain", errorMessage?: string | null, sentAt?: string) {
+    const values = { status, error_message: errorMessage || null, sent_at: sentAt || null, updated_at: new Date().toISOString() };
+    const { data: delivery, error } = await supabase.from("offer_deliveries").update(values)
+      .eq("group_dispatch_id", dispatchId).select("offer_id,account_id").maybeSingle();
+    if (error) {
+      if (["42P01", "PGRST205"].includes(error.code || "")) return;
+      throw error;
+    }
+    if (!delivery) return;
+    const { data: rows, error: rowsError } = await supabase.from("offer_deliveries").select("status,sent_at")
+      .eq("offer_id", delivery.offer_id).eq("account_id", delivery.account_id);
+    if (rowsError) throw rowsError;
+    const statuses = (rows || []).map((row) => row.status);
+    const allSent = statuses.length > 0 && statuses.every((value) => value === "sent");
+    const allTerminal = statuses.every((value) => ["sent", "failed", "uncertain", "cancelled"].includes(value));
+    const hasSuccess = statuses.includes("sent");
+    const offerStatus = allSent || (allTerminal && hasSuccess) ? "sent" : allTerminal ? "send_failed" : statuses.includes("sending") ? "sending" : "scheduled";
+    const offerValues: Record<string, unknown> = { status: offerStatus, updated_at: new Date().toISOString() };
+    if (offerStatus === "sent") offerValues.sent_at = sentAt || new Date().toISOString();
+    await supabase.from("captured_offers").update(offerValues).eq("id", delivery.offer_id).eq("account_id", delivery.account_id);
+    console.info({ event: status === "sent" ? "offer_sent" : status === "failed" ? "offer_send_failed" : `offer_${status}`, component: "offer-autopilot", offer_id: delivery.offer_id, destination_dispatch_id: correlationId(dispatchId) });
   }
 
   private async recalc(loteId: string) {

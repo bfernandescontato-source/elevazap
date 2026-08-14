@@ -1,0 +1,13 @@
+begin;
+drop trigger if exists tenant_offer_delivery on public.offer_deliveries;
+drop trigger if exists tenant_captured_offer on public.captured_offers;
+drop trigger if exists tenant_offer_destination on public.automation_destinations;
+drop trigger if exists tenant_offer_source on public.automation_source_groups;
+drop function if exists public.enforce_offer_autopilot_account();
+drop table if exists public.offer_deliveries;
+drop table if exists public.captured_offers;
+drop table if exists public.automation_destinations;
+drop table if exists public.automation_source_groups;
+drop table if exists public.offer_automations;
+delete from storage.buckets where id='offer-media';
+commit;

@@ -12,7 +12,8 @@ const serverEnvSchema = z.object({
   MEU_NUMERO_TESTE: z.string().min(10),
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD_HASH: z.string().min(20),
-  AUTH_SECRET: z.string().min(32)
+  AUTH_SECRET: z.string().min(32),
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional()
 });
 
 export function env() {

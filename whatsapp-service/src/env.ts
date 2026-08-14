@@ -19,7 +19,8 @@ const schema = z.object({
   QUEUE_PROCESSING_TIMEOUT_MS: z.coerce.number().int().min(5000).default(120_000),
   MAX_SEND_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1000).default(60_000),
-  WELCOME_UNCERTAIN_POLICY: z.string().default("manual")
+  WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional()
 });
 
 export const env = schema.parse(process.env);

@@ -1,0 +1,213 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "crypto";
+import { findDuplicate } from "./offer-deduplicator.js";
+import { parseOffer } from "./offer-parser.js";
+import { nextOfferSlot } from "./offer-scheduler.js";
+import type { RawOfferMessage } from "./types.js";
+import { ShopeeOfferConverter } from "./shopee-conversion.js";
+import { offerFeatureFlags } from "./feature-flags.js";
+
+type Automation = {
+  id: string;
+  account_id: string;
+  created_by: string | null;
+  whatsapp_sender_id: string;
+  interval_minutes: number;
+  operating_start: string;
+  operating_end: string;
+  timezone: string;
+  keep_original_text: boolean;
+  keep_original_media: boolean;
+  avoid_duplicates: boolean;
+  deduplication_window_hours: number;
+  shopee_conversion_enabled: boolean;
+  conversion_failure_policy: "pause" | "send_original";
+  whatsapp_senders: { session_name: string } | { session_name: string }[];
+};
+
+function log(event: string, fields: Record<string, unknown>) {
+  console.info({ event, component: "offer-autopilot", ...fields });
+}
+
+export class OfferProcessor {
+  constructor(private database: SupabaseClient) {}
+
+  async process(automation: Automation, message: RawOfferMessage) {
+    const parsed = parseOffer(message);
+    if (!parsed.text && !parsed.media) return null;
+    const common = { account_id: automation.account_id, automation_id: automation.id, source_group_id: parsed.sourceGroupId };
+    log("offer_parsed", { ...common, source_message_id: parsed.sourceMessageId, link_count: parsed.links.length });
+
+    const duplicateId = automation.avoid_duplicates
+      ? await findDuplicate(this.database, automation.account_id, automation.id, parsed, automation.deduplication_window_hours)
+      : null;
+
+    const conversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
+    const { data: offer, error: insertError } = await this.database.from("captured_offers").insert({
+      ...common,
+      user_id: automation.created_by,
+      source_type: message.sourceType,
+      source_message_id: parsed.sourceMessageId,
+      sender_id: parsed.senderId || null,
+      original_text: parsed.text || null,
+      processed_text: parsed.text || null,
+      original_link: parsed.shopeeLinks[0] || parsed.links[0] || null,
+      links: parsed.links,
+      shopee_links: parsed.shopeeLinks,
+      content_hash: parsed.contentHash,
+      affiliate_conversion_status: parsed.shopeeLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
+      status: duplicateId ? "duplicate" : "processing",
+      captured_at: parsed.capturedAt.toISOString()
+    }).select("*").single();
+    if (insertError) {
+      if (insertError.code === "23505") return null;
+      throw insertError;
+    }
+    log("offer_captured", { ...common, offer_id: offer.id });
+    if (duplicateId) {
+      log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: duplicateId });
+      return offer;
+    }
+
+    try {
+      let mediaFields: Record<string, string | null> = {};
+      if (automation.keep_original_media && parsed.media) {
+        const path = `${automation.account_id}/${automation.id}/${offer.id}.${parsed.media.extension}`;
+        const { error } = await this.database.storage.from("offer-media").upload(path, parsed.media.buffer, {
+          contentType: parsed.media.mimeType, upsert: false
+        });
+        if (error) throw error;
+        mediaFields = { media_bucket: "offer-media", media_path: path, media_mime_type: parsed.media.mimeType };
+        await this.database.from("captured_offers").update(mediaFields).eq("id", offer.id).eq("account_id", automation.account_id);
+      }
+      let processedText = parsed.text;
+      let linkUsed = parsed.shopeeLinks[0] || parsed.links[0] || null;
+      if (conversionRequired) {
+        try {
+          if (!offerFeatureFlags.shopeeLinkConversion) throw new Error("Conversão Shopee desativada no ambiente.");
+          await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
+            .eq("id", offer.id).eq("account_id", automation.account_id);
+          const conversion = await new ShopeeOfferConverter(this.database).convert(parsed, {
+            accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
+          });
+          if (conversion.duplicateOfferId) {
+            await this.database.from("captured_offers").update({
+              status: "duplicate", affiliate_conversion_status: "not_required", resolved_url: conversion.resolvedUrl || null,
+              shop_id: conversion.shopId || null, item_id: conversion.itemId || null, processed_at: new Date().toISOString()
+            }).eq("id", offer.id).eq("account_id", automation.account_id);
+            log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: conversion.duplicateOfferId, item_id: conversion.itemId });
+            return { ...offer, status: "duplicate" };
+          }
+          if (!conversion.converted || !conversion.affiliateLink) throw new Error("O link encontrado não pôde ser associado com segurança a um produto Shopee.");
+          processedText = conversion.processedText;
+          linkUsed = conversion.affiliateLink;
+          await this.database.from("captured_offers").update({
+            processed_text: processedText, original_link: conversion.originalLink || linkUsed,
+            resolved_url: conversion.resolvedUrl || null, shop_id: conversion.shopId || null, item_id: conversion.itemId || null,
+            affiliate_link: conversion.affiliateLink, affiliate_conversion_status: "converted",
+            affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+        } catch (conversionError) {
+          const conversionMessage = conversionError instanceof Error ? conversionError.message : "Falha na conversão Shopee.";
+          await this.database.from("captured_offers").update({
+            affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
+            error_code: "SHOPEE_CONVERSION_FAILED", error_message: conversionMessage, processed_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          console.error({ event: "shopee_affiliate_failed", component: "shopee-affiliate", ...common, offer_id: offer.id, error_kind: conversionError instanceof Error ? conversionError.name : "unknown" });
+          if (automation.conversion_failure_policy !== "send_original") {
+            await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
+            return { ...offer, status: "processing_failed" };
+          }
+        }
+      }
+      const { data: destinations, error: destinationsError } = await this.database.from("automation_destinations")
+        .select("whatsapp_group_id,grupos(nome)").eq("account_id", automation.account_id)
+        .eq("automation_id", automation.id).eq("enabled", true);
+      if (destinationsError) throw destinationsError;
+      if (!destinations?.length) {
+        await this.database.from("captured_offers").update({ ...mediaFields, status: "ready", processed_at: new Date().toISOString() })
+          .eq("id", offer.id).eq("account_id", automation.account_id);
+        log("offer_ready", { ...common, offer_id: offer.id, destinations: 0 });
+        return offer;
+      }
+
+      const { data: latest } = await this.database.from("captured_offers").select("scheduled_at")
+        .eq("account_id", automation.account_id).eq("automation_id", automation.id)
+        .in("status", ["scheduled", "sending"]).not("scheduled_at", "is", null)
+        .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
+      const scheduledAt = nextOfferSlot({
+        intervalMinutes: automation.interval_minutes,
+        operatingStart: automation.operating_start,
+        operatingEnd: automation.operating_end,
+        timezone: automation.timezone
+      }, new Date(), latest?.scheduled_at ? new Date(latest.scheduled_at) : null);
+      const senderRelation = Array.isArray(automation.whatsapp_senders) ? automation.whatsapp_senders[0] : automation.whatsapp_senders;
+      if (!senderRelation?.session_name) throw new Error("Número responsável não encontrado.");
+      const type = parsed.media && automation.keep_original_media ? "imagem" : "texto";
+      const text = automation.keep_original_text ? processedText : "";
+
+      const { data: lote, error: loteError } = await this.database.from("envios_grupo_lotes").insert({
+        account_id: automation.account_id,
+        titulo: `Piloto Automático · ${parsed.text.slice(0, 70) || "Oferta"}`,
+        whatsapp_sender_id: automation.whatsapp_sender_id,
+        whatsapp_session_name: senderRelation.session_name,
+        tipo: type,
+        texto: type === "texto" ? text : null,
+        legenda: type === "imagem" ? text : null,
+        media_bucket: mediaFields.media_bucket || null,
+        media_path: mediaFields.media_path || null,
+        mime_type: mediaFields.media_mime_type || null,
+        file_name: type === "imagem" ? `oferta-${offer.id}.jpg` : null,
+        status: "pendente",
+        total: destinations.length,
+        pendentes: destinations.length,
+        scheduled_at: scheduledAt.toISOString()
+      }).select("id").single();
+      if (loteError) throw loteError;
+
+      const dispatchRows = destinations.map((destination) => ({
+        account_id: automation.account_id,
+        lote_id: lote.id,
+        whatsapp_sender_id: automation.whatsapp_sender_id,
+        whatsapp_session_name: senderRelation.session_name,
+        group_jid: destination.whatsapp_group_id,
+        nome_grupo: Array.isArray(destination.grupos) ? destination.grupos[0]?.nome : (destination.grupos as { nome?: string } | null)?.nome,
+        tipo: type,
+        texto: type === "texto" ? text : null,
+        legenda: type === "imagem" ? text : null,
+        media_bucket: mediaFields.media_bucket || null,
+        media_path: mediaFields.media_path || null,
+        mime_type: mediaFields.media_mime_type || null,
+        file_name: type === "imagem" ? `oferta-${offer.id}.jpg` : null,
+        status: "pendente",
+        scheduled_at: scheduledAt.toISOString()
+      }));
+      const { data: dispatches, error: dispatchError } = await this.database.from("envios_grupo").insert(dispatchRows).select("id,group_jid");
+      if (dispatchError) throw dispatchError;
+      const byGroup = new Map((dispatches || []).map((item) => [item.group_jid, item.id]));
+      const { error: deliveryError } = await this.database.from("offer_deliveries").insert(destinations.map((destination) => ({
+        account_id: automation.account_id,
+        offer_id: offer.id,
+        destination_group_id: destination.whatsapp_group_id,
+        group_dispatch_id: byGroup.get(destination.whatsapp_group_id),
+        link_used: linkUsed,
+        status: "scheduled",
+        scheduled_at: scheduledAt.toISOString()
+      })));
+      if (deliveryError) throw deliveryError;
+      const processedAt = new Date().toISOString();
+      await this.database.from("captured_offers").update({ ...mediaFields, processed_text: processedText, status: "scheduled", processed_at: processedAt, scheduled_at: scheduledAt.toISOString() })
+        .eq("id", offer.id).eq("account_id", automation.account_id);
+      log("offer_scheduled", { ...common, offer_id: offer.id, scheduled_at: scheduledAt.toISOString(), destinations: destinations.length });
+      return { ...offer, status: "scheduled", scheduled_at: scheduledAt.toISOString() };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao processar oferta.";
+      await this.database.from("captured_offers").update({ status: "processing_failed", error_code: "PROCESSING_FAILED", error_message: message, processed_at: new Date().toISOString() })
+        .eq("id", offer.id).eq("account_id", automation.account_id);
+      console.error({ event: "offer_processing_failed", component: "offer-autopilot", ...common, offer_id: offer.id, error: message });
+      return { ...offer, status: "processing_failed" };
+    }
+  }
+}
+
+export function offerMessageIdFallback() { return randomUUID(); }

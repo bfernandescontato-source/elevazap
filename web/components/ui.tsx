@@ -29,6 +29,7 @@ import {
   Send,
   Smartphone,
   Upload,
+  Zap,
   X
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -39,7 +40,8 @@ const navSections = [
     { href: "/grupos/numeros", label: "Números", icon: Smartphone },
     { href: "/campanhas", label: "Campanhas", icon: Megaphone },
     { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
-    { href: "/disparos", label: "Disparos", icon: Send }
+    { href: "/disparos", label: "Disparos", icon: Send },
+    { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap }
   ] },
   { label: "Dados", items: [
     { href: "/envios", label: "Envios", icon: FileText },

@@ -11,6 +11,7 @@ import {
   getSenderRuntimeStats
 } from "../senders/runtime.js";
 import { waitForSessionReady } from "../utils/session-ready.js";
+import { retryCapturedOffer } from "../offers/offer-retry.js";
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health" || req.path === "/ready") return next();
@@ -112,6 +113,17 @@ export function createHttpServer(
       res.json({ groups: await syncSenderGroups(req.params.sessionName, groupJids) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/offers/:offerId/retry-conversion", async (req, res) => {
+    try {
+      const accountId = String(req.body?.accountId || "");
+      if (!/^[0-9a-f-]{36}$/i.test(accountId)) return res.status(400).json({ error: "Conta inválida." });
+      return res.json({ offer: await retryCapturedOffer(accountId, req.params.offerId) });
+    } catch (error) {
+      console.error({ event: "shopee_conversion_retry_failed", component: "offer-autopilot", offer_id: req.params.offerId, error_type: error instanceof Error ? error.name : "unknown" });
+      return res.status(400).json({ error: error instanceof Error ? error.message : "Não foi possível tentar novamente." });
     }
   });
 
