@@ -35,7 +35,15 @@ export default function AutopilotPage() {
       if (!response.ok) throw new Error(body.error || "Não foi possível carregar.");
       setData(body);
       setShopeeAppId(body.shopee_integration?.app_id || "");
-      setForm({ ...defaults, ...(body.automation || {}), whatsapp_sender_id: body.automation?.whatsapp_sender_id || body.senders[0]?.id || "", source_group_ids: body.source_group_ids, destination_group_ids: body.destination_group_ids });
+      setForm({
+        ...defaults,
+        ...(body.automation || {}),
+        whatsapp_sender_id: body.automation?.whatsapp_sender_id || body.senders[0]?.id || "",
+        operating_start: String(body.automation?.operating_start || defaults.operating_start).slice(0, 5),
+        operating_end: String(body.automation?.operating_end || defaults.operating_end).slice(0, 5),
+        source_group_ids: body.source_group_ids,
+        destination_group_ids: body.destination_group_ids
+      });
     } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível carregar."); }
   }, []);
   useEffect(() => { void load(); }, [load]);
