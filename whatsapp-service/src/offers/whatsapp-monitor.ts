@@ -4,9 +4,19 @@ import { OfferProcessor, offerMessageIdFallback } from "./offer-processor.js";
 import { offerFeatureFlags } from "./feature-flags.js";
 import type { RawOfferMessage } from "./types.js";
 
-function unwrapMessage(message: any): any {
-  return message?.ephemeralMessage?.message || message?.viewOnceMessage?.message ||
-    message?.viewOnceMessageV2?.message || message;
+export function unwrapMessage(message: any): any {
+  let current = message;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const nested = current?.ephemeralMessage?.message ||
+      current?.viewOnceMessage?.message ||
+      current?.viewOnceMessageV2?.message ||
+      current?.viewOnceMessageV2Extension?.message ||
+      current?.documentWithCaptionMessage?.message ||
+      current?.editedMessage?.message;
+    if (!nested || nested === current) return current;
+    current = nested;
+  }
+  return current;
 }
 
 async function mediaFrom(message: any): Promise<RawOfferMessage["media"]> {
