@@ -52,6 +52,58 @@ export function extractMercadoLivreProductIdentifiers(value: string) {
   };
 }
 
+function findBalancedJson(text: string, startIndex: number): string | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = startIndex; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === "\"") inString = false;
+      continue;
+    }
+    if (char === "\"") { inString = true; continue; }
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(startIndex, i + 1);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Páginas de vitrine social (/social/<usuario>) embutem um produto em destaque
+ * (o item específico que gerou o link compartilhado) dentro do bloco de estado
+ * server-rendered `_n.ctx.r=`, marcado com `id: "card-featured"`. O restante do
+ * bloco é o carrossel de recomendações genéricas, sem relação com o link original.
+ */
+export function extractFeaturedSocialProduct(html: string): { itemId?: string; catalogProductId?: string; url: string } | undefined {
+  const marker = "_n.ctx.r=";
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex === -1) return undefined;
+  const jsonStart = html.indexOf("{", markerIndex + marker.length);
+  if (jsonStart === -1) return undefined;
+  const jsonText = findBalancedJson(html, jsonStart);
+  if (!jsonText) return undefined;
+  let parsed: unknown;
+  try { parsed = JSON.parse(jsonText); } catch { return undefined; }
+  const components = (parsed as { appProps?: { pageProps?: { data?: { components?: unknown[] } } } })
+    ?.appProps?.pageProps?.data?.components;
+  if (!Array.isArray(components)) return undefined;
+  const featured = components.find((component) => (component as { id?: string })?.id === "card-featured") as
+    { recommendation_data?: { recommendation_info?: { polycards?: Array<{ metadata?: Record<string, unknown> }> } } } | undefined;
+  const metadata = featured?.recommendation_data?.recommendation_info?.polycards?.[0]?.metadata;
+  const rawUrl = typeof metadata?.url === "string" ? metadata.url : undefined;
+  if (!rawUrl) return undefined;
+  const itemId = typeof metadata?.id === "string" && /^MLB\d{6,}$/i.test(metadata.id) ? metadata.id : undefined;
+  const catalogProductId = typeof metadata?.product_id === "string" && /^MLB\d{6,}$/i.test(metadata.product_id) ? metadata.product_id : undefined;
+  if (!itemId && !catalogProductId) return undefined;
+  return { itemId, catalogProductId, url: rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}` };
+}
+
 export class MercadoLivreUrlResolver {
   async resolveUrl(originalUrl: string): Promise<ResolvedAffiliateProduct> {
     let current = assertAllowedMercadoLivreUrl(originalUrl);
@@ -62,14 +114,27 @@ export class MercadoLivreUrlResolver {
         return callback(null, address.address, address.family);
       } });
       const response = await axios.get(current.toString(), {
-        maxRedirects: 0, timeout: 7_000, responseType: "stream", httpsAgent,
+        maxRedirects: 0, timeout: 7_000, responseType: "text", httpsAgent,
+        maxContentLength: 6_000_000, maxBodyLength: 6_000_000,
         validateStatus: (status) => status >= 200 && status < 400,
         headers: { "user-agent": "Disparei/1.0 (+https://www.disparei.pro)" }
       });
-      response.data?.destroy?.();
       if (response.status < 300) {
         const resolvedUrl = sanitizeMercadoLivreProductUrl(current.toString());
-        return { provider: "mercado_livre", originalUrl, resolvedUrl, ...extractMercadoLivreProductIdentifiers(resolvedUrl) };
+        const identifiers = extractMercadoLivreProductIdentifiers(resolvedUrl);
+        if (identifiers.itemId || identifiers.catalogProductId) {
+          return { provider: "mercado_livre", originalUrl, resolvedUrl, ...identifiers };
+        }
+        if (new URL(resolvedUrl).pathname.startsWith("/social/")) {
+          const featured = extractFeaturedSocialProduct(typeof response.data === "string" ? response.data : "");
+          if (!featured) throw new Error("Vitrine do Mercado Livre sem produto em destaque identificável.");
+          const featuredUrl = sanitizeMercadoLivreProductUrl(assertAllowedMercadoLivreUrl(featured.url).toString());
+          return {
+            provider: "mercado_livre", originalUrl, resolvedUrl: featuredUrl,
+            itemId: featured.itemId, catalogProductId: featured.catalogProductId
+          };
+        }
+        return { provider: "mercado_livre", originalUrl, resolvedUrl, ...identifiers };
       }
       const location = response.headers.location;
       if (!location) throw new Error("Redirect Mercado Livre sem destino.");

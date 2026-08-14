@@ -64,6 +64,9 @@ export class MercadoLivreOfferConverter {
           expires_at: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString()
         }, { onConflict: "account_id,provider,credential_fingerprint,resolved_url_hash,affiliate_tag" });
       }
+      if (affiliateLink === originalLink) {
+        throw new Error("O Mercado Livre devolveu o mesmo link de origem; a troca de afiliado não foi confirmada.");
+      }
       processedText = replaceUrlPreservingText(processedText, originalLink, affiliateLink);
       await this.database.from("captured_offer_links").update({ affiliate_link: affiliateLink, conversion_status: "converted", converted_at: new Date().toISOString(), conversion_error: null, updated_at: new Date().toISOString() }).eq("id", offerLink.id).eq("account_id", context.accountId);
       primary ||= { originalLink, resolvedUrl: product.resolvedUrl, affiliateLink, itemId: product.itemId, catalogProductId: product.catalogProductId, affiliateTag: integration.affiliate_tag || undefined };

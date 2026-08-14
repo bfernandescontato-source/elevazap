@@ -66,6 +66,9 @@ export class OfferProcessor {
 
     const shopeeConversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
     const mercadoLivreConversionRequired = parsed.mercadoLivreLinks.length > 0 && automation.mercado_livre_conversion_enabled;
+    const unsafeUnconvertedMercadoLivreLink = parsed.mercadoLivreLinks.some((value) => {
+      try { return new URL(value).hostname.toLowerCase() === "meli.la"; } catch { return false; }
+    }) && !automation.mercado_livre_conversion_enabled;
     const conversionRequired = shopeeConversionRequired || mercadoLivreConversionRequired;
     const { data: offer, error: insertError } = await this.database.from("captured_offers").insert({
       ...common,
@@ -94,6 +97,16 @@ export class OfferProcessor {
     if (duplicateId) {
       log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: duplicateId });
       return offer;
+    }
+    if (unsafeUnconvertedMercadoLivreLink) {
+      const message = "Link curto do Mercado Livre bloqueado porque a conversão afiliada não está ativada.";
+      await this.database.from("captured_offers").update({
+        status: "processing_failed", affiliate_conversion_status: "failed",
+        affiliate_conversion_error: message, error_code: "MERCADO_LIVRE_CONVERSION_REQUIRED",
+        error_message: message, processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", automation.account_id);
+      log("offer_blocked_unconverted_mercado_livre_link", { ...common, offer_id: offer.id });
+      return { ...offer, status: "processing_failed" };
     }
 
     try {

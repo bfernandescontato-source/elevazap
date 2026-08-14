@@ -32,6 +32,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       last_tested_at: now, last_error: body.status === "failed" ? String(body.error_message || "Teste real falhou.").slice(0, 500) : null,
       updated_at: now
     }).eq("id", integration.id).eq("account_id", integration.account_id);
+    if (body.status === "completed") {
+      await admin.from("offer_automations").update({
+        mercado_livre_conversion_enabled: true, updated_at: now
+      }).eq("account_id", integration.account_id);
+    }
   }
   return NextResponse.json({ ok: true }, { headers: extensionCorsHeaders });
 }
