@@ -17,8 +17,12 @@ export function isMercadoLivreUrl(value: string) {
 
 const AMAZON_HOSTS = new Set(["amazon.com.br", "www.amazon.com.br", "amazon.com", "www.amazon.com", "amzn.to", "a.co"]);
 export function isAmazonUrl(value: string) {
-  try { return AMAZON_HOSTS.has(new URL(value).hostname.toLowerCase()); }
-  catch { return false; }
+  try {
+    // A Amazon é dona do gTLD ".amazon" e usa domínios como link.amazon
+    // (share links do app) além dos clássicos amazon.com.br / amzn.to.
+    const hostname = new URL(value).hostname.toLowerCase();
+    return AMAZON_HOSTS.has(hostname) || hostname === "amazon" || hostname.endsWith(".amazon");
+  } catch { return false; }
 }
 
 export function parseOffer(message: RawOfferMessage): ParsedOffer {

@@ -45,6 +45,14 @@ describe("OfferParser", () => {
     });
     expect(result.amazonLinks).toEqual(["https://amzn.to/abc123"]);
   });
+
+  it("identifica link de compartilhamento no gTLD .amazon (ex: link.amazon)", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-5", sourceGroupId: "120363000000@g.us",
+      text: "https://link.amazon/B00jBYJv8", timestamp: new Date()
+    });
+    expect(result.amazonLinks).toEqual(["https://link.amazon/B00jBYJv8"]);
+  });
 });
 
 describe("unwrapMessage", () => {
