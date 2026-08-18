@@ -12,7 +12,7 @@ import { CATEGORY_LABELS } from "@/modules/comunidade/constants";
 import type { CommunityPost } from "@/modules/comunidade/types";
 import type { z } from "zod";
 
-type CurrentUser = { email: string; name: string | null; role: "admin" | "operator" } | null;
+type CurrentUser = { user_id: string; email: string; name: string | null; avatar_url: string | null; role: "admin" | "operator" } | null;
 type PostAction = z.infer<typeof postActionSchema>;
 
 export default function ComunidadePage() {
@@ -74,7 +74,7 @@ export default function ComunidadePage() {
   >
     <div className="mx-auto max-w-2xl space-y-4">
       {currentUser ? <button type="button" onClick={() => setShowNewPost(true)} className="flex w-full items-center gap-3 rounded-lg border border-line bg-panel p-4 text-left shadow-soft hover:bg-wash">
-        <ComunidadeAvatar name={currentUser.name} email={currentUser.email} />
+        <ComunidadeAvatar name={currentUser.name} email={currentUser.email} avatarUrl={currentUser.avatar_url} />
         <span className="text-sm text-muted">Compartilhe algo com a comunidade...</span>
       </button> : null}
 

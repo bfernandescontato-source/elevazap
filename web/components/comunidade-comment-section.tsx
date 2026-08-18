@@ -6,7 +6,7 @@ import { ComunidadeAvatar } from "./comunidade-avatar";
 import { timeAgo } from "@/modules/comunidade/constants";
 import type { CommunityComment } from "@/modules/comunidade/types";
 
-type CurrentUser = { email: string; name: string | null; role: "admin" | "operator" } | null;
+type CurrentUser = { user_id: string; email: string; name: string | null; avatar_url?: string | null; role: "admin" | "operator" } | null;
 
 export function ComunidadeCommentSection({ postId, currentUser, onCountChange }: {
   postId: string; currentUser: CurrentUser; onCountChange?: (count: number) => void;
@@ -44,7 +44,7 @@ export function ComunidadeCommentSection({ postId, currentUser, onCountChange }:
   };
 
   const remove = async (comment: CommunityComment) => {
-    const isOwner = Boolean(currentUser?.email && comment.author.email && currentUser.email === comment.author.email);
+    const isOwner = Boolean(currentUser?.user_id && comment.user_id === currentUser.user_id);
     const response = await fetch(`/api/comunidade/${postId}/comments/${comment.id}`, {
       method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: isOwner ? "delete_own" : "delete_any" })
     });
@@ -55,10 +55,10 @@ export function ComunidadeCommentSection({ postId, currentUser, onCountChange }:
     <h3 className="text-sm font-semibold text-ink">Comentários</h3>
     {loading ? <div className="mt-3 flex justify-center py-4"><Loader2 className="animate-spin text-muted" size={18} /></div> : <div className="mt-3 space-y-3">
       {comments.map((comment) => {
-        const isOwner = Boolean(currentUser?.email && comment.author.email && currentUser.email === comment.author.email);
+        const isOwner = Boolean(currentUser?.user_id && comment.user_id === currentUser.user_id);
         const canDelete = isOwner || currentUser?.role === "admin";
         return <div key={comment.id} className="flex items-start gap-2.5">
-          <ComunidadeAvatar name={comment.author.name} email={comment.author.email} size={32} />
+          <ComunidadeAvatar name={comment.author.name} email={comment.author.email} avatarUrl={comment.author.avatar_url} size={32} />
           <div className="min-w-0 flex-1 rounded-lg bg-wash px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold text-ink">{comment.author.name || comment.author.email || "Usuário Disparei"}</span>

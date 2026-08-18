@@ -13,7 +13,7 @@ import type { postActionSchema } from "@/modules/comunidade/schemas";
 import type { CommunityPost } from "@/modules/comunidade/types";
 
 type PostAction = z.infer<typeof postActionSchema>;
-type CurrentUser = { email: string; name: string | null; role: "admin" | "operator" } | null;
+type CurrentUser = { user_id: string; email: string; name: string | null; avatar_url?: string | null; role: "admin" | "operator" } | null;
 
 export function ComunidadePostCard({
   post, currentUser, href, truncate = false, onToggleLike, onAction, onReport
@@ -29,7 +29,7 @@ export function ComunidadePostCard({
   const [confirm, setConfirm] = useState<null | "delete_own" | "delete_any">(null);
   const [busy, setBusy] = useState(false);
 
-  const isOwner = Boolean(currentUser?.email && post.author.email && currentUser.email === post.author.email);
+  const isOwner = Boolean(currentUser?.user_id && post.user_id === currentUser.user_id);
   const isAdmin = currentUser?.role === "admin";
 
   const run = async (action: PostAction) => {
@@ -41,7 +41,7 @@ export function ComunidadePostCard({
 
   return <article className="rounded-lg border border-line bg-panel p-4 shadow-soft">
     <div className="flex items-start gap-3">
-      <ComunidadeAvatar name={post.is_official ? "Equipe Disparei" : post.author.name} email={post.author.email} />
+      <ComunidadeAvatar name={post.is_official ? "Equipe Disparei" : post.author.name} email={post.author.email} avatarUrl={post.is_official ? null : post.author.avatar_url} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-semibold text-ink">{authorName}</span>
