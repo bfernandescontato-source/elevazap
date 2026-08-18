@@ -9,16 +9,21 @@ const POST_SELECT_WITH_COUNTS = `${POST_SELECT}, likes:community_likes(count), c
 
 export async function attachAuthors(database: SupabaseClient, rows: Array<{ user_id: string | null }>) {
   const userIds = Array.from(new Set(rows.map((row) => row.user_id).filter((id): id is string => Boolean(id))));
-  const authors = new Map<string, { name: string | null; email: string | null }>();
+  const authors = new Map<string, { name: string | null; email: string | null; avatar_url: string | null }>();
   if (!userIds.length) return authors;
-  const { data, error } = await database.from("app_users").select("id,name,email").in("id", userIds);
+  // A comunidade é global entre contas; o admin é usado somente para os campos públicos do autor.
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("app_users").select("id,name,email,avatar_path").in("id", userIds);
   if (error) throw error;
-  for (const user of data || []) authors.set(user.id, { name: user.name, email: user.email });
+  for (const user of data || []) {
+    const avatarUrls = await signedImageUrls(admin, user.avatar_path ? [user.avatar_path] : []);
+    authors.set(user.id, { name: user.name, email: null, avatar_url: avatarUrls[0] || null });
+  }
   return authors;
 }
 
-function authorFor(userId: string | null, authors: Map<string, { name: string | null; email: string | null }>): CommunityAuthor {
-  return { user_id: userId, ...(authors.get(userId || "") || { name: null, email: null }) };
+function authorFor(userId: string | null, authors: Map<string, { name: string | null; email: string | null; avatar_url: string | null }>): CommunityAuthor {
+  return { user_id: userId, ...(authors.get(userId || "") || { name: null, email: null, avatar_url: null }) };
 }
 
 async function signedImageUrls(admin: SupabaseClient, paths: string[]) {

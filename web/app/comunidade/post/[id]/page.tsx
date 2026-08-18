@@ -11,7 +11,7 @@ import { ComunidadeReportModal } from "@/components/comunidade-report-modal";
 import type { postActionSchema } from "@/modules/comunidade/schemas";
 import type { CommunityPost } from "@/modules/comunidade/types";
 
-type CurrentUser = { email: string; name: string | null; role: "admin" | "operator" } | null;
+type CurrentUser = { user_id: string; email: string; name: string | null; avatar_url: string | null; role: "admin" | "operator" } | null;
 type PostAction = z.infer<typeof postActionSchema>;
 
 export default function ComunidadePostPage({ params }: { params: Promise<{ id: string }> }) {

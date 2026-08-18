@@ -1,12 +1,13 @@
 "use client";
 
 import { AppShell, LoadingState } from "@/components/ui";
-import { CreditCard, KeyRound, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Camera, CreditCard, KeyRound, Loader2, ShieldCheck, UserRound, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Tab = "account" | "users" | "security" | "billing";
 type AccountData = {
   name: string | null;
+  avatarUrl: string | null;
   email: string;
   role: string;
   plan: string;
@@ -43,10 +44,18 @@ export default function ConfiguracoesPage() {
   const [capabilities, setCapabilities] = useState<Capabilities>({ userManagement: false, passwordChange: false, billing: false });
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [userError, setUserError] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [profilePreview, setProfilePreview] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState("");
+  const [profileError, setProfileError] = useState("");
 
   useEffect(() => {
     fetch("/api/account", { cache: "no-store" }).then((r) => r.json()).then((data) => {
       setAccount(data.account || null);
+      setProfileName(data.account?.name || "");
+      setProfilePreview(data.account?.avatarUrl || null);
       setLimits(data.limits || null);
       setUsage(data.usage || null);
       setCapabilities(data.capabilities || {});
@@ -70,6 +79,40 @@ export default function ConfiguracoesPage() {
     setUserError("");
   }
 
+  async function saveProfile() {
+    setProfileSaving(true); setProfileError(""); setProfileMessage("");
+    try {
+      let avatarPath: string | undefined;
+      if (profilePhoto) {
+        const prepare = await fetch("/api/comunidade/upload/signed-url", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ file_name: profilePhoto.name, mime_type: profilePhoto.type, file_size_bytes: profilePhoto.size })
+        });
+        const signed = await prepare.json();
+        if (!prepare.ok) throw new Error(signed.error || "Não foi possível preparar a foto.");
+        const upload = await fetch(signed.signedUrl, { method: "PUT", headers: { "content-type": profilePhoto.type }, body: profilePhoto });
+        if (!upload.ok) throw new Error("Não foi possível enviar a foto.");
+        const confirmation = await fetch("/api/comunidade/upload/confirm", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ storage_path: signed.storage_path })
+        });
+        if (!confirmation.ok) throw new Error("Não foi possível confirmar a foto.");
+        avatarPath = signed.storage_path;
+      }
+      const response = await fetch("/api/account", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: profileName.trim(), ...(avatarPath ? { avatar_path: avatarPath } : {}) })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Não foi possível salvar o perfil.");
+      setAccount((current) => current ? { ...current, name: body.profile.name, avatarUrl: body.profile.avatarUrl } : current);
+      setProfilePreview(body.profile.avatarUrl);
+      setProfilePhoto(null);
+      setProfileMessage("Perfil atualizado. Sua foto e seu nome já aparecerão na comunidade.");
+    } catch (current) {
+      setProfileError(current instanceof Error ? current.message : "Não foi possível salvar o perfil.");
+    } finally { setProfileSaving(false); }
+  }
+
   const senderUsageLabel = limits && usage
     ? limits.unlimitedSenders
       ? `${usage.senders} conectado(s)`
@@ -91,15 +134,37 @@ export default function ConfiguracoesPage() {
 
         {account && tab === "account" ? <section className="max-w-2xl rounded-lg border border-line bg-panel p-6 shadow-soft">
           <h2 className="text-lg font-semibold text-ink">Minha conta</h2>
-          <p className="mt-1 text-sm text-muted">Dados básicos usados para identificar seu acesso ao Disparei.</p>
+          <p className="mt-1 text-sm text-muted">Escolha como seu nome e sua foto aparecerão na comunidade.</p>
+          <div className="mt-6 flex items-center gap-4">
+            <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-full bg-wash text-2xl font-semibold text-muted">
+              {profilePreview ? <img src={profilePreview} alt="Sua foto de perfil" className="h-full w-full object-cover" /> : (profileName || account.email).slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink hover:bg-wash">
+                <Camera size={16} /> Escolher foto
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 10 * 1024 * 1024) { setProfileError("A foto deve ter no máximo 10 MB."); return; }
+                  setProfilePhoto(file); setProfilePreview(URL.createObjectURL(file)); setProfileError(""); setProfileMessage("");
+                }} />
+              </label>
+              <p className="mt-2 text-xs text-muted">JPG, PNG ou WebP, com até 10 MB.</p>
+            </div>
+          </div>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-ink">Nome<input readOnly value={account.name || ""} placeholder="Nome não informado" className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
+            <label className="text-sm font-medium text-ink">Nome público<input value={profileName} onChange={(event) => { setProfileName(event.target.value); setProfileMessage(""); }} maxLength={80} placeholder="Como quer ser chamada" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line bg-white px-3 text-ink" /></label>
             <label className="text-sm font-medium text-ink">E-mail<input readOnly value={account.email} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
             <label className="text-sm font-medium text-ink">Nível de acesso<input readOnly value={account.role} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
             <label className="text-sm font-medium text-ink">Plano<input readOnly value={account.planLabel || account.plan} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
             <label className="text-sm font-medium text-ink">Status da assinatura<input readOnly value={STATUS_LABELS[account.status] || account.status} className="mt-1 h-11 w-full rounded-lg border border-line bg-wash px-3 text-muted" /></label>
           </div>
-          <div className="mt-6 rounded-lg border border-line bg-wash p-4 text-sm text-muted">O e-mail e o nível de acesso são gerenciados pelo sistema seguro de autenticação.</div>
+          {profileError ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{profileError}</div> : null}
+          {profileMessage ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{profileMessage}</div> : null}
+          <button type="button" onClick={saveProfile} disabled={profileSaving || profileName.trim().length < 2} className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white disabled:opacity-50">
+            {profileSaving ? <Loader2 size={16} className="animate-spin" /> : null} Salvar perfil
+          </button>
+          <div className="mt-6 rounded-lg border border-line bg-wash p-4 text-sm text-muted">O e-mail, o plano e o nível de acesso continuam protegidos e não podem ser alterados aqui.</div>
         </section> : null}
 
         {account && tab === "users" ? <section className="space-y-5">

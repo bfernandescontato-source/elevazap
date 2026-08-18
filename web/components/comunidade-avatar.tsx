@@ -19,8 +19,9 @@ function colorFor(seed: string) {
   return PALETTE[hash % PALETTE.length];
 }
 
-export function ComunidadeAvatar({ name, email, size = 40 }: { name?: string | null; email?: string | null; size?: number }) {
+export function ComunidadeAvatar({ name, email, avatarUrl, size = 40 }: { name?: string | null; email?: string | null; avatarUrl?: string | null; size?: number }) {
   const seed = name || email || "?";
+  if (avatarUrl) return <img src={avatarUrl} alt={name ? `Foto de ${name}` : "Foto de perfil"} title={name || email || undefined} className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   return (
     <div
       className={`grid shrink-0 place-items-center rounded-full font-semibold ${colorFor(seed)}`}
