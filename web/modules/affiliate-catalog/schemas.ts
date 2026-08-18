@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const offerSchema = z.object({
-  provider: z.literal("SHOPEE"), externalItemId: z.string().min(1), name: z.string().min(1).max(500),
+  provider: z.enum(["SHOPEE", "MERCADO_LIVRE"]), externalItemId: z.string().min(1), name: z.string().min(1).max(500),
   imageUrl: z.string().url().optional(), priceMin: z.number().nonnegative().optional(), priceMax: z.number().nonnegative().optional(),
   originalPrice: z.number().nonnegative().optional(), discountPercentage: z.number().min(0).max(100).optional(), sales: z.number().nonnegative().optional(),
   rating: z.number().min(0).max(5).optional(), commissionRate: z.number().nonnegative().optional(), commissionAmount: z.number().nonnegative().optional(),
@@ -19,3 +19,13 @@ export const dispatchOfferSchema = z.object({
   offer: offerSchema, message: z.string().trim().min(1).max(4000), senderId: z.string().uuid(),
   groupJids: z.array(z.string()).min(1).max(500), scheduledAt: z.string().datetime().optional()
 });
+
+export const affiliateLinkSchema = z.object({ offer: offerSchema });
+
+export function isConfirmedAffiliateUrl(provider: "SHOPEE" | "MERCADO_LIVRE", value?: string) {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return provider === "MERCADO_LIVRE" ? host === "meli.la" : host === "s.shopee.com.br" || host === "shope.ee";
+  } catch { return false; }
+}

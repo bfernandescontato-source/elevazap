@@ -24,7 +24,10 @@ export type AffiliateOffer = {
 
 export type CatalogPage = { offers: AffiliateOffer[]; pageInfo: { page: number; limit: number; hasNextPage: boolean } };
 export type CatalogListing = "top" | "sold" | "commission";
+export type CatalogCategory = { id: string | null; label: string };
+export type CatalogProviderFilter = "ALL" | Extract<MarketplaceProvider, "SHOPEE" | "MERCADO_LIVRE">;
 
 export interface AffiliateMarketplaceProvider {
-  searchProducts(input: { keyword?: string; categoryId?: number; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage>;
+  searchProducts(input: { keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage>;
+  getCategories?(): Promise<CatalogCategory[]>;
 }
