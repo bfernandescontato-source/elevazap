@@ -38,12 +38,12 @@ export function normalizeShopeeOffer(node: ShopeeNode): AffiliateOffer {
 
 export class ShopeeAffiliateProvider implements AffiliateMarketplaceProvider {
   constructor(private appId: string, private appSecret: string) {}
-  async searchProducts(input: { keyword?: string; categoryId?: number; listing: "top" | "sold" | "commission"; page: number; limit: number }): Promise<CatalogPage> {
+  async searchProducts(input: { keyword?: string; categoryId?: string; listing: "top" | "sold" | "commission"; page: number; limit: number }): Promise<CatalogPage> {
     const variables: Record<string, unknown> = { page: input.page, limit: input.limit };
     const definitions = ["$page:Int!", "$limit:Int!"];
     const args = ["page:$page", "limit:$limit"];
     if (input.keyword) { variables.keyword = input.keyword; definitions.push("$keyword:String!"); args.push("keyword:$keyword"); }
-    if (input.categoryId) { variables.productCatId = input.categoryId; definitions.push("$productCatId:Int!"); args.push("productCatId:$productCatId"); }
+    if (input.categoryId) { variables.productCatId = Number(input.categoryId); definitions.push("$productCatId:Int!"); args.push("productCatId:$productCatId"); }
     if (input.listing === "top") args.push("listType:2");
     else args.push(`sortType:${input.listing === "sold" ? 2 : 5}`);
     const query = `query Catalog(${definitions.join(",")}) { productOfferV2(${args.join(",")}) { nodes { itemId productName imageUrl priceMin priceMax priceDiscountRate sales ratingStar commissionRate sellerCommissionRate shopeeCommissionRate commission productCatIds shopId shopName shopType productLink offerLink periodStartTime periodEndTime } pageInfo { page limit hasNextPage } } }`;

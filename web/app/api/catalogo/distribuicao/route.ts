@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
-import { dispatchOfferSchema } from "@/modules/affiliate-catalog/schemas";
+import { dispatchOfferSchema, isConfirmedAffiliateUrl } from "@/modules/affiliate-catalog/schemas";
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "catalog_dispatch_ip"); if (guard) return guard;
@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
   const parsed = dispatchOfferSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Dados inválidos." }, { status: 400 });
   const { offer, message, senderId, groupJids, scheduledAt } = parsed.data;
+  if (!isConfirmedAffiliateUrl(offer.provider, offer.affiliateUrl) || !message.includes(offer.affiliateUrl!)) return NextResponse.json({ error: "A oferta precisa conter o link afiliado confirmado." }, { status: 400 });
   const when = scheduledAt || new Date().toISOString();
   if (new Date(when).getTime() < Date.now() - 60_000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
   const sb = supabaseAdmin();
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
       const path = `accounts/${context.accountId}/catalog/${randomUUID()}.${ext}`;
       const upload = await sb.storage.from("whatsapp-media").upload(path, bytes, { contentType: mime, upsert: false });
       if (upload.error) throw upload.error;
-      media = { bucket: "whatsapp-media", path, mime, fileName: `oferta-shopee.${ext}`, size: bytes.length };
+      media = { bucket: "whatsapp-media", path, mime, fileName: `oferta-${offer.provider.toLowerCase()}.${ext}`, size: bytes.length };
     } catch { return NextResponse.json({ error: "Não foi possível preparar a imagem do produto para envio." }, { status: 422 }); }
   }
   const type = media ? "imagem" : "texto";

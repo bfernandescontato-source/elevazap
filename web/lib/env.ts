@@ -15,7 +15,8 @@ const serverEnvSchema = z.object({
   AUTH_SECRET: z.string().min(32),
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-5.6-luna")
+  OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
+  MERCADO_LIVRE_ACCESS_TOKEN: z.string().min(20).optional()
 });
 
 export function env() {
