@@ -42,7 +42,6 @@ export default function DisparosPage() {
   const [previewError, setPreviewError] = useState("");
 
   const [broadcastName, setBroadcastName] = useState("");
-  const [skipPriorRun, setSkipPriorRun] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
@@ -132,7 +131,7 @@ export default function DisparosPage() {
       }));
       const response = await fetch("/api/admin/official/broadcasts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, skipRecipientsWithPriorRun: skipPriorRun })
+        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao iniciar disparo.");
@@ -242,10 +241,7 @@ export default function DisparosPage() {
           <label className="block text-sm font-medium text-ink">Nome do disparo
             <input value={broadcastName} onChange={(event) => setBroadcastName(event.target.value)} placeholder="Convite Achadinhos — agosto" className="mt-1 h-11 w-full max-w-md rounded-lg border border-line px-3" />
           </label>
-          <label className="mt-3 flex items-center gap-2 text-sm text-ink">
-            <input type="checkbox" checked={skipPriorRun} onChange={(event) => setSkipPriorRun(event.target.checked)} />
-            Não enviar novamente para números que já receberam este fluxo anteriormente
-          </label>
+          <p className="mt-3 text-sm text-muted">Cada novo disparo envia para todos os contatos válidos da lista, mesmo que eles já tenham recebido este fluxo em outro disparo.</p>
           {startError ? <div className="mt-3"><ErrorState message={startError} /></div> : null}
           <ActionButton icon={<Send size={16} />} disabled={!broadcastName.trim() || !preview.validCount} onClick={() => setConfirming(true)} className="mt-4">Iniciar disparo</ActionButton>
         </div>
