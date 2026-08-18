@@ -1,0 +1,82 @@
+{
+  "type": "invoice.payment_succeeded",
+  "event": {
+    "product": {
+      "id": "8Qndp0ld0K9vFW0hkDos",
+      "name": "ACHADINHOS ADS E AUTOMAÇÕES"
+    },
+    "products": [
+      {
+        "id": "HajCbPuxIug8O4cLfoLO",
+        "name": "ACHADINHOS ADS E AUTOMAÇÕES",
+        "offers": [
+          {
+            "id": "8Qndp0ld0K9vFW0hkDos",
+            "name": "ACHADINHOS ADS",
+            "cohorts": [{ "id": "552f613b-cb51-494d-973e-0dd94d6a75c7" }],
+            "amountCents": 990,
+            "isOrderBump": false
+          }
+        ]
+      }
+    ],
+    "invoice": {
+      "id": "53a0a7ba-d2f8-4285-addd-6cdf0a937568-tester",
+      "orderId": "184c3bad-f923-4fce-a5cb-02824d092966-tester",
+      "childInvoiceIds": [],
+      "subscriptionId": "01cc18cb-5297-41a4-8410-9058c7113aab-tester",
+      "payerId": "RE4gy1p6uehKiXh4Ul4Jk-tester",
+      "payer": {
+        "id": "RE4gy1p6uehKiXh4Ul4Jk-tester",
+        "firstName": "BWB",
+        "lastName": "Test Payer Name",
+        "email": "test-payer-email@example.com",
+        "phone": "B4TBBT"
+      },
+      "sellerId": "2u4RbQkEvAczuli3AI1HtmZDCsj1",
+      "installments": 1,
+      "paymentMethod": "pix",
+      "currency": "BRL",
+      "type": "sell",
+      "status": "paid",
+      "statusAt": [
+        { "status": "unpaid", "when": "2026-08-15T22:21:33.253Z" },
+        { "status": "paid", "when": "2026-08-15T22:21:33.253Z" }
+      ],
+      "paymentSession": {
+        "ip": "127.0.0.1",
+        "utm": { "source": "facebook", "medium": "ads", "campaign": "teste sandbox", "content": "hubla sandbox" },
+        "params": { "src": "hubla-sandbox", "sck": "teste-sandbox" }
+      },
+      "amount": { "subtotalCents": 990, "discountCents": 0, "prorataCents": 0, "installmentFeeCents": 0, "totalCents": 990 },
+      "receivers": [
+        { "id": "platform-identity", "name": "Hubla Tecnologia LTDA", "email": "suporte@hub.la", "phone": "+5531999715693", "role": "platform", "paysForFees": false, "totalCents": 79, "currency": "BRL" },
+        { "id": "2u4RbQkEvAczuli3AI1HtmZDCsj1", "name": "Bruno de Araújo Fernandes", "email": "bfernandes.contato@gmail.com", "phone": "+5519971025604", "role": "seller", "paysForFees": true, "totalCents": 912, "currency": "BRL" }
+      ],
+      "saleDate": "2026-08-15T22:21:33.253Z",
+      "dueDate": "2026-08-15T22:21:33.253Z",
+      "createdAt": "2026-08-15T22:21:33.253Z",
+      "modifiedAt": "2026-08-15T22:21:33.253Z",
+      "version": 1,
+      "billingAddress": {
+        "countryCode": "BR",
+        "state": "São Paulo",
+        "city": "São Paulo",
+        "neighborhood": "Sumarezinho",
+        "street": "Rua Sen Cesar Lacerda Vergueiro",
+        "complement": "Sala 61 e 62",
+        "number": "380",
+        "postalCode": "05435-010"
+      }
+    },
+    "subscriptions": [{ "id": "01cc18cb-5297-41a4-8410-9058c7113aab-tester", "type": "one_time", "billingCycleMonths": 1, "quantity": 1 }],
+    "user": {
+      "id": "RE4gy1p6uehKiXh4Ul4Jk-tester",
+      "firstName": "BWB",
+      "lastName": "User Name",
+      "email": "test-payer-email@example.com",
+      "phone": "B4TBBT"
+    }
+  },
+  "version": "2.0.0"
+}
