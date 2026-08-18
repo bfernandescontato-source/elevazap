@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   const guard = await guardInternalAdminMutation(request, "official_broadcast_start_ip");
   if (guard) return guard;
 
-  const body = await request.json().catch(() => null) as { name?: string; flowId?: string; contacts?: RawContact[]; skipRecipientsWithPriorRun?: boolean } | null;
+  const body = await request.json().catch(() => null) as { name?: string; flowId?: string; contacts?: RawContact[] } | null;
   const name = String(body?.name || "").trim();
   const flowId = String(body?.flowId || "");
   const contacts = Array.isArray(body?.contacts) ? body!.contacts! : [];
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await createBroadcastAndStart({
-      name, flowId, contacts: classified.validContacts, skipRecipientsWithPriorRun: Boolean(body?.skipRecipientsWithPriorRun)
+      name, flowId, contacts: classified.validContacts
     });
     after(() => triggerBatchProcessing(result.broadcastId));
     return NextResponse.json({ ok: true, broadcastId: result.broadcastId, validCount: classified.validCount, duplicateCount: classified.duplicateCount, invalidCount: classified.invalidCount, skippedForPriorRun: result.skippedForPriorRun });
