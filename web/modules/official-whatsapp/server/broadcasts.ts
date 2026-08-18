@@ -1,7 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { appUrl, env } from "@/lib/env";
 import { startFlow } from "./flow-processor";
-import { findPhonesWithPriorRun } from "./flow-runs";
 import { type ValidContact } from "./broadcast-contacts";
 import { officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "./errors";
 
@@ -9,12 +8,8 @@ export async function createBroadcastAndStart(input: {
   name: string;
   flowId: string;
   contacts: ValidContact[];
-  skipRecipientsWithPriorRun: boolean;
 }) {
   const admin = supabaseAdmin();
-  const priorPhones = input.skipRecipientsWithPriorRun
-    ? await findPhonesWithPriorRun(input.flowId, input.contacts.map((contact) => contact.phone))
-    : new Set<string>();
 
   const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
     name: input.name,
@@ -22,7 +17,7 @@ export async function createBroadcastAndStart(input: {
     status: "processing",
     total_rows: input.contacts.length,
     valid_recipients: input.contacts.length,
-    skip_recipients_with_prior_run: input.skipRecipientsWithPriorRun,
+    skip_recipients_with_prior_run: false,
     started_at: new Date().toISOString(),
     last_batch_at: new Date().toISOString()
   }).select("id").single();
@@ -32,16 +27,12 @@ export async function createBroadcastAndStart(input: {
     broadcast_id: broadcast.id,
     phone: contact.phone,
     row_data: { name: contact.name, email: contact.email, product: contact.product },
-    status: priorPhones.has(contact.phone) ? ("skipped" as const) : ("queued" as const)
+    status: "queued" as const
   }));
   const { error: insertError } = await admin.from("official_broadcast_recipients").insert(rows);
   if (insertError) throw insertError;
 
-  const skippedForPriorRun = rows.filter((row) => row.status === "skipped").length;
-  if (skippedForPriorRun) {
-    await admin.from("official_broadcasts").update({ processed: skippedForPriorRun }).eq("id", broadcast.id);
-  }
-  return { broadcastId: broadcast.id as string, skippedForPriorRun };
+  return { broadcastId: broadcast.id as string, skippedForPriorRun: 0 };
 }
 
 // Processa um lote pequeno (tamanho = OFFICIAL_BROADCAST_CONCURRENCY) e devolve se ainda há
