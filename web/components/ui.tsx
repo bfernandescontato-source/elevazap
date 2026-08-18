@@ -7,17 +7,14 @@ import { BrandLogo } from "./brand-logo";
 import {
   AlertTriangle,
   BarChart3,
-  CircleAlert,
   Check,
   ChevronRight,
   Clipboard,
   ShoppingBag,
   Clock,
   Cog,
-  FileText,
   FolderOpen,
   Inbox,
-  Layers,
   Loader2,
   LogOut,
   Menu,
@@ -46,11 +43,6 @@ const navSections = [
     { href: "/disparos", label: "Disparos", icon: Send },
     { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
     { href: "/comunidade", label: "Comunidade", icon: MessageCircle }
-  ] },
-  { label: "Dados", items: [
-    { href: "/envios", label: "Envios", icon: FileText },
-    { href: "/lotes", label: "Lotes", icon: Layers },
-    { href: "/incidentes", label: "Incidentes", icon: CircleAlert }
   ] },
   { label: "Conta", items: [
     { href: "/configuracoes", label: "Configurações", icon: Cog }
