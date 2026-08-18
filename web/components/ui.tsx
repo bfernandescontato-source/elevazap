@@ -11,6 +11,7 @@ import {
   Check,
   ChevronRight,
   Clipboard,
+  ShoppingBag,
   Clock,
   Cog,
   FileText,
@@ -39,6 +40,7 @@ const navSections = [
     { href: "/dashboard", label: "Início", icon: BarChart3 },
     { href: "/grupos/numeros", label: "Números", icon: Smartphone },
     { href: "/campanhas", label: "Campanhas", icon: Megaphone },
+    { href: "/catalogo", label: "Catálogo", icon: ShoppingBag, badge: "NOVO" },
     { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
     { href: "/disparos", label: "Disparos", icon: Send },
     { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap }
@@ -104,7 +106,7 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
         const match = "match" in item ? item.match : item.href;
         const active = pathname === match || pathname.startsWith(`${match}/`);
         const Icon = item.icon;
-        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span></Link>;
+        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{"badge" in item ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : "bg-emerald-100 text-emerald-700"}`}>{item.badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;
