@@ -13,7 +13,9 @@ const serverEnvSchema = z.object({
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD_HASH: z.string().min(20),
   AUTH_SECRET: z.string().min(32),
-  INTEGRATION_ENCRYPTION_KEY: z.string().optional()
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-5.6-luna")
 });
 
 export function env() {
