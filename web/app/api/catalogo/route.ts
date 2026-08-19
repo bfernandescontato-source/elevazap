@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
       MERCADO_LIVRE_NOT_CONFIGURED: "O catálogo oficial do Mercado Livre ainda precisa ser conectado pela equipe da Disparei. A Shopee continua disponível em Todos.",
       MERCADO_LIVRE_AUTH: "A autorização da API do Mercado Livre expirou e precisa ser renovada.",
       MERCADO_LIVRE_RATE_LIMIT: "O Mercado Livre recebeu muitas consultas. Aguarde um pouco e tente novamente.",
-      MERCADO_LIVRE_UNAVAILABLE: "Não foi possível carregar as ofertas do Mercado Livre agora."
+      MERCADO_LIVRE_UNAVAILABLE: "Não foi possível carregar as ofertas do Mercado Livre agora.",
+      MERCADO_LIVRE_REAUTHORIZATION_REQUIRED: "A conexão central do Mercado Livre precisa ser renovada pela equipe da Disparei."
     };
     return NextResponse.json({ error: messages[code] || "Não foi possível carregar o catálogo agora.", code }, { status: ["SHOPEE_NOT_CONNECTED", "MERCADO_LIVRE_NOT_CONFIGURED"].includes(code) ? 409 : 503 });
   }

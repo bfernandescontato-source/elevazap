@@ -1,8 +1,7 @@
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
-import { env } from "@/lib/env";
 import { catalogCategories } from "../categories";
 import type { CatalogCategory, CatalogListing, CatalogPage, CatalogProviderFilter } from "../types";
-import { MercadoLivreAffiliateProvider } from "./mercado-livre-provider";
+import { withMercadoLivreAuthRetry } from "./mercado-livre-token-manager";
 import { ShopeeAffiliateProvider } from "./shopee-provider";
 import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 
@@ -25,22 +24,19 @@ async function shopeeProvider(database: any, accountId: string) {
   return new ShopeeAffiliateProvider(data.app_id, decryptIntegrationSecret(data.encrypted_app_secret));
 }
 
-function mercadoLivreProvider() {
-  const token = env().MERCADO_LIVRE_ACCESS_TOKEN;
-  if (!token) throw new Error("MERCADO_LIVRE_NOT_CONFIGURED");
-  return new MercadoLivreAffiliateProvider(token);
-}
-
 function codeOf(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback; }
 
 export async function getCatalog(database: any, accountId: string, input: { provider: CatalogProviderFilter; keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogResult> {
   const providers: Array<"SHOPEE" | "MERCADO_LIVRE"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE"] : [input.provider];
   const settled = await Promise.allSettled(providers.map(async provider => {
-    const adapter = provider === "SHOPEE" ? await shopeeProvider(database, accountId) : mercadoLivreProvider();
     const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
     const key = JSON.stringify([provider, accountId, { ...input, categoryId }]);
-    const page = await cached(key, (input.keyword ? 5 : 10) * 60_000, () => adapter.searchProducts({ ...input, categoryId }));
-    return page;
+    const ttl = (input.keyword ? 5 : 10) * 60_000;
+    if (provider === "SHOPEE") {
+      const adapter = await shopeeProvider(database, accountId);
+      return cached(key, ttl, () => adapter.searchProducts({ ...input, categoryId }));
+    }
+    return cached(key, ttl, () => withMercadoLivreAuthRetry(client => client.searchProducts({ ...input, categoryId })));
   }));
   const providerErrors: CatalogResult["providerErrors"] = {};
   const pages: CatalogPage[] = [];
@@ -58,8 +54,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   let categories: CatalogCategory[] = [{ id: null, label: "Todas" }];
   if (input.provider === "SHOPEE") categories = catalogCategories.map(category => ({ ...category, id: category.id === null ? null : String(category.id) }));
   if (input.provider === "MERCADO_LIVRE") {
-    const adapter = mercadoLivreProvider();
-    try { categories = await cached("mercado-livre:categories", 24 * 60 * 60_000, () => adapter.getCategories()); }
+    try { categories = await cached("mercado-livre:categories", 24 * 60 * 60_000, () => withMercadoLivreAuthRetry(client => client.getCategories())); }
     catch (error) { providerErrors.MERCADO_LIVRE ||= codeOf(error, "MERCADO_LIVRE_CATEGORIES_UNAVAILABLE"); }
   }
   return { offers, pageInfo: { page: input.page, limit: input.limit, hasNextPage: pages.some(page => page.pageInfo.hasNextPage) }, categories, providerErrors };
