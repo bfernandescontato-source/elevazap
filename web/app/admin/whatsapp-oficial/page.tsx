@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, DataTable, EmptyState, ErrorState, LoadingState, Toast } from "@/components/ui";
-import { ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Plus, RefreshCw, Send, XCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { QuickReplyPanel } from "./quick-reply-panel";
 
@@ -64,6 +64,7 @@ export default function WhatsappOficialPage() {
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [showAutomationForm, setShowAutomationForm] = useState(false);
+  const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const [savingAutomation, setSavingAutomation] = useState(false);
   const [automationEventType, setAutomationEventType] = useState("");
   const [automationProductId, setAutomationProductId] = useState("");
@@ -154,6 +155,42 @@ export default function WhatsappOficialPage() {
     });
   }
 
+  function slotsFromMapping(count: number, names: string[], mapping: Record<string, string> = {}): MappingSlot[] {
+    return slotsFor(count, names).map((slot) => {
+      const mappedValue = mapping[slot.key] || "first_name";
+      return mappedValue.startsWith("static:")
+        ? { ...slot, value: STATIC_OPTION, staticText: mappedValue.slice("static:".length) }
+        : { ...slot, value: mappedValue };
+    });
+  }
+
+  function resetAutomationForm() {
+    setShowAutomationForm(false);
+    setEditingAutomationId(null);
+    setAutomationEventType("");
+    setAutomationProductId("");
+    setAutomationTemplateName("");
+    setAutomationMapping({ header: [], body: [] });
+  }
+
+  function startNewAutomation() {
+    resetAutomationForm();
+    setShowAutomationForm(true);
+  }
+
+  function startEditingAutomation(automation: Automation) {
+    const template = templates.find((item) => item.name === automation.template_name && item.language === automation.template_language);
+    setEditingAutomationId(automation.id);
+    setAutomationEventType(automation.event_type);
+    setAutomationProductId(automation.product_id || "");
+    setAutomationTemplateName(automation.template_name);
+    setAutomationMapping(template ? {
+      header: slotsFromMapping(template.variables.header, template.namedVariables.header, automation.variable_mapping.header),
+      body: slotsFromMapping(template.variables.body, template.namedVariables.body, automation.variable_mapping.body)
+    } : { header: [], body: [] });
+    setShowAutomationForm(true);
+  }
+
   function updateSlot(section: "header" | "body", key: string, changes: Partial<MappingSlot>) {
     setAutomationMapping((current) => ({ ...current, [section]: current[section].map((slot) => slot.key === key ? { ...slot, ...changes } : slot) }));
   }
@@ -171,8 +208,8 @@ export default function WhatsappOficialPage() {
         ...(automationMapping.header.length ? { header: slotsToMapping(automationMapping.header) } : {}),
         ...(automationMapping.body.length ? { body: slotsToMapping(automationMapping.body) } : {})
       };
-      const response = await fetch("/api/admin/official/automations", {
-        method: "POST",
+      const response = await fetch(editingAutomationId ? `/api/admin/official/automations/${editingAutomationId}` : "/api/admin/official/automations", {
+        method: editingAutomationId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           eventType: automationEventType,
@@ -184,10 +221,9 @@ export default function WhatsappOficialPage() {
         })
       });
       const data = await response.json();
-      setToast(response.ok ? "Automação criada." : `Falha ao criar automação: ${data.error || "erro desconhecido"}.`);
+      setToast(response.ok ? (editingAutomationId ? "Automação atualizada." : "Automação criada.") : `Falha ao salvar automação: ${data.error || "erro desconhecido"}.`);
       if (response.ok) {
-        setShowAutomationForm(false);
-        setAutomationEventType(""); setAutomationProductId(""); setAutomationTemplateName(""); setAutomationMapping({ header: [], body: [] });
+        resetAutomationForm();
         await loadAutomations();
       }
     } finally {
@@ -285,10 +321,11 @@ export default function WhatsappOficialPage() {
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Automações</h2>
-          <ActionButton icon={<Plus size={16} />} onClick={() => setShowAutomationForm((current) => !current)} className="border border-line bg-white text-ink hover:bg-wash">Nova automação</ActionButton>
+          <ActionButton icon={<Plus size={16} />} onClick={startNewAutomation} className="border border-line bg-white text-ink hover:bg-wash">Nova automação</ActionButton>
         </div>
 
         {showAutomationForm ? <div className="mb-4 rounded-lg border border-line bg-panel p-6 shadow-soft">
+          <h3 className="mb-4 text-base font-semibold text-ink">{editingAutomationId ? "Editar automação" : "Nova automação"}</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-ink">Evento (exatamente como aparece nos eventos capturados)
               <input value={automationEventType} onChange={(event) => setAutomationEventType(event.target.value)} placeholder="invoice.payment_succeeded" className="mt-1 h-11 w-full rounded-lg border border-line px-3" />
@@ -323,18 +360,19 @@ export default function WhatsappOficialPage() {
           </div> : null}
 
           <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowAutomationForm(false)} className="rounded-lg border border-line px-4 py-2 text-sm">Cancelar</button>
-            <ActionButton disabled={!automationEventType || !automationTemplateName || savingAutomation} onClick={saveAutomation}>{savingAutomation ? "Salvando…" : "Salvar"}</ActionButton>
+            <button type="button" onClick={resetAutomationForm} className="rounded-lg border border-line px-4 py-2 text-sm">Cancelar</button>
+            <ActionButton disabled={!automationEventType || !automationTemplateName || savingAutomation} onClick={saveAutomation}>{savingAutomation ? "Salvando…" : editingAutomationId ? "Salvar alterações" : "Salvar"}</ActionButton>
           </div>
         </div> : null}
 
         <DataTable
-          columns={["Quando", "Produto", "Template", "Status"]}
+          columns={["Quando", "Produto", "Template", "Status", "Ações"]}
           rows={automations.map((automation) => [
             automation.event_type,
             automation.product_name || automation.product_id || "Todos",
             `${automation.template_name} (${automation.template_language})`,
-            <button key="toggle" type="button" onClick={() => toggleAutomation(automation)} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${automation.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-line bg-wash text-muted"}`}>{automation.active ? "Ativo" : "Inativo"}</button>
+            <button key="toggle" type="button" onClick={() => toggleAutomation(automation)} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${automation.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-line bg-wash text-muted"}`}>{automation.active ? "Ativo" : "Inativo"}</button>,
+            <button key="edit" type="button" onClick={() => startEditingAutomation(automation)} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"><Pencil size={14} /> Editar</button>
           ])}
         />
       </section>

@@ -44,7 +44,14 @@ export async function createAutomation(input: {
   return data as OfficialAutomation;
 }
 
-export async function updateAutomation(id: string, changes: { active?: boolean }) {
+export async function updateAutomation(id: string, changes: {
+  event_type?: string;
+  product_id?: string | null;
+  template_name?: string;
+  template_language?: string;
+  variable_mapping?: VariableMapping;
+  active?: boolean;
+}) {
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_automations").update({ ...changes, updated_at: new Date().toISOString() }).eq("id", id).select("*").single();
   if (error) throw error;
