@@ -13,10 +13,12 @@ export async function GET() {
   const plan = context.account?.plan || "default";
   const limits = getPlanLimits(plan);
   const { data: profile } = await context.database.from("app_users")
-    .select("name,email,avatar_path").eq("id", context.session.userId).eq("account_id", context.accountId).single();
+    .select("name,email").eq("id", context.session.userId).eq("account_id", context.accountId).single();
+  const authUser = await supabaseAdmin().auth.admin.getUserById(context.session.userId!);
+  const avatarPath = typeof authUser.data.user?.user_metadata?.avatar_path === "string" ? authUser.data.user.user_metadata.avatar_path : null;
   let avatarUrl: string | null = null;
-  if (profile?.avatar_path) {
-    const { data } = await supabaseAdmin().storage.from("community-media").createSignedUrl(profile.avatar_path, 3600);
+  if (avatarPath) {
+    const { data } = await supabaseAdmin().storage.from("community-media").createSignedUrl(avatarPath, 3600);
     avatarUrl = data?.signedUrl || null;
   }
 
@@ -65,15 +67,20 @@ export async function PATCH(request: NextRequest) {
   if (parsed.data.avatar_path && !parsed.data.avatar_path.startsWith(`community/${context.accountId}/${context.session.userId}/`)) {
     return NextResponse.json({ error: "Foto de perfil inválida." }, { status: 400 });
   }
-  const update: Record<string, unknown> = { name: parsed.data.name, updated_at: new Date().toISOString() };
-  if ("avatar_path" in parsed.data) update.avatar_path = parsed.data.avatar_path || null;
-  const { data, error } = await context.database.from("app_users").update(update)
+  const { data, error } = await context.database.from("app_users").update({ name: parsed.data.name, updated_at: new Date().toISOString() })
     .eq("id", context.session.userId).eq("account_id", context.accountId)
-    .select("name,email,avatar_path").single();
+    .select("name,email").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const currentAuth = await supabaseAdmin().auth.admin.getUserById(context.session.userId!);
+  const currentMetadata = currentAuth.data.user?.user_metadata || {};
+  const avatarPath = "avatar_path" in parsed.data ? parsed.data.avatar_path || null : currentMetadata.avatar_path || null;
+  const authUpdate = await supabaseAdmin().auth.admin.updateUserById(context.session.userId!, {
+    user_metadata: { ...currentMetadata, name: parsed.data.name, avatar_path: avatarPath }
+  });
+  if (authUpdate.error) return NextResponse.json({ error: "O nome foi salvo, mas não foi possível vincular a foto." }, { status: 500 });
   let avatarUrl: string | null = null;
-  if (data.avatar_path) {
-    const signed = await supabaseAdmin().storage.from("community-media").createSignedUrl(data.avatar_path, 3600);
+  if (avatarPath) {
+    const signed = await supabaseAdmin().storage.from("community-media").createSignedUrl(avatarPath, 3600);
     avatarUrl = signed.data?.signedUrl || null;
   }
   return NextResponse.json({ profile: { name: data.name, email: data.email, avatarUrl } });

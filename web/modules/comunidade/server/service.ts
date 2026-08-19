@@ -13,10 +13,12 @@ export async function attachAuthors(database: SupabaseClient, rows: Array<{ user
   if (!userIds.length) return authors;
   // A comunidade é global entre contas; o admin é usado somente para os campos públicos do autor.
   const admin = supabaseAdmin();
-  const { data, error } = await admin.from("app_users").select("id,name,email,avatar_path").in("id", userIds);
+  const { data, error } = await admin.from("app_users").select("id,name,email").in("id", userIds);
   if (error) throw error;
   for (const user of data || []) {
-    const avatarUrls = await signedImageUrls(admin, user.avatar_path ? [user.avatar_path] : []);
+    const authUser = await admin.auth.admin.getUserById(user.id);
+    const avatarPath = typeof authUser.data.user?.user_metadata?.avatar_path === "string" ? authUser.data.user.user_metadata.avatar_path : null;
+    const avatarUrls = await signedImageUrls(admin, avatarPath ? [avatarPath] : []);
     authors.set(user.id, { name: user.name, email: null, avatar_url: avatarUrls[0] || null });
   }
   return authors;
