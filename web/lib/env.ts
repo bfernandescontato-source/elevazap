@@ -16,7 +16,9 @@ const serverEnvSchema = z.object({
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
-  MERCADO_LIVRE_ACCESS_TOKEN: z.string().min(20).optional()
+  MERCADO_LIVRE_CLIENT_ID: z.string().min(10).optional(),
+  MERCADO_LIVRE_CLIENT_SECRET: z.string().min(10).optional(),
+  MERCADO_LIVRE_REDIRECT_URI: z.string().url().optional()
 });
 
 export function env() {
