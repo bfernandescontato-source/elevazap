@@ -49,9 +49,13 @@ export class MercadoLivreAffiliateProvider implements AffiliateMarketplaceProvid
         signal: AbortSignal.timeout(10_000)
       });
     } catch { throw new Error("MERCADO_LIVRE_UNAVAILABLE"); }
-    if (response.status === 401 || response.status === 403) throw new Error("MERCADO_LIVRE_AUTH");
-    if (response.status === 429) throw new Error("MERCADO_LIVRE_RATE_LIMIT");
-    if (!response.ok) throw new Error("MERCADO_LIVRE_UNAVAILABLE");
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error({ event: "mercado_livre_catalog_api_error", path: url.pathname, status: response.status, body: body.slice(0, 500) });
+      if (response.status === 401 || response.status === 403) throw new Error("MERCADO_LIVRE_AUTH");
+      if (response.status === 429) throw new Error("MERCADO_LIVRE_RATE_LIMIT");
+      throw new Error("MERCADO_LIVRE_UNAVAILABLE");
+    }
     return response.json() as Promise<T>;
   }
 
