@@ -4,6 +4,7 @@ import { catalogCategories } from "../categories";
 import type { CatalogCategory, CatalogListing, CatalogPage, CatalogProviderFilter } from "../types";
 import { MercadoLivreAffiliateProvider } from "./mercado-livre-provider";
 import { ShopeeAffiliateProvider } from "./shopee-provider";
+import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 
 type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE", string>> };
 const cache = new Map<string, { expires: number; value: CatalogPage | CatalogCategory[] }>();
@@ -19,8 +20,7 @@ function cached<T extends CatalogPage | CatalogCategory[]>(key: string, ttl: num
 }
 
 async function shopeeProvider(database: any, accountId: string) {
-  const { data, error } = await database.from("affiliate_integrations").select("app_id,encrypted_app_secret,status").eq("account_id", accountId).eq("provider", "shopee").maybeSingle();
-  if (error) throw error;
+  const data = await getShopeeIntegrationCredentials(database, accountId);
   if (!data || data.status !== "connected") throw new Error("SHOPEE_NOT_CONNECTED");
   return new ShopeeAffiliateProvider(data.app_id, decryptIntegrationSecret(data.encrypted_app_secret));
 }

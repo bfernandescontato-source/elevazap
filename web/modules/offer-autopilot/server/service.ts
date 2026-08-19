@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getMercadoLivreIntegration, getShopeeIntegration, hasConnectedIntegration } from "@/modules/integrations/server/service";
 import { assertOwnedGroupSelection } from "../ownership";
 
 export async function loadAutopilot(database: SupabaseClient, accountId: string) {
-  const [{ data: automation, error: automationError }, { data: senders, error: sendersError }, { data: integrations }] = await Promise.all([
+  const [{ data: automation, error: automationError }, { data: senders, error: sendersError }, shopeeIntegration, mercadoLivreIntegration] = await Promise.all([
     database.from("offer_automations").select("*").eq("account_id", accountId).maybeSingle(),
     database.from("whatsapp_senders").select("id,label,session_name").eq("account_id", accountId).order("created_at"),
-    database.from("affiliate_integrations").select("provider,app_id,status,affiliate_tag,last_tested_at,last_error").eq("account_id", accountId).in("provider", ["shopee", "mercado_livre"])
+    getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId)
   ]);
   if (automationError) throw automationError;
   if (sendersError) throw sendersError;
@@ -29,8 +30,8 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
   if (offersError) throw offersError;
   return {
     automation,
-    shopee_integration: integrations?.find((item) => item.provider === "shopee") || null,
-    mercado_livre_integration: integrations?.find((item) => item.provider === "mercado_livre") || null,
+    shopee_integration: shopeeIntegration,
+    mercado_livre_integration: mercadoLivreIntegration,
     senders: senders || [],
     groups: (groups || []).map((row: any) => row.grupos || { group_jid: row.group_jid, nome: row.group_jid }),
     source_group_ids: (sources || []).map((row) => row.whatsapp_group_id),
@@ -56,12 +57,10 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
   if (!sender) throw new Error("Número responsável não pertence à sua conta.");
   assertOwnedGroupSelection(uniqueGroups, senderGroups || []);
   if (input.enabled && input.shopee_conversion_enabled) {
-    const { data: integration } = await database.from("affiliate_integrations").select("id").eq("account_id", accountId).eq("provider", "shopee").eq("status", "connected").maybeSingle();
-    if (!integration) throw new Error("Conecte a Shopee Affiliate antes de ativar a conversão.");
+    if (!await hasConnectedIntegration(database, accountId, "shopee")) throw new Error("Conecte a Shopee Affiliate antes de ativar a conversão.");
   }
   if (input.enabled && input.mercado_livre_conversion_enabled) {
-    const { data: integration } = await database.from("affiliate_integrations").select("id").eq("account_id", accountId).eq("provider", "mercado_livre").eq("status", "connected").maybeSingle();
-    if (!integration) throw new Error("Conecte o Mercado Livre antes de ativar a conversão.");
+    if (!await hasConnectedIntegration(database, accountId, "mercado_livre")) throw new Error("Conecte o Mercado Livre antes de ativar a conversão.");
   }
 
   const { source_group_ids, destination_group_ids, ...config } = input;

@@ -3,6 +3,7 @@
 import { AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { Clock3, ExternalLink, Eye, ImageIcon, Send, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 type Sender = { id: string; label: string; session_name: string };
 type Group = { group_jid: string; nome?: string; foto_url?: string };
@@ -25,10 +26,6 @@ export default function AutopilotPage() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<Record<string, any> | null>(null);
-  const [shopeeAppId, setShopeeAppId] = useState("");
-  const [shopeeSecret, setShopeeSecret] = useState("");
-  const [testingShopee, setTestingShopee] = useState(false);
-  const [connectingMercadoLivre, setConnectingMercadoLivre] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -36,7 +33,6 @@ export default function AutopilotPage() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Não foi possível carregar.");
       setData(body);
-      setShopeeAppId(body.shopee_integration?.app_id || "");
       setForm({
         ...defaults,
         ...(body.automation || {}),
@@ -57,40 +53,6 @@ export default function AutopilotPage() {
       const groups = await response.json();
       setData((current) => current ? { ...current, groups } : current);
     }
-  }
-  async function connectShopee() {
-    setTestingShopee(true); setError(""); setNotice("");
-    try {
-      const response = await fetch("/api/piloto-automatico/shopee", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ app_id: shopeeAppId, app_secret: shopeeSecret }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Não foi possível conectar à Shopee.");
-      setShopeeSecret(""); setNotice("Shopee Affiliate conectada com sucesso."); await load();
-    } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível conectar à Shopee."); }
-    finally { setTestingShopee(false); }
-  }
-  async function connectMercadoLivre() {
-    setConnectingMercadoLivre(true); setError(""); setNotice("");
-    try {
-      const response = await fetch("/api/piloto-automatico/mercado-livre/connect", { method: "POST" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Não foi possível iniciar a conexão.");
-      const result = await new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
-        const listener = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin || event.data?.type !== "DISPAREI_ML_CONNECTION_RESULT") return;
-          window.clearTimeout(timeout); window.removeEventListener("message", listener); resolve(event.data);
-        };
-        const timeout = window.setTimeout(() => {
-          window.removeEventListener("message", listener);
-          reject(new Error("A extensão Disparei — Mercado Livre não respondeu."));
-        }, 15_000);
-        window.addEventListener("message", listener);
-        window.postMessage({ type: "DISPAREI_ML_CONNECT", nonce: body.nonce, backendOrigin: window.location.origin }, window.location.origin);
-      });
-      if (!result.ok) throw new Error(result.error || "A extensão não conseguiu validar o Mercado Livre.");
-      setNotice("Extensão vinculada. Estamos executando um teste real de geração de link.");
-      window.setTimeout(() => void load(), 4_000);
-    } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível conectar ao Mercado Livre."); }
-    finally { setConnectingMercadoLivre(false); }
   }
   function toggle(list: "source_group_ids" | "destination_group_ids", id: string) {
     setForm((current) => ({ ...current, [list]: current[list].includes(id) ? current[list].filter((value) => value !== id) : [...current[list], id] }));
@@ -130,9 +92,7 @@ export default function AutopilotPage() {
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Número responsável" description="O número precisa participar dos grupos fonte e destino." /><select value={form.whatsapp_sender_id} onChange={(event) => void changeSender(event.target.value)} className="focus-ring mt-4 h-11 w-full max-w-md rounded-lg border border-line bg-white px-3 text-sm"><option value="">Selecionar número</option>{data.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select></section>
 
-      <section className="rounded-xl border border-line bg-white p-5"><Heading title="Shopee Affiliate" description="Conecte sua conta para transformar automaticamente ofertas no seu link de comissão." />{data.shopee_integration?.status === "connected" ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="font-medium text-emerald-800">● Shopee conectada</div><div className="mt-2 text-sm text-emerald-700">App ID: {data.shopee_integration.app_id}<br />App Secret: ••••••••••••••</div></div> : data.shopee_integration?.status === "error" ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><div className="font-medium text-red-800">● Não foi possível conectar</div><div className="mt-1 text-sm text-red-700">{data.shopee_integration.last_error || "Verifique App ID e App Secret."}</div></div> : null}<div className="mt-5 grid gap-4 md:grid-cols-2"><Field label="App ID"><input value={shopeeAppId} onChange={(event) => setShopeeAppId(event.target.value)} autoComplete="off" className="focus-ring h-11 w-full rounded-lg border border-line px-3" /></Field><Field label="App Secret"><input type="password" value={shopeeSecret} onChange={(event) => setShopeeSecret(event.target.value)} autoComplete="new-password" placeholder={data.shopee_integration ? "Informe para substituir as credenciais" : "App Secret"} className="focus-ring h-11 w-full rounded-lg border border-line px-3" /></Field></div><button type="button" onClick={() => void connectShopee()} disabled={testingShopee || !shopeeAppId || !shopeeSecret} className="mt-4 h-10 rounded-lg border border-line bg-white px-4 text-sm font-medium disabled:opacity-40">{testingShopee ? "Testando..." : "Testar conexão"}</button></section>
-
-      <section className="rounded-xl border border-line bg-white p-5"><Heading title="Mercado Livre" description="Vincule sua própria conta para gerar links pelo Portal oficial sem compartilhar senha ou cookies." />{data.mercado_livre_integration?.status === "connected" ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4"><div className="font-medium text-emerald-800">● Mercado Livre conectado</div>{data.mercado_livre_integration.affiliate_tag ? <div className="mt-1 text-sm text-emerald-700">Etiqueta: {data.mercado_livre_integration.affiliate_tag}</div> : null}</div> : data.mercado_livre_integration?.status === "connecting" ? <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">● Validando sua conta com uma geração real…</div> : data.mercado_livre_integration?.status === "expired" ? <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">● Sua sessão expirou. Reconecte o Mercado Livre.</div> : data.mercado_livre_integration?.status === "error" ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">● {data.mercado_livre_integration.last_error || "Não foi possível validar a conexão."}</div> : null}<button type="button" onClick={() => void connectMercadoLivre()} disabled={connectingMercadoLivre} className="mt-4 h-10 rounded-lg border border-line bg-white px-4 text-sm font-medium disabled:opacity-40">{connectingMercadoLivre ? "Conectando…" : data.mercado_livre_integration?.status === "connected" ? "Reconectar Mercado Livre" : "Conectar Mercado Livre"}</button></section>
+      {(form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected") || (form.mercado_livre_conversion_enabled && data.mercado_livre_integration?.status !== "connected") ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold text-amber-900">Integração necessária</h2><p className="mt-1 text-sm text-amber-800">{form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected" ? "Shopee não conectada" : "Mercado Livre não conectado"}</p><Link href="/integracoes" className="mt-4 inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white">Configurar integração</Link></section> : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <GroupPicker title="Grupos Fonte" description="Escolha os grupos onde o Disparei irá buscar novas ofertas automaticamente." groups={data.groups} selected={form.source_group_ids} onToggle={(id) => toggle("source_group_ids", id)} source />
