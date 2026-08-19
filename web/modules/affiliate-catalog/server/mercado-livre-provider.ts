@@ -67,14 +67,21 @@ export class MercadoLivreAffiliateProvider implements AffiliateMarketplaceProvid
   async searchProducts(input: { keyword?: string; categoryId?: string; listing: "top" | "sold" | "commission"; page: number; limit: number }): Promise<CatalogPage> {
     let keyword = input.keyword;
     if (!keyword && input.listing === "top") {
-      const trendPath = input.categoryId ? `/trends/MLB/${encodeURIComponent(input.categoryId)}` : "/trends/MLB";
-      const trends = await this.request<Array<{ keyword?: string }>>(trendPath);
-      keyword = trends[(input.page - 1) % Math.max(trends.length, 1)]?.keyword;
+      try {
+        const trendPath = input.categoryId ? `/trends/MLB/${encodeURIComponent(input.categoryId)}` : "/trends/MLB";
+        const trends = await this.request<Array<{ keyword?: string }>>(trendPath);
+        keyword = trends[(input.page - 1) % Math.max(trends.length, 1)]?.keyword;
+      } catch (error) {
+        // A API de tendências pode ficar indisponível/bloqueada por política do Mercado Livre
+        // independentemente do token estar válido; nesse caso caímos para busca sem palavra-chave
+        // (equivalente a "mais vendidos" pela ordenação) em vez de derrubar a aba inteira.
+        console.error({ event: "mercado_livre_trends_unavailable", error: error instanceof Error ? error.message : String(error) });
+      }
     }
     const params = new URLSearchParams({ offset: String((input.page - 1) * input.limit), limit: String(input.limit) });
     if (keyword) params.set("q", keyword);
     if (input.categoryId) params.set("category", input.categoryId);
-    if (input.listing === "sold") params.set("sort", "sold_quantity_desc");
+    if (input.listing === "sold" || (input.listing === "top" && !keyword)) params.set("sort", "sold_quantity_desc");
     const data = await this.request<MlSearchResponse>("/sites/MLB/search", params);
     const offers = (data.results || []).filter(item => item.id && item.title).map(normalizeMercadoLivreOffer);
     const total = data.paging?.total || 0;
