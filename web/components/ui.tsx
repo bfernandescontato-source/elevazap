@@ -7,21 +7,20 @@ import { BrandLogo } from "./brand-logo";
 import {
   AlertTriangle,
   BarChart3,
-  CircleAlert,
   Check,
   ChevronRight,
   Clipboard,
   ShoppingBag,
   Clock,
+  Cable,
   Cog,
-  FileText,
   FolderOpen,
   Inbox,
-  Layers,
   Loader2,
   LogOut,
   Menu,
   Megaphone,
+  MessageCircle,
   Pause,
   Play,
   QrCode,
@@ -41,14 +40,11 @@ const navSections = [
     { href: "/grupos/numeros", label: "Números", icon: Smartphone },
     { href: "/campanhas", label: "Campanhas", icon: Megaphone },
     { href: "/catalogo", label: "Catálogo", icon: ShoppingBag, badge: "NOVO" },
+    { href: "/integracoes", label: "Integrações", icon: Cable },
     { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
     { href: "/disparos", label: "Disparos", icon: Send },
-    { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap }
-  ] },
-  { label: "Dados", items: [
-    { href: "/envios", label: "Envios", icon: FileText },
-    { href: "/lotes", label: "Lotes", icon: Layers },
-    { href: "/incidentes", label: "Incidentes", icon: CircleAlert }
+    { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
+    { href: "/comunidade", label: "Comunidade", icon: MessageCircle }
   ] },
   { label: "Conta", items: [
     { href: "/configuracoes", label: "Configurações", icon: Cog }
@@ -99,6 +95,17 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
 }
 
 function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  const [communityUnread, setCommunityUnread] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch("/api/comunidade/notifications", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => { if (alive && body) setCommunityUnread(body.unread_count || 0); })
+      .catch(() => {});
+    load();
+    const interval = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(interval); };
+  }, []);
   return <nav className="space-y-6" aria-label="Navegação principal">
     {navSections.map((section) => <div key={section.label}>
       <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
@@ -106,7 +113,9 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
         const match = "match" in item ? item.match : item.href;
         const active = pathname === match || pathname.startsWith(`${match}/`);
         const Icon = item.icon;
-        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{"badge" in item ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : "bg-emerald-100 text-emerald-700"}`}>{item.badge}</span> : null}</Link>;
+        const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
+        const badge = dynamicBadge || ("badge" in item ? item.badge : null);
+        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;

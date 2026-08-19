@@ -18,7 +18,15 @@ const serverEnvSchema = z.object({
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
   MERCADO_LIVRE_CLIENT_ID: z.string().min(10).optional(),
   MERCADO_LIVRE_CLIENT_SECRET: z.string().min(10).optional(),
-  MERCADO_LIVRE_REDIRECT_URI: z.string().url().optional()
+  MERCADO_LIVRE_REDIRECT_URI: z.string().url().optional(),
+  META_WABA_ID: z.string().min(1).optional(),
+  META_PHONE_NUMBER_ID: z.string().min(1).optional(),
+  META_ACCESS_TOKEN: z.string().min(1).optional(),
+  META_GRAPH_VERSION: z.string().min(1).optional(),
+  HUBLA_WEBHOOK_SECRET: z.string().min(16).optional(),
+  META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
+  META_APP_SECRET: z.string().min(16).optional(),
+  OFFICIAL_BROADCAST_CONCURRENCY: z.coerce.number().int().min(1).max(20).optional()
 });
 
 export function env() {
