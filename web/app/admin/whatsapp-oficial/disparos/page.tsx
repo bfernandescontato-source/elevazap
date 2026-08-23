@@ -14,7 +14,7 @@ type PreviewResult = {
   flow: { name: string; templateName: string; templateCategory: string; buttonLabel: string | null };
 };
 
-type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; official_flows: { name: string } | null };
+type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; delivery_speed: "standard" | "urgent"; official_flows: { name: string } | null };
 
 const emptyMapping: FieldMapping = { mode: "none", column: "", fixedValue: "" };
 const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou" };
@@ -42,6 +42,7 @@ export default function DisparosPage() {
   const [previewError, setPreviewError] = useState("");
 
   const [broadcastName, setBroadcastName] = useState("");
+  const [deliverySpeed, setDeliverySpeed] = useState<"standard" | "urgent">("standard");
   const [confirming, setConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
@@ -131,7 +132,7 @@ export default function DisparosPage() {
       }));
       const response = await fetch("/api/admin/official/broadcasts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts })
+        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, deliverySpeed })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao iniciar disparo.");
@@ -165,11 +166,12 @@ export default function DisparosPage() {
       {broadcasts.length ? <section>
         <h2 className="mb-3 text-lg font-semibold text-ink">Histórico</h2>
         <DataTable
-          columns={["Data", "Nome", "Fluxo", "Contatos", "Aceitos", "Falharam", "Status"]}
+          columns={["Data", "Nome", "Fluxo", "Ritmo", "Contatos", "Aceitos", "Falharam", "Status"]}
           rows={broadcasts.map((broadcast) => [
             new Date(broadcast.created_at).toLocaleString("pt-BR"),
             <Link key="name" href={`/admin/whatsapp-oficial/disparos/${broadcast.id}`} className="font-medium text-ink hover:underline">{broadcast.name}</Link>,
             broadcast.official_flows?.name || "—",
+            broadcast.delivery_speed === "urgent" ? "Urgente (até 60x)" : "Padrão (5x)",
             broadcast.total_rows,
             broadcast.accepted,
             broadcast.failed,
@@ -242,6 +244,13 @@ export default function DisparosPage() {
             <input value={broadcastName} onChange={(event) => setBroadcastName(event.target.value)} placeholder="Convite Achadinhos — agosto" className="mt-1 h-11 w-full max-w-md rounded-lg border border-line px-3" />
           </label>
           <p className="mt-3 text-sm text-muted">Cada novo disparo envia para todos os contatos válidos da lista, mesmo que eles já tenham recebido este fluxo em outro disparo.</p>
+          <label className="mt-4 block text-sm font-medium text-ink">Ritmo de envio
+            <select value={deliverySpeed} onChange={(event) => setDeliverySpeed(event.target.value as "standard" | "urgent")} className="mt-1 h-11 w-full max-w-md rounded-lg border border-line bg-white px-3 text-sm">
+              <option value="standard">Padrão — 5 contatos em paralelo</option>
+              <option value="urgent">Urgente/Ao Vivo — até 60 contatos em paralelo</option>
+            </select>
+          </label>
+          {deliverySpeed === "urgent" ? <p className="mt-2 text-sm text-amber-700">Para avisos urgentes. O ritmo é limitado pelo throughput informado pela Meta; se ela limitar o envio, o disparo pausa automaticamente para proteger a conta.</p> : null}
           {startError ? <div className="mt-3"><ErrorState message={startError} /></div> : null}
           <ActionButton icon={<Send size={16} />} disabled={!broadcastName.trim() || !preview.validCount} onClick={() => setConfirming(true)} className="mt-4">Iniciar disparo</ActionButton>
         </div>
@@ -256,7 +265,7 @@ export default function DisparosPage() {
       confirmLabel={starting ? "Iniciando…" : "Confirmar disparo"}
       loading={starting}
     >
-      Você está prestes a iniciar o fluxo &quot;{preview?.flow.name}&quot; para {preview?.validCount.toLocaleString("pt-BR")} contatos. Essa ação envia mensagens reais via WhatsApp.
+      Você está prestes a iniciar o fluxo &quot;{preview?.flow.name}&quot; para {preview?.validCount.toLocaleString("pt-BR")} contatos no ritmo {deliverySpeed === "urgent" ? "Urgente/Ao Vivo (até 60 em paralelo)" : "Padrão (5 em paralelo)"}. Essa ação envia mensagens reais via WhatsApp.
     </ConfirmModal>
   </AppShell>;
 }

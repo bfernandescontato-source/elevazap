@@ -24,6 +24,13 @@ export function metaIdentifiers() {
   return { phoneNumberId, wabaId };
 }
 
+export async function getMetaMessageThroughput() {
+  const { phoneNumberId } = metaIdentifiers();
+  const data = await graphRequest(`/${phoneNumberId}?fields=throughput`);
+  const value = Number(data?.throughput);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+}
+
 // Nunca loga nem retorna META_ACCESS_TOKEN. Toda chamada à Graph API passa por aqui
 // para centralizar versão, timeout e tradução de erros — sem hardcodar a versão em outros arquivos.
 export async function graphRequest(path: string, init?: RequestInit) {

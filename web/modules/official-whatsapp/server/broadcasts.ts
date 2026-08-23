@@ -3,13 +3,21 @@ import { appUrl, env } from "@/lib/env";
 import { startFlow } from "./flow-processor";
 import { type ValidContact } from "./broadcast-contacts";
 import { officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "./errors";
+import { getMetaMessageThroughput } from "./meta-client";
 
 export async function createBroadcastAndStart(input: {
   name: string;
   flowId: string;
   contacts: ValidContact[];
+  deliverySpeed?: "standard" | "urgent";
 }) {
   const admin = supabaseAdmin();
+  // A Meta informa o throughput do número. Para urgências, ficamos abaixo do
+  // limite retornado e nunca ultrapassamos 60 envios aceitos em paralelo.
+  const metaThroughput = input.deliverySpeed === "urgent" ? await getMetaMessageThroughput().catch(() => null) : null;
+  const dispatchConcurrency = input.deliverySpeed === "urgent"
+    ? Math.min(60, Math.max(20, metaThroughput ? Math.floor(metaThroughput * 0.75) : 20))
+    : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5);
 
   const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
     name: input.name,
@@ -17,6 +25,8 @@ export async function createBroadcastAndStart(input: {
     status: "processing",
     total_rows: input.contacts.length,
     valid_recipients: input.contacts.length,
+    delivery_speed: input.deliverySpeed === "urgent" ? "urgent" : "standard",
+    dispatch_concurrency: dispatchConcurrency,
     skip_recipients_with_prior_run: false,
     started_at: new Date().toISOString(),
     last_batch_at: new Date().toISOString()
@@ -35,6 +45,10 @@ export async function createBroadcastAndStart(input: {
   return { broadcastId: broadcast.id as string, skippedForPriorRun: 0 };
 }
 
+// O modo urgente usa até 60 chamadas paralelas, limitado pelo throughput consultado
+// no próprio número; o padrão segue a configuração conservadora.
+// A Meta ainda é a autoridade final: se responder 429 o disparo pausa, sem continuar
+// pressionando a conta.
 // Processa um lote pequeno (tamanho = OFFICIAL_BROADCAST_CONCURRENCY) e devolve se ainda há
 // mais gente na fila. Reaproveita startFlow() inteiro — envio, log, flow_run, tudo já testado
 // na fase A. Se algum envio do lote voltar 429 da Meta, pausa o disparo em vez de continuar
@@ -47,7 +61,7 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
 
   await admin.from("official_broadcasts").update({ last_batch_at: new Date().toISOString() }).eq("id", broadcastId);
 
-  const concurrency = env().OFFICIAL_BROADCAST_CONCURRENCY || 5;
+  const concurrency = broadcast.dispatch_concurrency || (broadcast.delivery_speed === "urgent" ? 20 : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5));
   const { data: batch, error: batchError } = await admin.from("official_broadcast_recipients")
     .select("*").eq("broadcast_id", broadcastId).eq("status", "queued").order("created_at", { ascending: true }).limit(concurrency);
   if (batchError) throw batchError;
