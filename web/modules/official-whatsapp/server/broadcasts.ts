@@ -76,6 +76,24 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
       await admin.from("official_broadcast_recipients").update({
         status: "accepted", meta_message_id: result.messageId || null, flow_run_id: result.flowRunId, sent_at: new Date().toISOString()
       }).eq("id", recipient.id);
+      // Fecha a corrida em que o status da Meta chega antes de o recipient receber o wamid.
+      if (result.messageId) {
+        const { data: latestMessage } = await admin.from("official_messages")
+          .select("status,error,delivered_at,read_at,failed_at,status_payload")
+          .eq("meta_message_id", result.messageId)
+          .limit(1)
+          .maybeSingle();
+        if (latestMessage && latestMessage.status !== "accepted") {
+          await admin.from("official_broadcast_recipients").update({
+            status: latestMessage.status,
+            error: latestMessage.error,
+            delivered_at: latestMessage.delivered_at,
+            read_at: latestMessage.read_at,
+            failed_at: latestMessage.failed_at,
+            status_payload: latestMessage.status_payload
+          }).eq("id", recipient.id);
+        }
+      }
       acceptedDelta += 1;
     } catch (error) {
       const code = officialErrorCode(error);

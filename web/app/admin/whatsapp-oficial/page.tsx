@@ -29,14 +29,22 @@ type Status = {
   waba: { checked: boolean; accessible: boolean; name?: string; error?: string };
 };
 type Template = { name: string; category: string; status: string; language: string; variables: { header: number; body: number; buttons: number }; parameterFormat: "POSITIONAL" | "NAMED"; namedVariables: { header: string[]; body: string[] } };
-type MessageLog = { id: string; phone: string; template_name: string; template_language: string; status: string; error: string | null; created_at: string };
+type MessageLog = { id: string; phone: string; template_name: string | null; template_language: string | null; status: string; error: string | null; created_at: string };
 type HublaEvent = { id: string; event_type: string | null; provider_event_id: string | null; customer_name: string | null; customer_phone: string | null; product_name: string | null; status: string; error: string | null; payload: unknown; created_at: string };
 type Automation = { id: string; event_type: string; product_id: string | null; product_name: string | null; template_name: string; template_language: string; variable_mapping: { header?: Record<string, string>; body?: Record<string, string> }; active: boolean };
+type FunnelSummary = {
+  hours: number;
+  totals: { sent: number; delivered: number; read: number; first_button_clicks: number; final_messages: number; final_link_clicks: number; group_joins: number; failures: number };
+};
 
 const ERROR_LABELS: Record<string, string> = {
   META_NOT_CONFIGURED: "Variáveis META_* não configuradas no servidor.",
   META_AUTH_ERROR: "Token de acesso inválido ou expirado.",
   META_SEND_ERROR: "Não foi possível falar com a Meta agora."
+};
+
+const MESSAGE_STATUS_LABELS: Record<string, string> = {
+  queued: "Na fila", accepted: "Aceita", sent: "Enviada", delivered: "Entregue", read: "Lida", failed: "Falhou"
 };
 
 function CheckRow({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
@@ -52,6 +60,7 @@ export default function WhatsappOficialPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState("");
   const [messages, setMessages] = useState<MessageLog[]>([]);
+  const [funnel, setFunnel] = useState<FunnelSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [phone, setPhone] = useState("");
@@ -87,6 +96,12 @@ export default function WhatsappOficialPage() {
     setMessages(data.messages || []);
   }
 
+  async function loadFunnel() {
+    const response = await fetch("/api/admin/official/funnel?hours=24", { cache: "no-store" });
+    const data = await response.json();
+    if (response.ok) setFunnel(data.funnel || null);
+  }
+
   async function loadTemplates() {
     const response = await fetch("/api/admin/official/templates", { cache: "no-store" });
     const data = await response.json();
@@ -113,7 +128,7 @@ export default function WhatsappOficialPage() {
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadStatus(), loadTemplates(), loadMessages(), loadHubla(), loadAutomations()]);
+    await Promise.all([loadStatus(), loadTemplates(), loadMessages(), loadFunnel(), loadHubla(), loadAutomations()]);
     setLoading(false);
   }
 
@@ -291,6 +306,31 @@ export default function WhatsappOficialPage() {
       </section>
 
       <section className="rounded-lg border border-line bg-panel p-6 shadow-soft">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Funil das últimas 24 horas</h2>
+            <p className="mt-1 text-sm text-muted">Da mensagem inicial até a entrada confirmada no grupo.</p>
+          </div>
+          <button type="button" onClick={loadFunnel} className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:underline"><RefreshCw size={14} /> Atualizar</button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Disparadas", funnel?.totals.sent],
+            ["Entregues", funnel?.totals.delivered],
+            ["Lidas", funnel?.totals.read],
+            ["Clique em ver detalhes", funnel?.totals.first_button_clicks],
+            ["Botão final enviado", funnel?.totals.final_messages],
+            ["Clique em entrar no grupo", funnel?.totals.final_link_clicks],
+            ["Entradas confirmadas", funnel?.totals.group_joins],
+            ["Falhas", funnel?.totals.failures]
+          ].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-line bg-wash px-4 py-3">
+            <div className="text-xs text-muted">{label}</div>
+            <div className="mt-1 text-2xl font-semibold text-ink">{value ?? "—"}</div>
+          </div>)}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-panel p-6 shadow-soft">
         <h2 className="text-lg font-semibold text-ink">Enviar mensagem de teste</h2>
         <p className="mt-1 text-sm text-muted">Envia um template aprovado diretamente pela WhatsApp Cloud API. Use um template simples para o primeiro teste.</p>
         {templatesError ? <div className="mt-4"><ErrorState message={templatesError} /></div> : null}
@@ -408,8 +448,8 @@ export default function WhatsappOficialPage() {
           rows={messages.map((message) => [
             new Date(message.created_at).toLocaleString("pt-BR"),
             message.phone,
-            `${message.template_name} (${message.template_language})`,
-            <span key="status" className={`rounded-full border px-2.5 py-1 text-xs font-medium ${message.status === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{message.status}</span>,
+            message.template_name ? `${message.template_name} (${message.template_language})` : "Resposta após clique",
+            <span key="status" className={`rounded-full border px-2.5 py-1 text-xs font-medium ${message.status === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{MESSAGE_STATUS_LABELS[message.status] || message.status}</span>,
             message.error || "—"
           ])}
         />

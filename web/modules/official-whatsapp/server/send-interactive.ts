@@ -8,7 +8,7 @@ export type ResolvedContent = { text: string | null; caption: string | null; med
 // Monta o payload exato da Cloud API. Função pura — sem rede, sem resolver variável, sem subir
 // mídia. Áudio nunca pode ter botão: a Meta não aceita áudio como header de mensagem interactive,
 // só image/video/document (ou nenhum header, para resposta_type=text).
-export function buildQuickReplyMessage(action: QuickReplyAction, phone: string, resolved: ResolvedContent): Record<string, unknown> {
+export function buildQuickReplyMessage(action: QuickReplyAction, phone: string, resolved: ResolvedContent, buttonUrlOverride?: string): Record<string, unknown> {
   const base = { messaging_product: "whatsapp", to: phone };
   const buttonConfig = action.response_type === "audio" ? null : action.button_config;
 
@@ -26,7 +26,7 @@ export function buildQuickReplyMessage(action: QuickReplyAction, phone: string, 
     : null;
 
   const action_ = buttonConfig.type === "url"
-    ? { name: "cta_url", parameters: { display_text: buttonConfig.text, url: buttonConfig.url } }
+    ? { name: "cta_url", parameters: { display_text: buttonConfig.text, url: buttonUrlOverride || buttonConfig.url } }
     : { buttons: [{ type: "reply", reply: { id: buttonConfig.payload, title: buttonConfig.text } }] };
 
   return {
@@ -41,7 +41,7 @@ export function buildQuickReplyMessage(action: QuickReplyAction, phone: string, 
   };
 }
 
-export async function sendQuickReplyMessage(action: QuickReplyAction, rawPhone: string, resolved: ResolvedContent) {
+export async function sendQuickReplyMessage(action: QuickReplyAction, rawPhone: string, resolved: ResolvedContent, buttonUrlOverride?: string) {
   let phone: string;
   try {
     phone = normalizeBrazilianPhone(rawPhone);
@@ -49,7 +49,7 @@ export async function sendQuickReplyMessage(action: QuickReplyAction, rawPhone: 
     throw new OfficialWhatsAppError("INVALID_PHONE", "Telefone do clique inválido.");
   }
   const { phoneNumberId } = metaIdentifiers();
-  const requestPayload = buildQuickReplyMessage(action, phone, resolved);
+  const requestPayload = buildQuickReplyMessage(action, phone, resolved, buttonUrlOverride);
   const response = await graphRequest(`/${phoneNumberId}/messages`, { method: "POST", body: JSON.stringify(requestPayload) });
   return { phone, requestPayload, response, messageId: response?.messages?.[0]?.id as string | undefined };
 }

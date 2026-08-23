@@ -3,6 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { captureMetaButtonClick } from "@/modules/official-whatsapp/server/hubla-events";
 import { processButtonClickEvent } from "@/modules/official-whatsapp/server/flow-processor";
+import { applyMetaMessageStatus } from "@/modules/official-whatsapp/server/messages-store";
 
 // Handshake de assinatura do webhook (feito uma vez, ao configurar na Meta).
 export async function GET(request: NextRequest) {
@@ -26,6 +27,15 @@ function signatureValid(rawBody: string, header: string | null, appSecret: strin
   return timingSafeEqual(a, b);
 }
 
+async function persistMetaStatus(status: unknown) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await applyMetaMessageStatus(status);
+    if (result.matched || result.ignored) return;
+    // O webhook pode chegar milissegundos antes do log do retorno síncrono do envio.
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+}
+
 // Endpoint público — segurança real é a assinatura X-Hub-Signature-256 (HMAC do corpo com o
 // App Secret), não o verify_token (que só serve pro handshake de GET). Responde rápido e
 // processa depois via after() — mesmo padrão do webhook da Hubla.
@@ -36,9 +46,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
   }
 
-  const body = JSON.parse(rawBody || "null");
+  let body: any;
+  try {
+    body = JSON.parse(rawBody || "null");
+  } catch {
+    return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
+  }
   const messages: any[] = (body?.entry || []).flatMap((entry: any) => (entry?.changes || []).flatMap((change: any) => change?.value?.messages || []));
+  const statuses: any[] = (body?.entry || []).flatMap((entry: any) => (entry?.changes || []).flatMap((change: any) => change?.value?.statuses || []));
   const buttonClicks = messages.filter((message) => message?.type === "button" && message?.button?.payload && message?.from && message?.id);
+
+  if (statuses.length) {
+    after(async () => {
+      for (const status of statuses) {
+        await persistMetaStatus(status).catch((error) => console.error("[official-whatsapp] Falha ao persistir status da Meta:", error));
+      }
+    });
+  }
 
   for (const click of buttonClicks) {
     const result = await captureMetaButtonClick({

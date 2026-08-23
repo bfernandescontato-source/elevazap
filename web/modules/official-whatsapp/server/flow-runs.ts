@@ -14,6 +14,11 @@ export type FlowRun = {
   created_at: string;
   clicked_at: string | null;
   completed_at: string | null;
+  final_meta_message_id: string | null;
+  final_destination_url: string | null;
+  final_link_clicked_at: string | null;
+  joined_group_at: string | null;
+  joined_group_jid: string | null;
 };
 
 export async function createFlowRun(input: {
@@ -44,6 +49,26 @@ export async function findFlowRunByMessageId(messageId: string): Promise<FlowRun
   const { data, error } = await admin.from("official_flow_runs").select("*").eq("initial_meta_message_id", messageId).maybeSingle();
   if (error) throw error;
   return data;
+}
+
+export async function getFlowRun(id: string): Promise<FlowRun | null> {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("official_flow_runs").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function setFlowRunFinalDestination(id: string, destinationUrl: string) {
+  const admin = supabaseAdmin();
+  const { error } = await admin.from("official_flow_runs").update({ final_destination_url: destinationUrl }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setFlowRunFinalMessageId(id: string, messageId: string | null) {
+  if (!messageId) return;
+  const admin = supabaseAdmin();
+  const { error } = await admin.from("official_flow_runs").update({ final_meta_message_id: messageId }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function markFlowRunStatus(id: string, status: FlowRunStatus) {

@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const components = buildTestComponents(template);
     const result = await sendWhatsAppTemplate({ phone, templateName: template.name, language: template.language, components });
     // "accepted": a Meta apenas confirmou o recebimento síncrono da requisição.
-    // sent/delivered/read chegam depois pelo webhook de status (fase 5).
+    // sent/delivered/read chegam depois pelo webhook de status da Meta.
     await logMessageAttempt({
       eventId: null,
       phone: result.phone,

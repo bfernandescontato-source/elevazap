@@ -1,15 +1,16 @@
 import { normalizeBrazilianPhone } from "@/lib/phone";
 import { getFlow } from "./flows";
-import { createFlowRun, findFlowRunByMessageId, markFlowRunStatus } from "./flow-runs";
+import { createFlowRun, findFlowRunByMessageId, markFlowRunStatus, setFlowRunFinalDestination, setFlowRunFinalMessageId } from "./flow-runs";
 import { findTemplate } from "./templates";
 import { sendWhatsAppTemplate } from "./send-template";
 import { sendQuickReplyMessage } from "./send-interactive";
 import { uploadMediaFromStorage } from "./meta-media";
-import { logMessageAttempt } from "./messages-store";
+import { attachMessageToFlowRun, logMessageAttempt } from "./messages-store";
 import { markEventStatus } from "./hubla-events";
 import { processQuickReplyClick } from "./quick-reply-processor";
 import { buildTemplateComponents, missingRequiredVariables, renderTemplateText, type EventContext } from "./variable-resolver";
 import { OfficialWhatsAppError, officialErrorCode, officialErrorMessage } from "./errors";
+import { buildTrackedFinalLink } from "./tracked-links";
 
 // Envia o template inicial de um fluxo pra UM contato e cria o flow_run que vai permitir achar
 // o contexto certo quando o clique chegar (fase B/C vão chamar isto em lote, um contato por vez).
@@ -40,6 +41,7 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
     flowId: flow.id, source: input.source, sourceReference: input.sourceReference,
     phone: result.phone, context: input.context, initialMetaMessageId: result.messageId || null
   });
+  await attachMessageToFlowRun(result.messageId, run.id).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem inicial ao fluxo:", error));
   return { flowRunId: run.id, phone: result.phone, messageId: result.messageId };
 }
 
@@ -84,11 +86,17 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
     if (action.response_type !== "text" && action.media_bucket && action.media_path) {
       mediaId = await uploadMediaFromStorage(action.media_bucket, action.media_path, action.mime_type || "application/octet-stream", action.file_name || "arquivo");
     }
-    const result = await sendQuickReplyMessage(action, run.phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId });
+    let buttonUrlOverride: string | undefined;
+    if (action.button_config?.type === "url") {
+      await setFlowRunFinalDestination(run.id, action.button_config.url);
+      buttonUrlOverride = buildTrackedFinalLink(run.id);
+    }
+    const result = await sendQuickReplyMessage(action, run.phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId }, buttonUrlOverride);
     await logMessageAttempt({
-      eventId: null, phone: result.phone, status: "accepted", metaMessageId: result.messageId || null,
+      eventId: null, flowRunId: run.id, phone: result.phone, status: "accepted", metaMessageId: result.messageId || null,
       requestPayload: result.requestPayload, responsePayload: result.response
     });
+    await setFlowRunFinalMessageId(run.id, result.messageId || null).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem final ao fluxo:", error));
     await markFlowRunStatus(run.id, "completed");
     await markEventStatus(eventId, "processed", null, { quickReplyActionId: action.id });
   } catch (error) {

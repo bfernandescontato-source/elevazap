@@ -11,6 +11,7 @@ import { buildQuickReplyMessage } from "../modules/official-whatsapp/server/send
 import type { QuickReplyAction } from "../modules/official-whatsapp/server/quick-reply-actions";
 import { generateExternalSecret, hashExternalSecret, externalSecretMatches, parseExternalSourceInput } from "../modules/official-whatsapp/server/external-sources";
 import { extractLeadFields, resolveContentName, buildLeadContext } from "../modules/official-whatsapp/server/external-leads";
+import { createTrackedLinkToken, verifyTrackedLinkToken } from "../modules/official-whatsapp/server/tracked-links";
 
 describe("normalização de telefone (reaproveitada no WhatsApp Oficial)", () => {
   it("aceita formatos comuns de telefone brasileiro", () => {
@@ -311,10 +312,28 @@ describe("montagem do payload de resposta a Quick Reply (Cloud API)", () => {
     expect(message.interactive.action).toEqual({ name: "cta_url", parameters: { display_text: "ACESSAR", url: "https://x.com/bonus" } });
   });
 
+  it("substitui a URL direta pelo redirecionamento rastreável sem alterar o texto do botão", () => {
+    const action = makeAction({ response_type: "text", response_text: "Entre agora", button_config: { type: "url", text: "ENTRAR NO GRUPO", url: "https://chat.whatsapp.com/original" } });
+    const message: any = buildQuickReplyMessage(action, "5519999999999", { text: "Entre agora", caption: null, mediaId: null }, "https://disparei.pro/o/token");
+    expect(message.interactive.action).toEqual({ name: "cta_url", parameters: { display_text: "ENTRAR NO GRUPO", url: "https://disparei.pro/o/token" } });
+  });
+
   it("documento com botão inclui filename no header", () => {
     const action = makeAction({ response_type: "document", file_name: "contrato.pdf", button_config: { type: "quick_reply", text: "OK", payload: "ok" } });
     const message: any = buildQuickReplyMessage(action, "5519999999999", { text: null, caption: "Segue o arquivo", mediaId: "media123" });
     expect(message.interactive.header).toEqual({ type: "document", document: { id: "media123", filename: "contrato.pdf" } });
+  });
+});
+
+describe("assinatura do link final rastreável", () => {
+  const flowRunId = "123e4567-e89b-42d3-a456-426614174000";
+  const secret = "s".repeat(32);
+
+  it("aceita o token íntegro e rejeita adulteração", () => {
+    const token = createTrackedLinkToken(flowRunId, secret);
+    expect(verifyTrackedLinkToken(token, secret)).toBe(flowRunId);
+    expect(verifyTrackedLinkToken(`${flowRunId}.${token.split(".")[1]}x`, secret)).toBeNull();
+    expect(verifyTrackedLinkToken(token, "x".repeat(32))).toBeNull();
   });
 });
 

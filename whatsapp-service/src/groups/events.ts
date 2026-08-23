@@ -1,6 +1,7 @@
 import { supabase } from "../supabase.js";
 import { syncGroupMetadata } from "./sync.js";
 import { dbResult } from "../utils/db.js";
+import { trackOfficialGroupJoin } from "./official-funnel-tracking.js";
 
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -38,6 +39,8 @@ async function persistForCampaigns(senderId: string | null, groupJid: string, so
 export function scheduleParticipantEventSync(senderId: string | null, update: any, sock: any) {
   const groupJid = typeof update?.id === "string" ? update.id : "";
   if (!/^\d+(-\d+)?@g\.us$/.test(groupJid)) return;
+
+  trackOfficialGroupJoin(senderId, update, sock).catch((error) => console.error("[groups] official funnel tracking error:", error));
 
   const key = `${senderId || "principal"}:${groupJid}`;
   const current = pending.get(key);
