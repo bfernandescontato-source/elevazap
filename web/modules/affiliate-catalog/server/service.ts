@@ -52,7 +52,9 @@ export async function getCatalog(database: any, accountId: string, input: { prov
     return 0;
   });
   let categories: CatalogCategory[] = [{ id: null, label: "Todas" }];
-  if (input.provider === "SHOPEE") categories = catalogCategories.map(category => ({ ...category, id: category.id === null ? null : String(category.id) }));
+  // As categorias são da Shopee. Mantê-las também na visão "Todos" preserva
+  // a navegação por categoria da vitrine, mesmo quando há mais de um marketplace.
+  if (input.provider === "SHOPEE" || input.provider === "ALL") categories = catalogCategories.map(category => ({ ...category, id: category.id === null ? null : String(category.id) }));
   if (input.provider === "MERCADO_LIVRE") {
     try { categories = await cached("mercado-livre:categories", 24 * 60 * 60_000, () => withMercadoLivreAuthRetry(client => client.getCategories())); }
     catch (error) { providerErrors.MERCADO_LIVRE ||= codeOf(error, "MERCADO_LIVRE_CATEGORIES_UNAVAILABLE"); }
