@@ -43,6 +43,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null) as Record<string, any> | null;
   if (!body) return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
 
+  // Nos testes da Hubla, invoice/subscription IDs terminados em "-tester" são
+  // reutilizados mesmo quando o operador informa outro e-mail. Não podemos usar
+  // esses IDs fictícios para localizar ou vincular contas reais.
+  const isSandbox = request.headers.get("x-hubla-sandbox")?.toLowerCase() === "true";
+
   const eventType = String(body.type || "");
   if (!EVENT_STATUS[eventType]) return NextResponse.json({ ok: true, ignored: true });
 
@@ -95,9 +100,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Falha ao registrar evento." }, { status: 500 });
   }
 
-  const subscriptionId = String(
+  const receivedSubscriptionId = String(
     subscription.id || invoice.subscriptionId || event.subscriptionId || ""
   ).trim() || null;
+  const subscriptionId = isSandbox ? null : receivedSubscriptionId;
 
   try {
     // Busca conta existente por subscription ID ou por email

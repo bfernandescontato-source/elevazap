@@ -58,6 +58,7 @@ describe("isolamento multi-tenant", () => {
     const source = read("web/app/api/webhook/hubla/route.ts");
     expect(source).toContain('x-hubla-token');
     expect(source).toContain('x-hubla-idempotency');
+    expect(source).toContain('x-hubla-sandbox');
     expect(source).toContain('"invoice.payment_succeeded"');
     expect(source).toContain('invoice.id');
     expect(source).toContain('const INITIAL_PASSWORD = "123456"');
