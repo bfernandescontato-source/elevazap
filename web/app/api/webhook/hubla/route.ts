@@ -56,9 +56,14 @@ export async function POST(request: NextRequest) {
   if (!email.includes("@"))
     return NextResponse.json({ error: "E-mail ausente no evento." }, { status: 400 });
 
-  // Identificação do plano via offer code (campo canônico da Hubla)
-  const offerCode  = String(event.product?.id || event.products?.[0]?.offers?.[0]?.id || "").trim();
-  const planName   = offerCode ? getPlanFromOfferCode(offerCode) : null;
+  // O ID da oferta é o identificador de checkout. Em alguns payloads da Hubla,
+  // event.product.id é o ID do produto (diferente do ID da oferta), então ele
+  // só deve ser usado como fallback.
+  const offerCodes = [
+    event.products?.[0]?.offers?.[0]?.id,
+    event.product?.id,
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+  const planName = offerCodes.map(getPlanFromOfferCode).find(Boolean) ?? null;
 
   // A Hubla não envia um cabeçalho de idempotência próprio no webhook v2. Para
   // compras, a fatura é o identificador estável; mantemos o header como override
