@@ -159,6 +159,16 @@ Respostas:
 
 O endpoint valida token, payload, telefone, rate limit persistente e grava job idempotente com `transaction_id`. Ele responde rápido e nunca depende de processamento assíncrono da Vercel depois da resposta.
 
+## Webhook Hubla — criação de conta Shop Lab
+
+Para a oferta Shop Lab (`DaheQpgnIGPTloukiCPa`), cadastre na Hubla um webhook de:
+
+- Evento: `invoice.payment_succeeded`
+- URL: `https://elevazap-web.vercel.app/api/webhook/hubla`
+- Cabeçalho: `x-hubla-token` com o valor de `HUBLA_WEBHOOK_TOKEN` configurado na Vercel
+
+O pagamento cria uma conta ativa no plano `START` e usa o ID da fatura da Hubla como chave de idempotência. Não é necessário configurar `x-hubla-idempotency`: a Hubla v2 não o envia e a aplicação usa o identificador da fatura automaticamente.
+
 ## Segurança
 
 - Login admin usa bcrypt e cookie HTTP-only.

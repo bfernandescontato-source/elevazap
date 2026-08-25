@@ -9,6 +9,8 @@ import { getPlanFromOfferCode, getPlanLabel } from "@/lib/plans";
 const EVENT_STATUS: Record<string, "active" | "cancelled" | "expired" | "refunded"> = {
   "subscription.activated":   "active",
   "subscription.reactivated": "active",
+  // Compra avulsa da oferta Shop Lab na Hubla (payload v2).
+  "invoice.payment_succeeded": "active",
   // "subscription.updated": "active",  // upgrade/downgrade — confirmar nome do evento
   "subscription.cancelled": "cancelled",
   "subscription.canceled":  "cancelled",
@@ -38,10 +40,6 @@ export async function POST(request: NextRequest) {
   if (!configured || request.headers.get("x-hubla-token") !== configured)
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
 
-  const idempotencyKey = request.headers.get("x-hubla-idempotency")?.trim();
-  if (!idempotencyKey)
-    return NextResponse.json({ error: "Cabeçalho de idempotência ausente." }, { status: 400 });
-
   const body = await request.json().catch(() => null) as Record<string, any> | null;
   if (!body) return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
 
@@ -50,16 +48,31 @@ export async function POST(request: NextRequest) {
 
   // Extração de dados do payload (com fallbacks para variações da Hubla)
   const event       = body.event || body.data || body;
-  const user        = event.user || body.user || {};
-  const subscription = event.subscription || body.subscription || {};
+  const invoice     = event.invoice || body.invoice || {};
+  const user        = event.user || body.user || invoice.payer || {};
+  const subscription = event.subscription || body.subscription || event.subscriptions?.[0] || {};
 
   const email = String(user.email || event.email || "").trim().toLowerCase();
   if (!email.includes("@"))
     return NextResponse.json({ error: "E-mail ausente no evento." }, { status: 400 });
 
   // Identificação do plano via offer code (campo canônico da Hubla)
-  const offerCode  = String(event.products?.[0]?.offers?.[0]?.id || "").trim();
+  const offerCode  = String(event.product?.id || event.products?.[0]?.offers?.[0]?.id || "").trim();
   const planName   = offerCode ? getPlanFromOfferCode(offerCode) : null;
+
+  // A Hubla não envia um cabeçalho de idempotência próprio no webhook v2. Para
+  // compras, a fatura é o identificador estável; mantemos o header como override
+  // para integrações antigas.
+  const idempotencyKey = request.headers.get("x-hubla-idempotency")?.trim()
+    || String(invoice.id || invoice.orderId || "").trim();
+  if (!idempotencyKey)
+    return NextResponse.json({ error: "Identificador de idempotência ausente." }, { status: 400 });
+
+  // Não cria conta para compras de outros produtos que eventualmente usem a
+  // mesma URL de webhook. A oferta Shop Lab está mapeada explicitamente ao START.
+  if (eventType === "invoice.payment_succeeded" && planName !== "start") {
+    return NextResponse.json({ ok: true, ignored: true });
+  }
 
   const admin = supabaseAdmin();
   const audit = {
@@ -78,7 +91,7 @@ export async function POST(request: NextRequest) {
   }
 
   const subscriptionId = String(
-    subscription.id || event.subscriptionId || ""
+    subscription.id || invoice.subscriptionId || event.subscriptionId || ""
   ).trim() || null;
 
   try {
@@ -99,7 +112,7 @@ export async function POST(request: NextRequest) {
       account = related || null;
     }
 
-    if (eventType === "subscription.activated" && !account) {
+    if ((eventType === "subscription.activated" || eventType === "invoice.payment_succeeded") && !account) {
       // Primeiro acesso: criar conta e usuário
       const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
         || email.split("@")[0];

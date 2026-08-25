@@ -15,6 +15,8 @@ export type PlanDefinition = {
 
 // Offer codes da Hubla → nome canônico do plano
 export const OFFER_CODE_TO_PLAN: Record<string, PlanName> = {
+  // Shop Lab — oferta usada no checkout da Hubla.
+  DaheQpgnIGPTloukiCPa: "start",
   LI3Txcm3rWNDfrCIybVW: "start",
   BRRDudofJKxPpKFJHBxe: "pro",
   "3kJ87CEotVEFhsSsGCYC": "scale",
