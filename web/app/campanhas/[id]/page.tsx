@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
-import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, TrendingDown, TrendingUp, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, TrendingDown, TrendingUp, Users, X } from "lucide-react";
 
 type Group = {
   group_jid: string;
@@ -122,6 +122,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   const [period, setPeriod] = useState<Period>("hoje");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [downloadingGroup, setDownloadingGroup] = useState("");
 
   const campaign = detail?.campaign;
   const groups = useMemo(() => campaign?.groups || [], [campaign?.groups]);
@@ -164,6 +165,28 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   }, [periodRange, period]);
 
   function showMessage(message: string) { setToast(message); window.setTimeout(() => setToast(""), 3500); }
+
+  async function downloadGroupContacts(group: Group) {
+    if (!campaign?.whatsapp_sender_id) throw new Error("Selecione um número para a campanha antes de baixar os contatos.");
+    setDownloadingGroup(group.group_jid);
+    try {
+      const response = await fetch(`/api/whatsapp/groups/${encodeURIComponent(group.group_jid)}/contacts?sender_id=${encodeURIComponent(campaign.whatsapp_sender_id)}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Não foi possível baixar os contatos.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "contatos-do-grupo.csv";
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = filename; anchor.click();
+      URL.revokeObjectURL(url);
+      showMessage("Contatos baixados com sucesso.");
+    } finally {
+      setDownloadingGroup("");
+    }
+  }
 
   async function load(sync = false) {
     if (sync) await fetch(`/api/campanhas/${id}/sync-groups`, { method: "POST" }).catch(() => undefined);
@@ -486,6 +509,10 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
                         <div className="mt-0.5 text-xs text-muted">{campaign.whatsapp_senders?.label || "Número principal"}</div>
                       </div>
                       <div className="flex shrink-0 gap-1">
+                        <button title="Baixar todos os contatos" disabled={downloadingGroup === group.group_jid} onClick={() => downloadGroupContacts(group).catch((err) => showMessage(err.message))} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs font-medium transition hover:bg-wash disabled:opacity-50">
+                          {downloadingGroup === group.group_jid ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                          <span className="hidden lg:inline">Baixar contatos</span>
+                        </button>
                         <button title="Mover para cima" disabled={index === 0} onClick={() => moveGroup(index, -1)} className="grid h-8 w-8 place-items-center rounded-lg border border-line transition hover:bg-wash disabled:opacity-30"><ArrowUp size={14} /></button>
                         <button title="Mover para baixo" disabled={index === groups.length - 1} onClick={() => moveGroup(index, 1)} className="grid h-8 w-8 place-items-center rounded-lg border border-line transition hover:bg-wash disabled:opacity-30"><ArrowDown size={14} /></button>
                         <button title="Remover da campanha" onClick={() => setRemoveTarget(group)} className="grid h-8 w-8 place-items-center rounded-lg border border-red-200 text-red-600 transition hover:bg-red-50"><X size={14} /></button>

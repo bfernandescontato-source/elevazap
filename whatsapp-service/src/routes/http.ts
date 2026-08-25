@@ -7,6 +7,7 @@ import {
   refreshSenderGroups,
   resolveSenderGroupInvite,
   syncSenderGroups,
+  listSenderGroupContacts,
   startSenderSessionByName,
   getSenderRuntimeStats
 } from "../senders/runtime.js";
@@ -111,6 +112,14 @@ export function createHttpServer(
     try {
       const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
       res.json({ groups: await syncSenderGroups(req.params.sessionName, groupJids) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/groups/contacts", async (req, res) => {
+    try {
+      res.json(await listSenderGroupContacts(req.params.sessionName, String(req.body?.groupJid || "")));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

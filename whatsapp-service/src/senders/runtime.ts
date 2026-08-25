@@ -132,3 +132,25 @@ export async function syncSenderGroups(sessionName: string, groupJids: string[])
   if (!managed) throw new Error("Sessão não pertence a uma conta.");
   return syncGroupMetadata(sock, groupJids, managed.accountId);
 }
+
+export async function listSenderGroupContacts(sessionName: string, groupJid: string) {
+  if (!/^\d+(-\d+)?@g\.us$/.test(groupJid)) throw new Error("Grupo inválido.");
+  const sock = getSenderSock(sessionName);
+  if (!sock) throw new Error("Número de disparo desconectado.");
+  const metadata = await sock.groupMetadata(groupJid);
+  if (!Array.isArray(metadata?.participants)) throw new Error("O WhatsApp não retornou os participantes deste grupo.");
+
+  const contacts = metadata.participants.map((participant: any) => {
+    const candidates = [participant?.phoneNumber, participant?.jid, participant?.id]
+      .filter((value): value is string => typeof value === "string");
+    const phoneJid = candidates.find((value) => value.endsWith("@s.whatsapp.net")) || "";
+    const phone = phoneJid.split("@")[0]?.split(":")[0]?.replace(/\D/g, "") || "";
+    return {
+      phone,
+      whatsapp_id: String(participant?.id || participant?.jid || ""),
+      role: participant?.admin === "superadmin" ? "proprietario" : participant?.admin === "admin" ? "administrador" : "participante"
+    };
+  });
+
+  return { group_jid: groupJid, group_name: String(metadata.subject || groupJid), contacts };
+}
