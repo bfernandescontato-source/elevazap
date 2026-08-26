@@ -19,5 +19,8 @@ export async function PUT(request: NextRequest) {
   const parsed = automationConfigSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Configuração inválida." }, { status: 400 });
   try { return NextResponse.json({ automation: await saveAutopilot(context.database, context.accountId, context.session.userId!, parsed.data) }); }
-  catch (error) { return serverError(error, "Não foi possível salvar o Piloto Automático."); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : (error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message) : "Não foi possível salvar o Piloto Automático.");
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
