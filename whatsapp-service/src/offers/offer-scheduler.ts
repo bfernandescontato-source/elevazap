@@ -2,6 +2,11 @@ import type { AutomationSchedule } from "./types.js";
 
 type Parts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
 
+// A Pilot queue that is more than a week ahead is no longer operationally useful:
+// it is normally a stale schedule left behind by a reset or an old configuration.
+// Do not let it postpone every new offer indefinitely.
+const MAX_QUEUE_AHEAD_MS = 7 * 24 * 60 * 60 * 1_000;
+
 function zonedParts(date: Date, timezone: string): Parts {
   const values = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
@@ -34,7 +39,8 @@ function addLocalDays(parts: Parts, days: number): Parts {
 
 export function nextOfferSlot(schedule: AutomationSchedule, now: Date, lastScheduledAt?: Date | null) {
   const intervalMs = schedule.intervalMinutes * 60_000;
-  const earliest = new Date(Math.max(now.getTime(), lastScheduledAt ? lastScheduledAt.getTime() + intervalMs : now.getTime()));
+  const lastIsUsable = Boolean(lastScheduledAt && lastScheduledAt.getTime() <= now.getTime() + MAX_QUEUE_AHEAD_MS);
+  const earliest = new Date(Math.max(now.getTime(), lastIsUsable && lastScheduledAt ? lastScheduledAt.getTime() + intervalMs : now.getTime()));
   const local = zonedParts(earliest, schedule.timezone);
   const currentMinute = local.hour * 60 + local.minute;
   const startMinute = clock(schedule.operatingStart);

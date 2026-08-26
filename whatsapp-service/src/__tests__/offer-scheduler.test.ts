@@ -16,4 +16,11 @@ describe("OfferScheduler", () => {
     const next = nextOfferSlot(schedule, last, last);
     expect(next.toISOString()).toBe("2026-08-15T10:30:00.000Z");
   });
+
+  it("ignora uma referência antiga demais no futuro", () => {
+    const now = new Date("2026-08-26T20:30:00Z");
+    const staleFuture = new Date("2026-09-04T22:30:00Z");
+    const next = nextOfferSlot(schedule, now, staleFuture);
+    expect(next.toISOString()).toBe(now.toISOString());
+  });
 });
