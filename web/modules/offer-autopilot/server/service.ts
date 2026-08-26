@@ -3,6 +3,43 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getMercadoLivreIntegration, getShopeeIntegration, hasConnectedIntegration } from "@/modules/integrations/server/service";
 import { assertOwnedGroupSelection } from "../ownership";
 
+async function cancelPendingPilotDispatches(database: SupabaseClient, accountId: string, automationId: string) {
+  const now = new Date().toISOString();
+  const { data: offers, error: offersError } = await database.from("captured_offers").select("id")
+    .eq("account_id", accountId).eq("automation_id", automationId).in("status", ["captured", "processing", "ready", "scheduled", "processing_failed", "send_failed"]);
+  if (offersError) throw offersError;
+  const offerIds = (offers || []).map((offer) => offer.id);
+  if (!offerIds.length) return;
+
+  const { data: deliveries, error: deliveriesError } = await database.from("offer_deliveries").select("group_dispatch_id")
+    .eq("account_id", accountId).in("offer_id", offerIds);
+  if (deliveriesError) throw deliveriesError;
+  const dispatchIds = (deliveries || []).map((delivery) => delivery.group_dispatch_id).filter(Boolean);
+  if (dispatchIds.length) {
+    const { data: dispatches, error: dispatchesError } = await database.from("envios_grupo").select("id,lote_id")
+      .eq("account_id", accountId).in("id", dispatchIds);
+    if (dispatchesError) throw dispatchesError;
+    const loteIds = Array.from(new Set((dispatches || []).map((dispatch) => dispatch.lote_id).filter(Boolean)));
+    const { error: cancelDispatchError } = await database.from("envios_grupo").update({
+      status: "cancelado", erro: "Piloto Automático desativado.", updated_at: now
+    }).eq("account_id", accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado", "pausado"]);
+    if (cancelDispatchError) throw cancelDispatchError;
+    if (loteIds.length) {
+      const { error: loteError } = await database.from("envios_grupo_lotes").update({ status: "cancelado", updated_at: now })
+        .eq("account_id", accountId).in("id", loteIds);
+      if (loteError) throw loteError;
+    }
+  }
+  const { error: deliveryCancelError } = await database.from("offer_deliveries").update({
+    status: "cancelled", error_message: "Piloto Automático desativado.", updated_at: now
+  }).eq("account_id", accountId).in("offer_id", offerIds).in("status", ["pending", "scheduled"]);
+  if (deliveryCancelError) throw deliveryCancelError;
+  const { error: offerCancelError } = await database.from("captured_offers").update({
+    status: "ignored", error_code: "PILOT_DISABLED", error_message: "Piloto Automático desativado.", processed_at: now, updated_at: now
+  }).eq("account_id", accountId).in("id", offerIds);
+  if (offerCancelError) throw offerCancelError;
+}
+
 export async function loadAutopilot(database: SupabaseClient, accountId: string) {
   const [{ data: automation, error: automationError }, { data: senders, error: sendersError }, shopeeIntegration, mercadoLivreIntegration] = await Promise.all([
     database.from("offer_automations").select("*").eq("account_id", accountId).maybeSingle(),
@@ -68,6 +105,7 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
     ...config, account_id: accountId, created_by: userId, updated_at: new Date().toISOString()
   }, { onConflict: "account_id" }).select("*").single();
   if (error) throw error;
+  if (!config.enabled) await cancelPendingPilotDispatches(database, accountId, automation.id);
   await Promise.all([
     database.from("automation_source_groups").delete().eq("account_id", accountId).eq("automation_id", automation.id),
     database.from("automation_destinations").delete().eq("account_id", accountId).eq("automation_id", automation.id)
