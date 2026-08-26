@@ -20,8 +20,9 @@ export type WhatsAppSession = {
 
 type MessageHandler = (messages: any[], upsertType?: string) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
+type StatusHandler = (status: ReturnType<WhatsAppSession["getStatus"]>, error: string | null) => Promise<void>;
 
-export async function createWhatsAppSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string): Promise<WhatsAppSession> {
+export async function createWhatsAppSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string, onStatus?: StatusHandler): Promise<WhatsAppSession> {
   let auth = await useSupabaseAuthState(sessionId, accountId);
   let sock: any = null;
   let status: ReturnType<WhatsAppSession["getStatus"]> = "idle";
@@ -29,6 +30,10 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   let stopped = false;
   let starting = false;
   let lastError: string | null = null;
+
+  const reportStatus = () => onStatus?.(status, lastError).catch((error) =>
+    console.error({ event: "whatsapp.status_persist_failed", component: "managed-session", ...errorFields(error) })
+  );
 
   async function finishLogout() {
     if (!sock) return;
@@ -44,6 +49,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
     status = "starting";
     currentQr = "";
     lastError = null;
+    void reportStatus();
     try {
       if (fresh) {
         await auth.clearAuth();
@@ -55,13 +61,14 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       sock.ev.on("creds.update", () => auth.saveCreds().catch((error) => {
         status = "failed";
         lastError = "Falha ao salvar a conexão do WhatsApp.";
+        void reportStatus();
         console.error({ event: "whatsapp.credentials_save_failed", component: "managed-session", ...errorFields(error) });
       }));
 
       sock.ev.on("connection.update", async (update: any) => {
-        if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; }
-        if (update.connection === "open") { status = "connected"; currentQr = ""; lastError = null; }
-        if (update.connection === "connecting" && status !== "waiting_qr") status = "starting";
+        if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; void reportStatus(); }
+        if (update.connection === "open") { status = "connected"; currentQr = ""; lastError = null; void reportStatus(); }
+        if (update.connection === "connecting" && status !== "waiting_qr") { status = "starting"; void reportStatus(); }
         if (update.connection === "close") {
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
           if (!stopped) {
@@ -69,9 +76,11 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
               status = "logged_out";
               currentQr = "";
               lastError = "A sessão foi desconectada pelo WhatsApp.";
+              void reportStatus();
             } else {
               status = "reconnecting";
               lastError = "Conexão interrompida. Tentando novamente.";
+              void reportStatus();
               setTimeout(() => void start().catch(() => undefined), 5000);
             }
           }
@@ -89,6 +98,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
     } catch (error) {
       status = "failed";
       lastError = error instanceof Error ? error.message : "Falha ao iniciar o WhatsApp.";
+      void reportStatus();
       console.error({ event: "whatsapp.start_failed", component: "managed-session", ...errorFields(error) });
       throw error;
     } finally {
@@ -110,7 +120,8 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       status = "logged_out";
       currentQr = "";
       lastError = null;
+      void reportStatus();
     },
-    stop: () => { stopped = true; sock?.end(undefined); status = "idle"; }
+    stop: () => { stopped = true; sock?.end(undefined); status = "idle"; void reportStatus(); }
   };
 }

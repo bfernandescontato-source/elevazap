@@ -16,11 +16,12 @@ export class QueueMetrics {
   uncertainResult(error: unknown) { this.processed += 1; this.uncertain += 1; this.lastProcessedAt = new Date().toISOString(); this.lastError = message(error); }
   loopError(error: unknown) { this.lastError = message(error); }
 
-  snapshot(running: boolean, buffer: QueueItem[], reconciliation: number) {
+  snapshot(running: boolean, buffer: QueueItem[], reconciliation: number, activeSessions = 0) {
     return {
       running,
       size: buffer.length,
       reconciliation,
+      activeSessions,
       highPriority: buffer.filter((item) => item.priority === "alta").length,
       normalPriority: buffer.filter((item) => item.priority === "normal").length,
       processed: this.processed,
@@ -38,4 +39,3 @@ export class QueueMetrics {
 function message(error: unknown) {
   return error instanceof Error ? error.message : "Falha desconhecida na fila.";
 }
-

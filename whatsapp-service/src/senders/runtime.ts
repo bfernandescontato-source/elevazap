@@ -4,6 +4,7 @@ import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } 
 import { syncGroupMetadata } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
 import { monitorOfferMessages } from "../offers/whatsapp-monitor.js";
+import { env } from "../env.js";
 
 type SenderSession = {
   id: string;
@@ -11,36 +12,120 @@ type SenderSession = {
   label: string;
   session: WhatsAppSession;
   accountId: string;
+  leaseVersion: number;
 };
+
+export type OwnedSenderLease = { whatsapp_session_id: string; account_id: string; lease_version: number };
 
 const senders = new Map<string, SenderSession>();
 
-async function startSender(sender: { id: string; session_name: string; label: string; account_id: string }) {
+async function persistRuntimeStatus(senderId: string, leaseVersion: number, status: string, error: string | null) {
+  const persistedStatus = status === "idle" ? "disconnected" : status;
+  const { error: persistError } = await supabase.rpc("set_whatsapp_session_runtime_status", {
+    p_worker_id: env.INSTANCE_ID,
+    p_session_id: senderId,
+    p_lease_version: leaseVersion,
+    p_status: persistedStatus,
+    p_error: error
+  });
+  if (persistError) throw persistError;
+}
+
+async function startSender(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {
   const current = senders.get(sender.session_name);
-  if (current) return current;
+  if (current?.leaseVersion === leaseVersion) return current;
+  if (current) {
+    current.session.stop();
+    senders.delete(sender.session_name);
+  }
 
   const session = await createWhatsAppSession(
     sender.session_name,
     async (messages, upsertType) => upsertType === "notify" ? monitorOfferMessages(supabase, { id: sender.id, accountId: sender.account_id }, messages) : undefined,
     async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock),
-    sender.account_id
+    sender.account_id,
+    (status, error) => persistRuntimeStatus(sender.id, leaseVersion, status, error)
   );
-  const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session, accountId: sender.account_id };
+  const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session, accountId: sender.account_id, leaseVersion };
   senders.set(sender.session_name, managed);
   console.log(`[sender] Session started ${sender.label} (${sender.session_name})`);
   return managed;
 }
 
-export async function bootSenderSessions() {
-  const { data } = await supabase.from("whatsapp_senders").select("*").order("created_at", { ascending: true });
-  for (const sender of data || []) {
-    await startSender(sender).catch((error) => console.error(`[sender] boot failed ${sender.session_name}`, error));
+export async function syncSenderSessionOwnership() {
+  const { data: leases, error } = await supabase.rpc("acquire_whatsapp_session_leases", {
+    p_worker_id: env.INSTANCE_ID,
+    p_limit: env.MAX_SESSIONS_PER_WORKER,
+    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+  });
+  if (error) throw error;
+  const owned = (leases || []) as OwnedSenderLease[];
+  const ownedIds = new Set(owned.map((lease) => lease.whatsapp_session_id));
+  for (const managed of Array.from(senders.values())) {
+    if (!ownedIds.has(managed.id)) {
+      managed.session.stop();
+      senders.delete(managed.sessionName);
+    }
   }
+  if (!owned.length) return owned;
+  const { data: rows, error: senderError } = await supabase.from("whatsapp_senders").select("*")
+    .in("id", owned.map((lease) => lease.whatsapp_session_id));
+  if (senderError) throw senderError;
+  const leaseById = new Map(owned.map((lease) => [lease.whatsapp_session_id, lease]));
+  for (const sender of rows || []) {
+    const lease = leaseById.get(sender.id);
+    if (lease) await startSender(sender, lease.lease_version).catch((currentError) =>
+      console.error(`[sender] boot failed ${sender.session_name}`, currentError)
+    );
+  }
+  return owned;
+}
+
+export async function bootSenderSessions() { return syncSenderSessionOwnership(); }
+
+export async function renewOwnedSenderLeases() {
+  const leases = Array.from(senders.values()).map((managed) => ({ whatsapp_session_id: managed.id, lease_version: managed.leaseVersion }));
+  if (!leases.length) return [] as OwnedSenderLease[];
+  const { data, error } = await supabase.rpc("renew_whatsapp_session_leases", {
+    p_worker_id: env.INSTANCE_ID,
+    p_leases: leases,
+    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+  });
+  if (error) throw error;
+  const renewed = (data || []) as Array<{ whatsapp_session_id: string; lease_version: number }>;
+  const renewedIds = new Set(renewed.map((lease) => lease.whatsapp_session_id));
+  for (const managed of Array.from(senders.values())) {
+    if (!renewedIds.has(managed.id)) {
+      managed.session.stop();
+      senders.delete(managed.sessionName);
+      continue;
+    }
+    await persistRuntimeStatus(managed.id, managed.leaseVersion, managed.session.getStatus(), managed.session.getLastError());
+  }
+  return renewed;
+}
+
+export function getOwnedSenderLeases() {
+  return Array.from(senders.values()).map((managed) => ({
+    whatsapp_session_id: managed.id,
+    account_id: managed.accountId,
+    lease_version: managed.leaseVersion,
+    session_name: managed.sessionName,
+    status: managed.session.getStatus()
+  }));
 }
 
 export async function startSenderSessionByName(sessionName: string) {
   const { data: sender } = await supabase.from("whatsapp_senders").select("*").eq("session_name", sessionName).maybeSingle();
   if (!sender) throw new Error("Número não encontrado.");
+  const { data: leases, error: leaseError } = await supabase.rpc("acquire_whatsapp_session_lease", {
+    p_worker_id: env.INSTANCE_ID,
+    p_session_id: sender.id,
+    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+  });
+  if (leaseError) throw leaseError;
+  const lease = (leases || [])[0] as OwnedSenderLease | undefined;
+  if (!lease) throw new Error("Este número está sendo gerenciado por outra instância. Tente novamente em alguns segundos.");
   const current = senders.get(sessionName);
   if (current) {
     const status = current.session.getStatus();
@@ -48,7 +133,7 @@ export async function startSenderSessionByName(sessionName: string) {
     await current.session.logout();
     senders.delete(sessionName);
   }
-  return startSender(sender);
+  return startSender(sender, lease.lease_version);
 }
 
 export async function disconnectSenderSession(sessionName: string) {

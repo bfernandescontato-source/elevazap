@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { env } from "../env.js";
 import { supabase } from "../supabase.js";
 import { downloadMedia, buildBaileysMessage, convertVoiceToOpus } from "../utils/media.js";
@@ -6,7 +5,7 @@ import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
-import { getSenderSock, getSenderSockById, hasConnectedSender } from "../senders/runtime.js";
+import { getSenderSock, getSenderSockById } from "../senders/runtime.js";
 import { compatibleQueueUpdate, type DatabaseCapabilities } from "../database-capabilities.js";
 import { QueueMetrics } from "./metrics.js";
 import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
@@ -15,9 +14,9 @@ import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js"
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
   private running = false;
-  private lastSendAt = 0;
+  private lastSendAtBySession = new Map<string, number>();
   private lastStaleCleanupAt = 0;
-  private consecutiveWelcomeClaims = 0;
+  private activeSessions = new Set<string>();
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
 
@@ -28,7 +27,7 @@ export class GlobalSendQueue {
   }
 
   stats() {
-    return this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size);
+    return this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeSessions.size);
   }
 
   start() {
@@ -39,10 +38,6 @@ export class GlobalSendQueue {
 
   stop() {
     this.running = false;
-  }
-
-  private hasAnyConnection() {
-    return hasConnectedSender();
   }
 
   private async resetStaleItems() {
@@ -56,7 +51,7 @@ export class GlobalSendQueue {
         processing_deadline_at: null,
         updated_at: now,
       }))
-        .in("status", ["enfileirado", "processando"])
+        .eq("status", "enfileirado")
         .not("processing_deadline_at", "is", null)
         .lt("processing_deadline_at", now);
     }
@@ -67,15 +62,10 @@ export class GlobalSendQueue {
       try {
         await this.resetStaleItems();
         await this.flushReconciliation();
-        if (!this.hasAnyConnection()) {
-          if (this.buffer.length) await this.returnQueuedToPending();
-          await queueSleep(3_000);
-          continue;
-        }
-        if (!this.buffer.length) await this.claimNext();
-        const item = this.buffer.shift();
-        if (item) await this.process(item);
-        else await queueSleep(2_000);
+        const capacity = Math.max(0, env.SYSTEM_MAX_CONCURRENT_SENDS - this.activeSessions.size - this.buffer.length);
+        if (capacity > 0) await this.claimBatch(Math.min(capacity, env.DISPATCH_BATCH_SIZE));
+        this.dispatchBuffered();
+        await queueSleep(this.buffer.length ? 25 : env.DISPATCH_POLL_MS);
       } catch (error) {
         this.metrics.loopError(error);
         console.error({ event: "queue.loop_failed", component: "queue", ...errorFields(error) });
@@ -84,91 +74,55 @@ export class GlobalSendQueue {
     }
   }
 
-  private async claimNext() {
-    // Do not let the high-priority 1x1 stream starve campaigns forever.
-    // After a small burst, give one due group job a turn, then resume 1x1.
-    if (this.consecutiveWelcomeClaims >= 5) {
-      const group = await this.claimGroup();
-      if (group) return;
-    }
-
-    const welcome = await this.claimWelcome();
-    if (welcome) return;
-    await this.claimGroup();
-  }
-
-  private async claimWelcome() {
-    let envio: any;
-    try {
-      envio = await dbResult<any>("queue.claim.envio", supabase.rpc("claim_next_envio"));
-    } catch (error) {
-      if (!isMissingRpc(error, "claim_next_envio")) throw error;
-      envio = await this.claimDirect("envios");
-    }
-    if (!envio?.id) envio = await this.claimDirect("envios");
-    if (envio?.id) {
+  private async claimBatch(limit: number) {
+    if (limit <= 0) return;
+    const rows = await dbResult<any[]>("queue.claim.batch", supabase.rpc("claim_whatsapp_jobs", {
+      p_worker_id: env.INSTANCE_ID,
+      p_limit: limit,
+      p_account_concurrency: env.ACCOUNT_MAX_CONCURRENT_SENDS,
+      p_processing_seconds: Math.ceil(env.QUEUE_PROCESSING_TIMEOUT_MS / 1000)
+    }));
+    for (const row of rows || []) {
+      if (!row?.message_id || !row?.whatsapp_session_id || !row?.claim_token) continue;
       this.metrics.claim();
-      this.buffer.push({ id: envio.id, kind: "envio", priority: "alta", claim_token: envio.claim_token });
-      this.consecutiveWelcomeClaims += 1;
-      return true;
+      this.buffer.push({
+        id: row.message_id,
+        kind: row.queue_table === "envios" ? "envio" : "grupo",
+        priority: row.priority === "alta" ? "alta" : "normal",
+        claim_token: row.claim_token,
+        account_id: row.account_id,
+        whatsapp_session_id: row.whatsapp_session_id,
+        lease_version: Number(row.lease_version),
+        attempt: Number(row.attempt || 0)
+      });
     }
-    return false;
   }
 
-  private async claimGroup() {
-    let grupo: any;
-    try {
-      grupo = await dbResult<any>("queue.claim.group", supabase.rpc("claim_next_envio_grupo"));
-    } catch (error) {
-      if (!isMissingRpc(error, "claim_next_envio_grupo")) throw error;
-      grupo = await this.claimDirect("envios_grupo");
+  private dispatchBuffered() {
+    for (let index = 0; index < this.buffer.length && this.activeSessions.size < env.SYSTEM_MAX_CONCURRENT_SENDS;) {
+      const item = this.buffer[index];
+      if (this.activeSessions.has(item.whatsapp_session_id)) { index += 1; continue; }
+      this.buffer.splice(index, 1);
+      this.activeSessions.add(item.whatsapp_session_id);
+      void this.process(item).catch((error) => {
+        this.metrics.loopError(error);
+        console.error({ event: "queue.item_unhandled", component: "queue", account_id: item.account_id,
+          session_id: item.whatsapp_session_id, message_id: correlationId(item.id), worker_id: env.INSTANCE_ID,
+          lease_version: item.lease_version, attempt: item.attempt, ...errorFields(error) });
+      }).finally(() => this.activeSessions.delete(item.whatsapp_session_id));
     }
-    if (!grupo?.id) grupo = await this.claimDirect("envios_grupo");
-    if (grupo?.id) {
-      this.metrics.claim();
-      this.buffer.push({ id: grupo.id, kind: "grupo", priority: "normal", claim_token: grupo.claim_token });
-      this.consecutiveWelcomeClaims = 0;
-      return true;
-    }
-    return false;
-  }
-
-  private async claimDirect(table: QueueTableName) {
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const { data: candidates, error: selectError } = await supabase.from(table)
-      .select("*").eq("status", "pendente").not("whatsapp_session_name", "is", null)
-      .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
-      .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
-      .order("scheduled_at", { ascending: true, nullsFirst: true }).order("created_at", { ascending: true })
-      .limit(20);
-    if (selectError) throw selectError;
-    const candidate = (candidates || [])[0];
-    if (!candidate) return null;
-    const claimToken = randomUUID();
-    const { data, error } = await supabase.from(table).update(this.updateFields(table, {
-      status: "enfileirado",
-      claimed_at: nowIso,
-      claim_token: claimToken,
-      processing_deadline_at: new Date(now.getTime() + env.QUEUE_PROCESSING_TIMEOUT_MS).toISOString(),
-      updated_at: nowIso
-    })).eq("id", candidate.id).eq("status", "pendente").select("*").maybeSingle();
-    if (error) throw error;
-    return data ? { ...data, claim_token: claimToken } : null;
   }
 
   private async process(item: QueueItem) {
     const table: QueueTableName = item.kind === "envio" ? "envios" : "envios_grupo";
-    const now = new Date();
-    const row = await dbResult<any>(
-      "queue.mark-processing",
-      supabase.from(table).update(this.updateFields(table, {
-        status: "processando",
-        started_at: now.toISOString(),
-        processing_deadline_at: new Date(now.getTime() + env.QUEUE_PROCESSING_TIMEOUT_MS).toISOString(),
-        updated_at: now.toISOString()
-      })).eq("id", item.id).eq("status", "enfileirado").eq("claim_token", item.claim_token).select("*").maybeSingle()
-    );
+    const row = await dbResult<any>("queue.mark-processing", supabase.rpc("mark_whatsapp_job_sending", {
+      p_worker_id: env.INSTANCE_ID,
+      p_queue_table: table,
+      p_message_id: item.id,
+      p_claim_token: item.claim_token,
+      p_lease_version: item.lease_version,
+      p_processing_seconds: Math.ceil(env.QUEUE_PROCESSING_TIMEOUT_MS / 1000)
+    }));
     if (!row) return;
 
     if (table === "envios_grupo" && await this.cancelIfPilotDisabled(row)) return;
@@ -186,7 +140,9 @@ export class GlobalSendQueue {
         await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
         this.metrics.uncertainResult(error);
       } else {
-        await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
+        const leaseValid = await this.hasValidLease(item);
+        if (!leaseValid) await this.markUncertain(table, row, "O worker perdeu o lease durante o envio. Confirmação manual necessária.", "FENCING_TOKEN_EXPIRED");
+        else await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
         this.metrics.failure(error);
       }
     }
@@ -218,12 +174,22 @@ export class GlobalSendQueue {
   }
 
   private async execute(item: QueueItem, row: any) {
-    const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - this.lastSendAt));
+    const lastSendAt = this.lastSendAtBySession.get(item.whatsapp_session_id) || 0;
+    const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - lastSendAt));
     if (throttleWait) await queueSleep(throttleWait);
     if (item.kind === "envio" && row.source !== "massa_manual") await queueSleep(randomDelay(3_000, 8_000));
     if (item.kind === "envio") await this.sendWelcome(row);
     else await this.sendGroup(row);
-    this.lastSendAt = Date.now();
+    this.lastSendAtBySession.set(item.whatsapp_session_id, Date.now());
+  }
+
+  private async hasValidLease(item: QueueItem) {
+    const valid = await dbResult<boolean>("queue.validate-lease", supabase.rpc("validate_whatsapp_session_lease", {
+      p_worker_id: env.INSTANCE_ID,
+      p_session_id: item.whatsapp_session_id,
+      p_lease_version: item.lease_version
+    }));
+    return Boolean(valid);
   }
 
   private selectSocket(row: any, group = false) {
@@ -298,17 +264,15 @@ export class GlobalSendQueue {
       return;
     }
     try {
-      await dbResult("queue.persist-success", supabase.from(table).update(this.updateFields(table, {
-        status: "sucesso",
-        sent_at: new Date().toISOString(),
-        wa_message_id: messageId,
-        erro: null,
-        claim_token: null,
-        processing_deadline_at: null,
-        reconciliation_required: false,
-        last_error_code: null,
-        updated_at: new Date().toISOString()
-      })).eq("id", row.id).eq("claim_token", row.claim_token));
+      const completed = await dbResult<boolean>("queue.persist-success", supabase.rpc("complete_whatsapp_job_sent", {
+        p_worker_id: env.INSTANCE_ID,
+        p_queue_table: table,
+        p_message_id: row.id,
+        p_claim_token: row.claim_token,
+        p_lease_version: row.processing_lease_version,
+        p_wa_message_id: messageId
+      }));
+      if (!completed) throw new Error("Fencing token expirou antes da confirmação do envio.");
       if (table === "envios_grupo") await this.recalc(row.lote_id);
       if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "sent", null, new Date().toISOString());
       console.info({ event: "queue.sent", component: "queue", jobId: correlationId(row.id), messageId: correlationId(messageId) });
@@ -374,7 +338,16 @@ export class GlobalSendQueue {
       last_attempt_at: new Date().toISOString(),
       next_attempt_at: delay ? new Date(Date.now() + delay).toISOString() : null,
       updated_at: new Date().toISOString()
-    })).eq("id", row.id));
+    })).eq("id", row.id).eq("claim_token", row.claim_token)
+      .eq("processing_worker_id", env.INSTANCE_ID).eq("processing_lease_version", row.processing_lease_version));
+    await supabase.rpc("record_whatsapp_session_failure", {
+      p_worker_id: env.INSTANCE_ID,
+      p_session_id: row.whatsapp_session_id,
+      p_lease_version: row.processing_lease_version,
+      p_threshold: env.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+      p_cooldown_seconds: Math.ceil(env.CIRCUIT_BREAKER_COOLDOWN_MS / 1000),
+      p_error: message
+    });
     if (table === "envios_grupo") await this.recalc(row.lote_id);
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, delay ? "scheduled" : "failed", message);
   }
@@ -388,7 +361,8 @@ export class GlobalSendQueue {
       claim_token: null,
       processing_deadline_at: null,
       updated_at: new Date().toISOString()
-    })).eq("id", row.id));
+    })).eq("id", row.id).eq("claim_token", row.claim_token)
+      .eq("processing_worker_id", env.INSTANCE_ID).eq("processing_lease_version", row.processing_lease_version));
     if (table === "envios_grupo") await this.recalc(row.lote_id);
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "uncertain", message);
   }

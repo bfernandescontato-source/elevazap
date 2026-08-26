@@ -11,7 +11,7 @@ async function recalcTouchedLotes(loteIds: Array<string | null | undefined>) {
   }
 }
 
-async function recoverTable(table: QueueTable, boot: boolean, capabilities: DatabaseCapabilities) {
+async function recoverTable(table: QueueTable, capabilities: DatabaseCapabilities) {
   const now = new Date().toISOString();
   const group = table === "envios_grupo";
   const modern = capabilities[table].stabilityColumns;
@@ -21,7 +21,6 @@ async function recoverTable(table: QueueTable, boot: boolean, capabilities: Data
     supabase.from(table).select(fields).in("status", ["enfileirado", "processando"])
   );
   const expired = (item: any) => {
-    if (boot) return true;
     if (modern) return !item.processing_deadline_at || item.processing_deadline_at < now;
     const startedAt = item.status === "processando" ? item.started_at : item.claimed_at;
     return !startedAt || new Date(startedAt).getTime() + env.QUEUE_PROCESSING_TIMEOUT_MS < Date.now();
@@ -41,7 +40,7 @@ async function recoverTable(table: QueueTable, boot: boolean, capabilities: Data
     await dbResult("recovery.mark-uncertain", supabase.from(table).update(compatibleQueueUpdate(capabilities, table, {
       status: "incerto",
       erro: restartUncertain,
-      last_error_code: boot ? "SERVICE_RESTARTED" : "PROCESSING_DEADLINE_EXCEEDED",
+      last_error_code: "PROCESSING_DEADLINE_EXCEEDED",
       reconciliation_required: true,
       claim_token: null,
       processing_deadline_at: null,
@@ -54,11 +53,13 @@ async function recoverTable(table: QueueTable, boot: boolean, capabilities: Data
 }
 
 export async function recoverStuckJobsOnBoot(capabilities: DatabaseCapabilities) {
-  await recoverTable("envios", true, capabilities);
-  await recoverTable("envios_grupo", true, capabilities);
+  // Multi-instance safe: only expired claims are recovered. A new instance must
+  // never invalidate work that is still owned by a healthy peer.
+  await recoverTable("envios", capabilities);
+  await recoverTable("envios_grupo", capabilities);
 }
 
 export async function periodicReclaim(capabilities: DatabaseCapabilities) {
-  await recoverTable("envios", false, capabilities);
-  await recoverTable("envios_grupo", false, capabilities);
+  await recoverTable("envios", capabilities);
+  await recoverTable("envios_grupo", capabilities);
 }
