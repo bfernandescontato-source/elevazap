@@ -6,7 +6,7 @@ import { replaceUrlPreservingText } from "./shopee-url-resolver.js";
 import type { ParsedOffer } from "./types.js";
 
 type ConversionContext = { accountId: string; automationId: string; offerId: string; sourceGroupId: string };
-export type ConversionResult = { processedText: string; originalLink?: string; resolvedUrl?: string; affiliateLink?: string; shopId?: string; itemId?: string; converted: boolean; duplicateOfferId?: string };
+export type ConversionResult = { processedText: string; originalLink?: string; resolvedUrl?: string; affiliateLink?: string; shopId?: string; itemId?: string; converted: boolean };
 
 function token(prefix: string, value: string) { return `${prefix}-${createHash("sha256").update(value).digest("hex").slice(0, 12)}`; }
 function log(event: string, context: ConversionContext, fields: Record<string, unknown> = {}) { console.info({ event, component: "shopee-affiliate", account_id: context.accountId, automation_id: context.automationId, offer_id: context.offerId, ...fields }); }
@@ -30,10 +30,6 @@ export class ShopeeOfferConverter {
         continue;
       }
       log("shopee_url_resolved", context, { item_id: identifiers.itemId });
-      const { data: duplicate } = await this.database.from("captured_offers").select("id").eq("account_id", context.accountId)
-        .eq("item_id", identifiers.itemId).neq("id", context.offerId).gte("captured_at", new Date(Date.now() - 24 * 3_600_000).toISOString())
-        .not("status", "in", '(ignored,duplicate,processing_failed)').limit(1).maybeSingle();
-      if (duplicate) return { processedText, originalLink, resolvedUrl, ...identifiers, converted: false, duplicateOfferId: duplicate.id };
       const resolvedHash = createHash("sha256").update(resolvedUrl).digest("hex");
       const { data: cached } = await this.database.from("affiliate_link_cache").select("affiliate_link").eq("account_id", context.accountId)
         .eq("provider", "shopee").eq("credential_fingerprint", integration.credential_fingerprint).eq("resolved_url_hash", resolvedHash)

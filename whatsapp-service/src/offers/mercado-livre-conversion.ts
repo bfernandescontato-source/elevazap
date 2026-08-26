@@ -5,7 +5,7 @@ import { MercadoLivreAffiliateService, MercadoLivreSessionExpiredError } from ".
 import type { ParsedOffer } from "./types.js";
 
 type Context = { accountId: string; automationId: string; offerId: string; sourceGroupId: string };
-export type MercadoLivreConversionResult = { processedText: string; converted: boolean; affiliateLink?: string; originalLink?: string; resolvedUrl?: string; itemId?: string; catalogProductId?: string; affiliateTag?: string; duplicateOfferId?: string };
+export type MercadoLivreConversionResult = { processedText: string; converted: boolean; affiliateLink?: string; originalLink?: string; resolvedUrl?: string; itemId?: string; catalogProductId?: string; affiliateTag?: string };
 
 function log(event: string, context: Context, fields: Record<string, unknown> = {}) {
   console.info({ event, component: "mercado-livre-affiliate", account_id: context.accountId, automation_id: context.automationId, offer_id: context.offerId, ...fields });
@@ -28,10 +28,6 @@ export class MercadoLivreOfferConverter {
       if (!product.itemId && !product.catalogProductId) throw new Error("O link não pôde ser associado com segurança a um produto Mercado Livre.");
       log("mercado_livre_url_resolved", context, { item_id: product.itemId, catalog_product_id: product.catalogProductId });
       const identity = product.itemId || product.catalogProductId!;
-      const { data: duplicate } = await this.database.from("captured_offer_links").select("offer_id")
-        .eq("account_id", context.accountId).eq("provider", "mercado_livre").eq("item_id", identity)
-        .neq("offer_id", context.offerId).gte("created_at", new Date(Date.now() - 24 * 3_600_000).toISOString()).limit(1).maybeSingle();
-      if (duplicate) return { processedText, originalLink, resolvedUrl: product.resolvedUrl, itemId: product.itemId, catalogProductId: product.catalogProductId, converted: false, duplicateOfferId: duplicate.offer_id };
       const { data: offerLink, error: linkError } = await this.database.from("captured_offer_links").upsert({
         account_id: context.accountId, offer_id: context.offerId, provider: "mercado_livre", position,
         original_url: originalLink, resolved_url: product.resolvedUrl, item_id: product.itemId || identity,

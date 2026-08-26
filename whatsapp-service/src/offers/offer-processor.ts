@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
-import { findDuplicate } from "./offer-deduplicator.js";
 import { parseOffer } from "./offer-parser.js";
 import { nextOfferSlot } from "./offer-scheduler.js";
 import type { RawOfferMessage } from "./types.js";
@@ -20,8 +19,6 @@ type Automation = {
   timezone: string;
   keep_original_text: boolean;
   keep_original_media: boolean;
-  avoid_duplicates: boolean;
-  deduplication_window_hours: number;
   ai_rewrite_enabled: boolean;
   shopee_conversion_enabled: boolean;
   mercado_livre_conversion_enabled: boolean;
@@ -60,10 +57,6 @@ export class OfferProcessor {
     const common = { account_id: automation.account_id, automation_id: automation.id, source_group_id: parsed.sourceGroupId };
     log("offer_parsed", { ...common, source_message_id: parsed.sourceMessageId, link_count: parsed.links.length });
 
-    const duplicateId = automation.avoid_duplicates
-      ? await findDuplicate(this.database, automation.account_id, automation.id, parsed, automation.deduplication_window_hours)
-      : null;
-
     const shopeeConversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
     const mercadoLivreConversionRequired = parsed.mercadoLivreLinks.length > 0 && automation.mercado_livre_conversion_enabled;
     const unsafeUnconvertedMercadoLivreLink = parsed.mercadoLivreLinks.some((value) => {
@@ -86,7 +79,7 @@ export class OfferProcessor {
       content_hash: parsed.contentHash,
       affiliate_conversion_status: parsed.affiliateLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
       ai_rewrite_status: automation.ai_rewrite_enabled ? "pending" : "not_enabled",
-      status: duplicateId ? "duplicate" : "processing",
+      status: "processing",
       captured_at: parsed.capturedAt.toISOString()
     }).select("*").single();
     if (insertError) {
@@ -94,10 +87,6 @@ export class OfferProcessor {
       throw insertError;
     }
     log("offer_captured", { ...common, offer_id: offer.id });
-    if (duplicateId) {
-      log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: duplicateId });
-      return offer;
-    }
     if (parsed.amazonLinks.length > 0) {
       const message = "Amazon ainda não integrado ao Piloto Automático; oferta ignorada.";
       await this.database.from("captured_offers").update({
@@ -140,14 +129,6 @@ export class OfferProcessor {
           const conversion = await new ShopeeOfferConverter(this.database).convert(parsed, {
             accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
           }, processedText);
-          if (conversion.duplicateOfferId) {
-            await this.database.from("captured_offers").update({
-              status: "duplicate", affiliate_conversion_status: "not_required", resolved_url: conversion.resolvedUrl || null,
-              shop_id: conversion.shopId || null, item_id: conversion.itemId || null, processed_at: new Date().toISOString()
-            }).eq("id", offer.id).eq("account_id", automation.account_id);
-            log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: conversion.duplicateOfferId, item_id: conversion.itemId });
-            return { ...offer, status: "duplicate" };
-          }
           if (!conversion.converted || !conversion.affiliateLink) throw new Error("O link encontrado não pôde ser associado com segurança a um produto Shopee.");
           processedText = conversion.processedText;
           linkUsed = conversion.affiliateLink;
@@ -181,15 +162,6 @@ export class OfferProcessor {
           const conversion = await new MercadoLivreOfferConverter(this.database).convert(parsed, {
             accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
           }, processedText);
-          if (conversion.duplicateOfferId) {
-            await this.database.from("captured_offers").update({
-              status: "duplicate", affiliate_conversion_status: "not_required", resolved_url: conversion.resolvedUrl || null,
-              item_id: conversion.itemId || conversion.catalogProductId || null, catalog_product_id: conversion.catalogProductId || null,
-              processed_at: new Date().toISOString()
-            }).eq("id", offer.id).eq("account_id", automation.account_id);
-            log("offer_duplicate", { ...common, offer_id: offer.id, duplicate_of: conversion.duplicateOfferId, item_id: conversion.itemId });
-            return { ...offer, status: "duplicate" };
-          }
           if (!conversion.converted || !conversion.affiliateLink) throw new Error("O link encontrado não pôde ser associado com segurança a um produto Mercado Livre.");
           processedText = conversion.processedText;
           linkUsed = conversion.affiliateLink;
