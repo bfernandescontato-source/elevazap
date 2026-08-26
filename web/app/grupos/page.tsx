@@ -81,6 +81,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   const [newCampaignGroups, setNewCampaignGroups] = useState<string[]>([]);
   const [addGroupsByCampaign, setAddGroupsByCampaign] = useState<Record<string, string[]>>({});
   const [groupQueryByCampaign, setGroupQueryByCampaign] = useState<Record<string, string>>({});
+  const [monitoredGroupQueryByCampaign, setMonitoredGroupQueryByCampaign] = useState<Record<string, string>>({});
 
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [selectedSenderId, setSelectedSenderId] = useState("");
@@ -88,6 +89,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   const [singleGroup, setSingleGroup] = useState("");
   const [manualGroups, setManualGroups] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [dispatchGroupQuery, setDispatchGroupQuery] = useState("");
 
   const [messageSource, setMessageSource] = useState<MessageSource>("manual");
   const [selectedModeloId, setSelectedModeloId] = useState("");
@@ -140,12 +142,16 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
 
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId), [campaigns, selectedCampaignId]);
   const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);
-  const selectedCampaignGroups = selectedCampaign?.grupos || [];
+  const selectedCampaignGroups = useMemo(() => selectedCampaign?.grupos || [], [selectedCampaign]);
   const selectedCampaignJids = selectedCampaignGroups.map((group) => group.group_jid);
   const campaignFilteredGroups = useMemo(() => groups.filter((group) => {
     const text = `${group.nome || ""} ${group.group_jid}`.toLowerCase();
     return text.includes(campaignGroupQuery.toLowerCase());
   }), [groups, campaignGroupQuery]);
+  const dispatchFilteredGroups = useMemo(() => selectedCampaignGroups.filter((group) => {
+    const text = `${group.nome || ""} ${group.group_jid}`.toLowerCase();
+    return text.includes(dispatchGroupQuery.toLowerCase());
+  }), [selectedCampaignGroups, dispatchGroupQuery]);
   function showError(error: any) {
     setToast(error?.message || "Algo deu errado.");
   }
@@ -244,6 +250,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
     setManualGroups(jids);
     setSelected(jids);
     setSelectedSenderId(campaign?.whatsapp_sender_id || "");
+    setDispatchGroupQuery("");
   }
 
   function changeCampaignTarget(target: CampaignTarget) {
@@ -362,6 +369,8 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
       <div className="flex gap-4 overflow-x-auto pb-2">
         {campaigns.map((campaign) => {
           const groupQuery = groupQueryByCampaign[campaign.id] || "";
+          const monitoredGroupQuery = monitoredGroupQueryByCampaign[campaign.id] || "";
+          const monitoredGroups = campaign.grupos.filter((group) => `${group.nome || ""} ${group.group_jid}`.toLowerCase().includes(monitoredGroupQuery.toLowerCase()));
           const availableGroups = groups.filter((group) => !campaign.grupos.some((item) => item.group_jid === group.group_jid))
             .filter((group) => `${group.nome || ""} ${group.group_jid}`.toLowerCase().includes(groupQuery.toLowerCase()));
           const addSelection = addGroupsByCampaign[campaign.id] || [];
@@ -379,14 +388,18 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
                 {senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}
               </select>
             </label>
+            <label className="mt-4 block text-sm font-medium text-ink">Pesquisar grupos monitorados
+              <input value={monitoredGroupQuery} onChange={(event) => setMonitoredGroupQueryByCampaign((current) => ({ ...current, [campaign.id]: event.target.value }))} placeholder="Nome ou identificador do grupo" className="focus-ring mt-1 h-10 w-full rounded-lg border border-line px-3 text-sm" />
+            </label>
             <div className="space-y-2">
-              {campaign.grupos.length ? campaign.grupos.map((group) => <div key={group.group_jid} className="flex items-start justify-between gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
+              {campaign.grupos.length ? monitoredGroups.map((group) => <div key={group.group_jid} className="flex items-start justify-between gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
                 <div>
                   <div className="font-medium text-ink">{group.nome || "Sem nome"}</div>
                   <div className="mt-1 font-mono text-xs text-muted">{group.group_jid}</div>
                 </div>
                 <button title="Remover grupo" className="rounded-lg p-1 text-muted hover:bg-panel hover:text-ink" onClick={() => removeGroupFromCampaign(campaign, group.group_jid).catch(showError)}><X size={15} /></button>
               </div>) : <div className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">Nenhum grupo vinculado.</div>}
+              {campaign.grupos.length && !monitoredGroups.length ? <div className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">Nenhum grupo monitorado encontrado.</div> : null}
             </div>
             <div className="mt-4 rounded-lg border border-line p-3">
               <div className="mb-2 text-sm font-medium text-ink">Adicionar grupos</div>
@@ -426,14 +439,17 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
               <option value="single">Um grupo específico</option>
               <option value="manual">Selecionar alguns grupos</option>
             </select>
+            {campaignTarget !== "all" ? <input value={dispatchGroupQuery} onChange={(event) => setDispatchGroupQuery(event.target.value)} placeholder="Pesquisar grupo por nome ou identificador" aria-label="Pesquisar grupos para disparo" className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm" /> : null}
             {campaignTarget === "single" ? <select value={singleGroup} onChange={(e) => changeSingleGroup(e.target.value)} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
-              {selectedCampaignGroups.map((group) => <option key={group.group_jid} value={group.group_jid}>{group.nome || group.group_jid}</option>)}
+              {dispatchFilteredGroups.map((group) => <option key={group.group_jid} value={group.group_jid}>{group.nome || group.group_jid}</option>)}
+              {!dispatchFilteredGroups.length ? <option value="" disabled>Nenhum grupo encontrado</option> : null}
             </select> : null}
             {campaignTarget === "manual" ? <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-line p-3">
-              {selectedCampaignGroups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 text-sm">
+              {dispatchFilteredGroups.map((group) => <label key={group.group_jid} className="flex items-start gap-2 text-sm">
                 <input type="checkbox" className="mt-1" checked={manualGroups.includes(group.group_jid)} onChange={(e) => toggleManualGroup(group.group_jid, e.target.checked)} />
                 <span>{group.nome || group.group_jid}</span>
               </label>)}
+              {!dispatchFilteredGroups.length ? <div className="text-sm text-muted">Nenhum grupo encontrado.</div> : null}
             </div> : null}
             <div className="text-sm text-muted">{selected.length} grupo(s) selecionado(s) para envio.</div>
           </div> : null}
