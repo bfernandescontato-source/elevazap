@@ -50,6 +50,8 @@ export function ScheduledDispatches() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkCancelling, setBulkCancelling] = useState(false);
   const loadingRef = useRef(false);
 
   async function load() {
@@ -96,6 +98,31 @@ export function ScheduledDispatches() {
     }
   }
 
+  function toggleSelected(loteId: string, checked: boolean) {
+    setSelectedIds((current) => checked ? Array.from(new Set([...current, loteId])) : current.filter((id) => id !== loteId));
+  }
+
+  async function cancelSelected() {
+    if (!selectedIds.length) return;
+    if (!window.confirm(`Cancelar ${selectedIds.length} agendamento(s)? As mensagens não serão enviadas e o histórico será mantido.`)) return;
+    setBulkCancelling(true);
+    try {
+      const response = await fetch("/api/lotes/cancel-many", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lote_ids: selectedIds })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Falha ao cancelar os agendamentos selecionados.");
+      setSelectedIds([]);
+      await load();
+    } catch (currentError: any) {
+      setError(currentError?.message || "Falha ao cancelar os agendamentos selecionados.");
+    } finally {
+      setBulkCancelling(false);
+    }
+  }
+
   useEffect(() => {
     load();
     const timer = window.setInterval(load, 10000);
@@ -122,6 +149,8 @@ export function ScheduledDispatches() {
       .filter((row) => !FINAL_STATUSES.has(row.visibleStatus))
       .sort((a, b) => new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime());
   }, [batches, campaigns]);
+  const selectableIds = rows.filter((row) => row.canCancel).map((row) => row.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
 
   if (loading) return <LoadingState />;
 
@@ -140,12 +169,14 @@ export function ScheduledDispatches() {
     {!rows.length
       ? <EmptyState title="Nenhum disparo pendente" description="Quando criar agendamentos eles aparecerão aqui. Disparos já enviados não são exibidos." />
       : <div className="overflow-hidden rounded-lg border border-line bg-white shadow-soft">
-          <div className="hidden grid-cols-[minmax(160px,1.2fr)_minmax(180px,1.4fr)_minmax(80px,0.5fr)_minmax(130px,0.8fr)_minmax(160px,1fr)_40px] gap-4 border-b border-line bg-wash px-5 py-3 text-xs font-medium uppercase text-muted lg:grid">
-            <div>Campanha</div><div>Mensagem</div><div>Grupos</div><div>Status</div><div>Data e horário do disparo</div><div />
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-wash px-5 py-3">
+            <label className="inline-flex items-center gap-2 text-sm font-medium text-ink"><input type="checkbox" checked={allSelected} onChange={(event) => setSelectedIds(event.target.checked ? selectableIds : [])} />Selecionar todos</label>
+            <button type="button" disabled={!selectedIds.length || bulkCancelling} onClick={() => void cancelSelected()} className="h-9 rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-700 disabled:opacity-40">{bulkCancelling ? "Cancelando..." : `Cancelar selecionados${selectedIds.length ? ` (${selectedIds.length})` : ""}`}</button>
           </div>
           <div className="divide-y divide-line">
             {rows.map((row) => (
-              <article key={row.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(160px,1.2fr)_minmax(180px,1.4fr)_minmax(80px,0.5fr)_minmax(130px,0.8fr)_minmax(160px,1fr)_40px] lg:items-center">
+              <article key={row.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[32px_minmax(160px,1.2fr)_minmax(180px,1.4fr)_minmax(80px,0.5fr)_minmax(130px,0.8fr)_minmax(160px,1fr)_40px] lg:items-center">
+                <div><input type="checkbox" aria-label={`Selecionar ${row.campaign}`} checked={selectedIds.includes(row.id)} disabled={!row.canCancel || bulkCancelling} onChange={(event) => toggleSelected(row.id, event.target.checked)} /></div>
                 <div><div className="text-xs text-muted lg:hidden">Campanha</div><div className="mt-1 font-medium text-ink lg:mt-0">{row.campaign}</div></div>
                 <div className="min-w-0"><div className="text-xs text-muted lg:hidden">Mensagem</div><div className="mt-1 truncate text-sm text-ink lg:mt-0">{row.modeloNome || "—"}</div></div>
                 <div><div className="text-xs text-muted lg:hidden">Grupos</div><div className="mt-1 text-sm text-ink lg:mt-0">{row.grupos}</div></div>
