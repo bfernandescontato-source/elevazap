@@ -28,14 +28,14 @@ export default function DownloadExtensionPage() {
 
           <section className="px-6 py-8 sm:px-12 sm:py-10">
             <a
-              href="/downloads/disparei-mercado-livre-extensao.zip"
-              download="Disparei_Mercado_Livre_Extensao.zip"
+              href="/downloads/mercado-livre.zip"
+              download="mercado-livre.zip"
               className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#ffe600] px-5 text-sm font-bold text-zinc-950 transition hover:bg-[#f5d900] sm:w-auto"
             >
               <Download size={18} />
               Baixar extensão
             </a>
-            <p className="mt-3 text-sm text-zinc-500">Arquivo ZIP · aproximadamente 60 KB</p>
+            <p className="mt-3 text-sm text-zinc-500">Arquivo ZIP · aproximadamente 4,5 MB</p>
 
             <div className="my-9 h-px bg-zinc-200" />
 
