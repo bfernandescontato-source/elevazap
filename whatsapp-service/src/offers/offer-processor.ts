@@ -260,18 +260,29 @@ export class OfferProcessor {
         return offer;
       }
 
-      const { data: latest } = await this.database.from("captured_offers").select("scheduled_at")
-        .eq("account_id", automation.account_id).eq("automation_id", automation.id)
-        // A sent offer still occupies its scheduled slot. Excluding it makes the
-        // next offer jump to "now" and bypass the configured interval.
-        .in("status", ["scheduled", "sending", "sent"]).not("scheduled_at", "is", null)
-        .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
-      const scheduledAt = nextOfferSlot({
-        intervalMinutes: automation.interval_minutes,
-        operatingStart: automation.operating_start,
-        operatingEnd: automation.operating_end,
-        timezone: automation.timezone
-      }, new Date(), latest?.scheduled_at ? new Date(latest.scheduled_at) : null);
+      const now = new Date();
+      const { data: reservedSlot, error: reserveError } = await this.database.rpc("reserve_offer_schedule_slot", {
+        p_automation_id: automation.id,
+        p_now: now.toISOString()
+      });
+      const reserveRpcMissing = reserveError && ["PGRST202", "42883"].includes(reserveError.code || "");
+      if (reserveError && !reserveRpcMissing) throw reserveError;
+      let scheduledAt: Date;
+      if (reservedSlot) {
+        scheduledAt = new Date(reservedSlot);
+      } else {
+        // Compatibility fallback while an environment applies the migration.
+        const { data: latest } = await this.database.from("captured_offers").select("scheduled_at")
+          .eq("account_id", automation.account_id).eq("automation_id", automation.id)
+          .in("status", ["scheduled", "sending", "sent"]).not("scheduled_at", "is", null)
+          .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
+        scheduledAt = nextOfferSlot({
+          intervalMinutes: automation.interval_minutes,
+          operatingStart: automation.operating_start,
+          operatingEnd: automation.operating_end,
+          timezone: automation.timezone
+        }, now, latest?.scheduled_at ? new Date(latest.scheduled_at) : null);
+      }
       const senderRelation = Array.isArray(automation.whatsapp_senders) ? automation.whatsapp_senders[0] : automation.whatsapp_senders;
       if (!senderRelation?.session_name) throw new Error("Número responsável não encontrado.");
       const type = parsed.media && automation.keep_original_media ? "imagem" : "texto";
