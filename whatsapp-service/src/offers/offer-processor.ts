@@ -262,7 +262,9 @@ export class OfferProcessor {
 
       const { data: latest } = await this.database.from("captured_offers").select("scheduled_at")
         .eq("account_id", automation.account_id).eq("automation_id", automation.id)
-        .in("status", ["scheduled", "sending"]).not("scheduled_at", "is", null)
+        // A sent offer still occupies its scheduled slot. Excluding it makes the
+        // next offer jump to "now" and bypass the configured interval.
+        .in("status", ["scheduled", "sending", "sent"]).not("scheduled_at", "is", null)
         .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
       const scheduledAt = nextOfferSlot({
         intervalMinutes: automation.interval_minutes,
