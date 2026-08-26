@@ -76,6 +76,10 @@ export class GlobalSendQueue {
 
   private async claimBatch(limit: number) {
     if (limit <= 0) return;
+    const { data: control, error: controlError } = await supabase.from("queue_control")
+      .select("dispatch_enabled,queue_reset_at").eq("key", "whatsapp_dispatch").maybeSingle();
+    if (controlError) throw new Error(`queue.control: ${controlError.message}`);
+    if (!control?.dispatch_enabled) return;
     const rows = await dbResult<any[]>("queue.claim.batch", supabase.rpc("claim_whatsapp_jobs", {
       p_worker_id: env.INSTANCE_ID,
       p_limit: limit,
