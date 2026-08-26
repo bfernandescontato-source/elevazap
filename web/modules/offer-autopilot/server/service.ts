@@ -11,33 +11,29 @@ async function cancelPendingPilotDispatches(database: SupabaseClient, accountId:
   const offerIds = (offers || []).map((offer) => offer.id);
   if (!offerIds.length) return;
 
-  const { data: deliveries, error: deliveriesError } = await database.from("offer_deliveries").select("group_dispatch_id")
-    .eq("account_id", accountId).in("offer_id", offerIds);
-  if (deliveriesError) throw deliveriesError;
-  const dispatchIds = (deliveries || []).map((delivery) => delivery.group_dispatch_id).filter(Boolean);
-  if (dispatchIds.length) {
-    const { data: dispatches, error: dispatchesError } = await database.from("envios_grupo").select("id,lote_id")
-      .eq("account_id", accountId).in("id", dispatchIds);
-    if (dispatchesError) throw dispatchesError;
-    const loteIds = Array.from(new Set((dispatches || []).map((dispatch) => dispatch.lote_id).filter(Boolean)));
-    const { error: cancelDispatchError } = await database.from("envios_grupo").update({
-      status: "cancelado", erro: "Piloto Automático desativado.", updated_at: now
-    }).eq("account_id", accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado", "pausado"]);
-    if (cancelDispatchError) throw cancelDispatchError;
-    if (loteIds.length) {
-      const { error: loteError } = await database.from("envios_grupo_lotes").update({ status: "cancelado", updated_at: now })
-        .eq("account_id", accountId).in("id", loteIds);
-      if (loteError) throw loteError;
+  // PostgREST encodes `in(...)` in the URL. Process a large Pilot backlog in
+  // bounded batches so disabling remains reliable even with thousands of offers.
+  for (let start = 0; start < offerIds.length; start += 100) {
+    const chunk = offerIds.slice(start, start + 100);
+    const { data: deliveries, error: deliveriesError } = await database.from("offer_deliveries").select("group_dispatch_id")
+      .eq("account_id", accountId).in("offer_id", chunk);
+    if (deliveriesError) throw deliveriesError;
+    const dispatchIds = (deliveries || []).map((delivery) => delivery.group_dispatch_id).filter(Boolean);
+    if (dispatchIds.length) {
+      const { error: cancelDispatchError } = await database.from("envios_grupo").update({
+        status: "cancelado", erro: "Piloto Automático desativado.", updated_at: now
+      }).eq("account_id", accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado", "pausado"]);
+      if (cancelDispatchError) throw cancelDispatchError;
     }
+    const { error: deliveryCancelError } = await database.from("offer_deliveries").update({
+      status: "cancelled", error_message: "Piloto Automático desativado.", updated_at: now
+    }).eq("account_id", accountId).in("offer_id", chunk).in("status", ["pending", "scheduled"]);
+    if (deliveryCancelError) throw deliveryCancelError;
+    const { error: offerCancelError } = await database.from("captured_offers").update({
+      status: "ignored", error_code: "PILOT_DISABLED", error_message: "Piloto Automático desativado.", processed_at: now, updated_at: now
+    }).eq("account_id", accountId).in("id", chunk);
+    if (offerCancelError) throw offerCancelError;
   }
-  const { error: deliveryCancelError } = await database.from("offer_deliveries").update({
-    status: "cancelled", error_message: "Piloto Automático desativado.", updated_at: now
-  }).eq("account_id", accountId).in("offer_id", offerIds).in("status", ["pending", "scheduled"]);
-  if (deliveryCancelError) throw deliveryCancelError;
-  const { error: offerCancelError } = await database.from("captured_offers").update({
-    status: "ignored", error_code: "PILOT_DISABLED", error_message: "Piloto Automático desativado.", processed_at: now, updated_at: now
-  }).eq("account_id", accountId).in("id", offerIds);
-  if (offerCancelError) throw offerCancelError;
 }
 
 export async function loadAutopilot(database: SupabaseClient, accountId: string) {
