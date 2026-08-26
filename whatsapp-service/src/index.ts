@@ -32,7 +32,12 @@ async function main() {
       readiness.lastError = error instanceof Error ? error.message : "Falha na recuperação da fila.";
     }), 60_000);
 
-    await bootSenderSessions();
+    // A transient session/lease error must not prevent the dispatcher and the
+    // supervisor from recovering on the next pass.
+    await bootSenderSessions().catch((error) => {
+      readiness.lastError = error instanceof Error ? error.message : "Falha inicial ao assumir sessões.";
+      console.error({ event: "sender.initial_sync_failed", error: readiness.lastError });
+    });
     setInterval(async () => {
       try {
         await renewOwnedSenderLeases();
