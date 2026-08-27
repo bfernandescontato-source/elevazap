@@ -29,6 +29,19 @@ export type EventContext = {
 // parameter_name do próprio template ("first_name", "bonus_name"...).
 export type VariableMapping = { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
 
+export function missingTemplateMappings(input: { mapping: VariableMapping; parameterFormat: "POSITIONAL" | "NAMED"; header: number; body: number; namedHeader: string[]; namedBody: string[]; dynamicButtons?: string[] }) {
+  const missing: string[] = [];
+  if (input.parameterFormat === "NAMED") {
+    for (const name of input.namedHeader) if (!input.mapping.header?.[name]) missing.push(`header.${name}`);
+    for (const name of input.namedBody) if (!input.mapping.body?.[name]) missing.push(`body.${name}`);
+  } else {
+    for (let index = 1; index <= input.header; index += 1) if (!input.mapping.header?.[String(index)]) missing.push(`header.${index}`);
+    for (let index = 1; index <= input.body; index += 1) if (!input.mapping.body?.[String(index)]) missing.push(`body.${index}`);
+  }
+  for (const index of input.dynamicButtons || []) if (!input.mapping.buttons?.[index]) missing.push(`button.${index}`);
+  return missing;
+}
+
 function resolveVariable(name: string, context: EventContext): string {
   if (name.startsWith(STATIC_VALUE_PREFIX)) return name.slice(STATIC_VALUE_PREFIX.length);
   switch (name) {

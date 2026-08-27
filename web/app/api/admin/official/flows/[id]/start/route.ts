@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardInternalAdminMutation } from "@/lib/internal-admin";
 import { startFlow } from "@/modules/official-whatsapp/server/flow-processor";
-import { OFFICIAL_ERROR_LABELS, officialErrorCode, officialErrorMessage } from "@/modules/official-whatsapp/server/errors";
+import { OFFICIAL_ERROR_LABELS, officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "@/modules/official-whatsapp/server/errors";
 
 // Início manual de fluxo — usado pro teste da fase A. A fase B (upload/broadcast) vai chamar
 // startFlow() diretamente pelo processador em lote, não por essa rota (que é 1 contato por vez).
@@ -35,6 +35,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const code = officialErrorCode(error);
     // A Graph API devolve uma causa segura e específica (template, variável, limite etc.).
     // Preservá-la aqui evita que o painel esconda o diagnóstico atrás de "falha ao enviar".
-    return NextResponse.json({ error: officialErrorMessage(error) || OFFICIAL_ERROR_LABELS[code], code }, { status: 400 });
+    const detail = officialErrorMetaDetails(error)?.errorData;
+    const detailText = detail && typeof detail === "object" && typeof (detail as { details?: unknown }).details === "string" ? ` ${(detail as { details: string }).details}` : "";
+    return NextResponse.json({ error: `${officialErrorMessage(error) || OFFICIAL_ERROR_LABELS[code]}${detailText}`, code }, { status: 400 });
   }
 }

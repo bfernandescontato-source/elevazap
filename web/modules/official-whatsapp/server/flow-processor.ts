@@ -8,7 +8,7 @@ import { uploadMediaFromStorage } from "./meta-media";
 import { attachMessageToFlowRun, logMessageAttempt } from "./messages-store";
 import { markEventStatus } from "./hubla-events";
 import { processQuickReplyClick } from "./quick-reply-processor";
-import { buildTemplateComponents, missingRequiredVariables, renderTemplateText, type EventContext } from "./variable-resolver";
+import { buildTemplateComponents, missingRequiredVariables, missingTemplateMappings, renderTemplateText, type EventContext } from "./variable-resolver";
 import { OfficialWhatsAppError, officialErrorCode, officialErrorMessage } from "./errors";
 import { buildTrackedFinalLink } from "./tracked-links";
 import { getFlowCta, getFlowStep, recordCtaClick } from "./analytics-attribution";
@@ -28,6 +28,8 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
   }
 
   const template = await findTemplate(flow.initial_template_name, flow.initial_template_language);
+  const missingMappings = missingTemplateMappings({ mapping: flow.variable_mapping, parameterFormat: template.parameterFormat, header: template.variables.header, body: template.variables.body, namedHeader: template.namedVariables.header, namedBody: template.namedVariables.body, dynamicButtons: template.dynamicUrlButtonIndexes });
+  if (missingMappings.length) throw new OfficialWhatsAppError("MISSING_TEMPLATE_VARIABLE", `Configure o mapeamento: ${missingMappings.join(", ")}.`);
   const missing = missingRequiredVariables(flow.variable_mapping, input.context);
   if (missing.length) throw new OfficialWhatsAppError("MISSING_TEMPLATE_VARIABLE", `Faltam variáveis: ${missing.join(", ")}`);
 
