@@ -33,6 +33,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const code = officialErrorCode(error);
-    return NextResponse.json({ error: OFFICIAL_ERROR_LABELS[code] || officialErrorMessage(error), code }, { status: 400 });
+    // A Graph API devolve uma causa segura e específica (template, variável, limite etc.).
+    // Preservá-la aqui evita que o painel esconda o diagnóstico atrás de "falha ao enviar".
+    return NextResponse.json({ error: officialErrorMessage(error) || OFFICIAL_ERROR_LABELS[code], code }, { status: 400 });
   }
 }
