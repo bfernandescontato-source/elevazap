@@ -26,7 +26,7 @@ const RESPONSE_TYPES = [
 ];
 
 type MappingSlot = { key: string; value: string; staticText: string };
-type Template = { name: string; category: string; status: string; language: string; variables: { header: number; body: number; buttons: number }; parameterFormat: "POSITIONAL" | "NAMED"; namedVariables: { header: string[]; body: string[] } };
+type Template = { name: string; category: string; status: string; language: string; variables: { header: number; body: number; buttons: number }; parameterFormat: "POSITIONAL" | "NAMED"; namedVariables: { header: string[]; body: string[] }; dynamicUrlButtonIndexes: string[] };
 type FlowAction = {
   payload: string; button_label: string | null; response_type: "text" | "image" | "video" | "audio" | "document";
   response_text: string | null; caption: string | null; media_bucket: string | null; media_path: string | null;
@@ -35,7 +35,7 @@ type FlowAction = {
 };
 type Flow = {
   id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean;
-  variable_mapping: { header?: Record<string, string>; body?: Record<string, string> };
+  variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
   official_quick_reply_actions: FlowAction;
 };
 
@@ -76,7 +76,7 @@ export default function FluxosPage() {
 
   const [name, setName] = useState("");
   const [initialTemplateName, setInitialTemplateName] = useState("");
-  const [mapping, setMapping] = useState<{ header: MappingSlot[]; body: MappingSlot[] }>({ header: [], body: [] });
+  const [mapping, setMapping] = useState<{ header: MappingSlot[]; body: MappingSlot[]; buttons: MappingSlot[] }>({ header: [], body: [], buttons: [] });
   const [qrPayload, setQrPayload] = useState("");
   const [qrLabel, setQrLabel] = useState("");
   const [responseType, setResponseType] = useState<"text" | "image" | "video" | "audio" | "document">("text");
@@ -120,13 +120,14 @@ export default function FluxosPage() {
   function selectTemplate(templateName: string, existingMapping?: Flow["variable_mapping"]) {
     setInitialTemplateName(templateName);
     const template = templates.find((item) => item.name === templateName);
-    if (!template) { setMapping({ header: [], body: [] }); return; }
+    if (!template) { setMapping({ header: [], body: [], buttons: [] }); return; }
     setMapping({
       header: slotsFor(template.variables.header, template.namedVariables.header, existingMapping?.header),
-      body: slotsFor(template.variables.body, template.namedVariables.body, existingMapping?.body)
+      body: slotsFor(template.variables.body, template.namedVariables.body, existingMapping?.body),
+      buttons: slotsFor(template.variables.buttons, template.dynamicUrlButtonIndexes, existingMapping?.buttons)
     });
   }
-  function updateSlot(section: "header" | "body", key: string, changes: Partial<MappingSlot>) {
+  function updateSlot(section: "header" | "body" | "buttons", key: string, changes: Partial<MappingSlot>) {
     setMapping((current) => ({ ...current, [section]: current[section].map((slot) => slot.key === key ? { ...slot, ...changes } : slot) }));
   }
   function slotsToMapping(slots: MappingSlot[]) {
@@ -135,7 +136,7 @@ export default function FluxosPage() {
 
   function resetForm() {
     setEditingFlowId(null); setExistingMedia(null);
-    setName(""); setInitialTemplateName(""); setMapping({ header: [], body: [] });
+    setName(""); setInitialTemplateName(""); setMapping({ header: [], body: [], buttons: [] });
     setQrPayload(""); setQrLabel(""); setResponseType("text"); setResponseText(""); setCaption(""); setFile(null);
     setHasButton(false); setButtonType("url"); setButtonText(""); setButtonUrl(""); setButtonPayload("");
   }
@@ -183,7 +184,8 @@ export default function FluxosPage() {
       if (file) { setUploading(true); const uploaded = await uploadFile(file); media = { ...uploaded, file_name: file.name }; setUploading(false); }
       const variableMapping = {
         ...(mapping.header.length ? { header: slotsToMapping(mapping.header) } : {}),
-        ...(mapping.body.length ? { body: slotsToMapping(mapping.body) } : {})
+        ...(mapping.body.length ? { body: slotsToMapping(mapping.body) } : {}),
+        ...(mapping.buttons.length ? { buttons: slotsToMapping(mapping.buttons) } : {})
       };
       const followupButtonConfig = hasButton && responseType !== "audio"
         ? (buttonType === "url" ? { type: "url", text: buttonText, url: buttonUrl } : { type: "quick_reply", text: buttonText, payload: buttonPayload })
@@ -267,10 +269,10 @@ export default function FluxosPage() {
             </label>
           </div>
 
-          {selectedTemplate && (mapping.header.length || mapping.body.length) ? <div className="mt-4 space-y-3 rounded-lg border border-line bg-wash p-4">
+          {selectedTemplate && (mapping.header.length || mapping.body.length || mapping.buttons.length) ? <div className="mt-4 space-y-3 rounded-lg border border-line bg-wash p-4">
             <div className="text-sm font-medium text-ink">Variáveis do template inicial</div>
-            {[...mapping.header.map((slot) => ({ ...slot, section: "header" as const })), ...mapping.body.map((slot) => ({ ...slot, section: "body" as const }))].map((slot) => <div key={`${slot.section}-${slot.key}`} className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="w-40 shrink-0 text-muted">{"{{" + slot.key + "}}"} ({slot.section === "header" ? "cabeçalho" : "corpo"})</span>
+            {[...mapping.header.map((slot) => ({ ...slot, section: "header" as const })), ...mapping.body.map((slot) => ({ ...slot, section: "body" as const })), ...mapping.buttons.map((slot) => ({ ...slot, section: "buttons" as const }))].map((slot) => <div key={`${slot.section}-${slot.key}`} className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="w-40 shrink-0 text-muted">{"{{" + slot.key + "}}"} ({slot.section === "header" ? "cabeçalho" : slot.section === "body" ? "corpo" : "URL do botão"})</span>
               <select value={slot.value} onChange={(event) => updateSlot(slot.section, slot.key, { value: event.target.value })} className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3">
                 {INTERNAL_VARIABLES.map((variable) => <option key={variable.value} value={variable.value}>{variable.label}</option>)}
               </select>

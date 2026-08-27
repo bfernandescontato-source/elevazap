@@ -30,6 +30,7 @@ export type WhatsAppTemplate = {
   variables: TemplateVariableSummary;
   parameterFormat: ParameterFormat;
   namedVariables: { header: string[]; body: string[] };
+  dynamicUrlButtonIndexes: string[];
 };
 
 function countPlaceholders(text?: string) {
@@ -70,6 +71,7 @@ export async function listTemplates(): Promise<WhatsAppTemplate[]> {
     const parameterFormat: ParameterFormat = item.parameter_format === "NAMED" ? "NAMED" : "POSITIONAL";
     const header = components.find((component) => component.type === "HEADER");
     const body = components.find((component) => component.type === "BODY");
+    const buttons = components.find((component) => component.type === "BUTTONS");
     return {
       name: item.name,
       category: item.category,
@@ -80,6 +82,7 @@ export async function listTemplates(): Promise<WhatsAppTemplate[]> {
       namedVariables: parameterFormat === "NAMED"
         ? { header: namedParams(header, "header_text_named_params"), body: namedParams(body, "body_text_named_params") }
         : { header: [], body: [] },
+      dynamicUrlButtonIndexes: (buttons?.buttons || []).flatMap((button, index) => countPlaceholders(button.url) ? [String(index)] : []),
       variables: summarizeTemplateVariables(components, parameterFormat)
     };
   });

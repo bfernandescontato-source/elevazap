@@ -27,7 +27,7 @@ export type EventContext = {
 // valor fixo por automação (ex: {{bonus_name}} não vem da Hubla — é texto constante), marcado
 // com o prefixo "static:". Em templates POSITIONAL a chave é a posição ("1","2"); em NAMED é o
 // parameter_name do próprio template ("first_name", "bonus_name"...).
-export type VariableMapping = { header?: Record<string, string>; body?: Record<string, string> };
+export type VariableMapping = { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
 
 function resolveVariable(name: string, context: EventContext): string {
   if (name.startsWith(STATIC_VALUE_PREFIX)) return name.slice(STATIC_VALUE_PREFIX.length);
@@ -53,7 +53,7 @@ function orderedEntries(section: Record<string, string> | undefined, parameterFo
 // parâmetro em branco pra Meta. Um valor "static:" só fica vazio se o admin deixou em branco.
 export function missingRequiredVariables(mapping: VariableMapping, context: EventContext): string[] {
   const missing: string[] = [];
-  for (const section of [mapping.header, mapping.body]) {
+  for (const section of [mapping.header, mapping.body, mapping.buttons]) {
     for (const [, varName] of orderedEntries(section, "POSITIONAL")) {
       if (!resolveVariable(varName, context)) missing.push(varName);
     }
@@ -88,7 +88,7 @@ export function renderTemplateBodyPreview(bodyText: string, bodyMapping: Record<
 }
 
 export function buildTemplateComponents(mapping: VariableMapping, context: EventContext, parameterFormat: "POSITIONAL" | "NAMED" = "POSITIONAL") {
-  const components: Array<{ type: string; parameters: Array<{ type: "text"; text: string; parameter_name?: string }> }> = [];
+  const components: Array<{ type: string; parameters: Array<{ type: "text"; text: string; parameter_name?: string }>; sub_type?: "url"; index?: string }> = [];
   const header = orderedEntries(mapping.header, parameterFormat);
   const body = orderedEntries(mapping.body, parameterFormat);
   const toParameter = ([key, varName]: [string, string]) => parameterFormat === "NAMED"
@@ -96,5 +96,8 @@ export function buildTemplateComponents(mapping: VariableMapping, context: Event
     : { type: "text" as const, text: resolveVariable(varName, context) };
   if (header.length) components.push({ type: "header", parameters: header.map(toParameter) });
   if (body.length) components.push({ type: "body", parameters: body.map(toParameter) });
+  for (const [index, variable] of orderedEntries(mapping.buttons, "POSITIONAL")) {
+    components.push({ type: "button", sub_type: "url", index, parameters: [{ type: "text", text: resolveVariable(variable, context) }] });
+  }
   return components;
 }
