@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActionButton, AppShell, DataTable, EmptyState, ErrorState, FileDropzone, LoadingState, Toast } from "@/components/ui";
 import { ArrowLeft, ArrowRight, Pencil, Plus, Send } from "lucide-react";
 
@@ -38,6 +38,29 @@ type Flow = {
   variable_mapping: { header?: Record<string, string>; body?: Record<string, string> };
   official_quick_reply_actions: FlowAction;
 };
+
+function StaticTextArea({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const resize = () => {
+    const textarea = ref.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  };
+
+  // Também recalcula ao abrir um fluxo existente, para o conteúdo salvo aparecer inteiro.
+  useLayoutEffect(resize, [value]);
+
+  return <textarea
+    ref={ref}
+    value={value}
+    onChange={(event) => onChange(event.target.value)}
+    onInput={resize}
+    rows={2}
+    placeholder="Valor fixo"
+    className="min-h-10 min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-line bg-white px-3 py-2 leading-5"
+  />;
+}
 
 export default function FluxosPage() {
   const [flows, setFlows] = useState<Flow[]>([]);
@@ -251,7 +274,10 @@ export default function FluxosPage() {
               <select value={slot.value} onChange={(event) => updateSlot(slot.section, slot.key, { value: event.target.value })} className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3">
                 {INTERNAL_VARIABLES.map((variable) => <option key={variable.value} value={variable.value}>{variable.label}</option>)}
               </select>
-              {slot.value === STATIC_OPTION ? <input value={slot.staticText} onChange={(event) => updateSlot(slot.section, slot.key, { staticText: event.target.value })} placeholder="Valor fixo" className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3" /> : null}
+              {slot.value === STATIC_OPTION ? <StaticTextArea
+                value={slot.staticText}
+                onChange={(staticText) => updateSlot(slot.section, slot.key, { staticText })}
+              /> : null}
             </div>)}
           </div> : null}
 

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import type { MessageAttribution } from "./analytics-attribution";
 
 export type OfficialMessageStatus = "queued" | "sent" | "accepted" | "delivered" | "read" | "failed";
 
@@ -71,10 +72,11 @@ export async function logMessageAttempt(input: {
   metaMessageId?: string | null;
   requestPayload?: unknown;
   responsePayload?: unknown;
+  attribution?: MessageAttribution;
 }) {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
-  const { error } = await admin.from("official_messages").insert({
+  const { data, error } = await admin.from("official_messages").insert({
     event_id: input.eventId,
     flow_run_id: input.flowRunId ?? null,
     phone: input.phone,
@@ -87,8 +89,14 @@ export async function logMessageAttempt(input: {
     meta_message_id: input.metaMessageId || null,
     request_payload: input.requestPayload ?? null,
     response_payload: input.responsePayload ?? null
-  });
+    ,source_type: input.attribution?.sourceType || "legacy",
+    source_id: input.attribution?.sourceId || null, flow_id: input.attribution?.flowId || null,
+    step_id: input.attribution?.stepId || null, message_key: input.attribution?.messageKey || null,
+    template_id: input.attribution?.templateId || null, broadcast_id: input.attribution?.broadcastId || null,
+    phone_number_id: input.attribution?.phoneNumberId || null
+  }).select("id").single();
   if (error) throw error;
+  return data;
 }
 
 // A Meta pode entregar webhooks fora de ordem. Nunca rebaixa "lida" para "entregue"

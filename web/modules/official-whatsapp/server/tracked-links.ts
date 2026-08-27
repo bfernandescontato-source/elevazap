@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { appUrl, env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getFlowRun } from "./flow-runs";
+import { recordCtaClick } from "./analytics-attribution";
 
 const FLOW_RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -62,6 +63,13 @@ export async function resolveAndRecordTrackedFinalLink(token: string) {
     clicked_at: clickedAt
   });
   if (clickError) throw clickError;
+
+  const [{ data: message }, { data: step }] = await Promise.all([
+    admin.from("official_messages").select("id,flow_id,step_id,broadcast_id,template_id").eq("meta_message_id", run.final_meta_message_id).maybeSingle(),
+    admin.from("official_flow_steps").select("id").eq("flow_id", run.flow_id).eq("step_key", "follow_up").maybeSingle()
+  ]);
+  const { data: cta } = step ? await admin.from("official_flow_ctas").select("id").eq("flow_step_id", step.id).eq("cta_key", "destination").maybeSingle() : { data: null };
+  await recordCtaClick({ flowRunId: run.id, flowId: message?.flow_id || run.flow_id, stepId: message?.step_id || step?.id || null, messageId: message?.id || null, templateId: message?.template_id || null, ctaId: cta?.id || null, broadcastId: message?.broadcast_id || null, phone: run.phone, destinationUrl: destination });
 
   // Mantém a primeira data no flow_run; todos os cliques continuam no histórico acima.
   const { error: runError } = await admin.from("official_flow_runs")

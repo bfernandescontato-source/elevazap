@@ -281,6 +281,10 @@ export default function WhatsappOficialPage() {
 
   return <AppShell title="WhatsApp Oficial" subtitle="Integração administrativa com a WhatsApp Cloud API oficial da Meta — uso restrito ao administrador">
     <div className="space-y-6">
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-panel p-4 shadow-soft">
+        <div><h2 className="font-semibold text-ink">Painel operacional</h2><p className="text-sm text-muted">Acompanhe etapas, CTAs, entregas, leituras e entradas em grupo.</p></div>
+        <Link href="/admin/whatsapp-oficial/operacao" className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">Abrir Visão Geral</Link>
+      </section>
       <div className="flex flex-wrap gap-4">
         <Link href="/admin/whatsapp-oficial/fluxos" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Fluxos <ArrowRight size={15} /></Link>
         <Link href="/admin/whatsapp-oficial/entradas-externas" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Entradas externas <ArrowRight size={15} /></Link>

@@ -11,6 +11,8 @@ import { processQuickReplyClick } from "./quick-reply-processor";
 import { buildTemplateComponents, missingRequiredVariables, renderTemplateText, type EventContext } from "./variable-resolver";
 import { OfficialWhatsAppError, officialErrorCode, officialErrorMessage } from "./errors";
 import { buildTrackedFinalLink } from "./tracked-links";
+import { getFlowCta, getFlowStep, recordCtaClick } from "./analytics-attribution";
+import { supabaseAdmin } from "@/lib/supabase";
 
 // Envia o template inicial de um fluxo pra UM contato e cria o flow_run que vai permitir achar
 // o contexto certo quando o clique chegar (fase B/C vão chamar isto em lote, um contato por vez).
@@ -31,10 +33,17 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
 
   const components = buildTemplateComponents(flow.variable_mapping, input.context, template.parameterFormat);
   const result = await sendWhatsAppTemplate({ phone, templateName: flow.initial_template_name, language: flow.initial_template_language, components });
+  const initialStep = await getFlowStep(flow.id, "initial");
+  let broadcastId: string | null = null;
+  if (input.source === "broadcast" && input.sourceReference) {
+    const { data } = await supabaseAdmin().from("official_broadcast_recipients").select("broadcast_id").eq("id", input.sourceReference).maybeSingle();
+    broadcastId = data?.broadcast_id || null;
+  }
 
   await logMessageAttempt({
     eventId: null, phone: result.phone, templateName: flow.initial_template_name, templateLanguage: flow.initial_template_language,
-    status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response
+    status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response,
+    attribution: { sourceType: input.source === "broadcast" ? "broadcast" : input.source === "external" ? "automation" : "manual", sourceId: input.sourceReference, flowId: flow.id, stepId: initialStep?.id || null, messageKey: "initial", templateId: flow.initial_template_name, broadcastId }
   });
 
   const run = await createFlowRun({
@@ -69,6 +78,11 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
     return true;
   }
   const action = flow.official_quick_reply_actions;
+  const initialStep = await getFlowStep(flow.id, "initial");
+  const cta = await getFlowCta(flow.id, "initial", "quick_reply");
+  const admin = supabaseAdmin();
+  const { data: originalMessage } = await admin.from("official_messages").select("id,broadcast_id,template_id").eq("meta_message_id", replyToMessageId).maybeSingle();
+  await recordCtaClick({ clickId: eventId, flowRunId: run.id, flowId: flow.id, stepId: initialStep?.id || null, messageId: originalMessage?.id || null, templateId: originalMessage?.template_id || null, ctaId: cta?.id || null, broadcastId: originalMessage?.broadcast_id || null, phone: run.phone });
 
   const textResult = action.response_text ? renderTemplateText(action.response_text, run.context) : null;
   const captionResult = action.caption ? renderTemplateText(action.caption, run.context) : null;
@@ -92,9 +106,11 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
       buttonUrlOverride = buildTrackedFinalLink(run.id);
     }
     const result = await sendQuickReplyMessage(action, run.phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId }, buttonUrlOverride);
+    const followUpStep = await getFlowStep(flow.id, "follow_up");
     await logMessageAttempt({
       eventId: null, flowRunId: run.id, phone: result.phone, status: "accepted", metaMessageId: result.messageId || null,
-      requestPayload: result.requestPayload, responsePayload: result.response
+      requestPayload: result.requestPayload, responsePayload: result.response,
+      attribution: { sourceType: originalMessage?.broadcast_id ? "broadcast" : "automation", sourceId: originalMessage?.broadcast_id || null, flowId: flow.id, stepId: followUpStep?.id || null, messageKey: "follow_up", broadcastId: originalMessage?.broadcast_id || null }
     });
     await setFlowRunFinalMessageId(run.id, result.messageId || null).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem final ao fluxo:", error));
     await markFlowRunStatus(run.id, "completed");

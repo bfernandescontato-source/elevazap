@@ -231,6 +231,31 @@ describe("resolução de variáveis de automação", () => {
     ] }]);
   });
 
+  it("preserva todas as quebras de linha de texto fixo até o parâmetro do template", () => {
+    const fixedText = `🎁 BÔNUS LIBERADO
+
+Eu liberei um bônus especial para você:
+
+🔥 MÁQUINA DE VENDAS™
+
+Como construir uma operação de achadinhos para buscar seus primeiros R$10 MIL POR MÊS em comissões.
+
+Nessa aula, eu vou abrir a estratégia que junta grupos cheios + produtos que já vendem + IA + automação para transformar seus grupos em uma verdadeira Máquina de Vendas™.
+
+⚠️ IMPORTANTE: essa aula será liberada EXCLUSIVAMENTE dentro do Grupo VIP.
+
+Se você não entrar, não receberá o link da aula.
+
+👇 Entre agora para garantir o seu acesso:`;
+    const savedMapping = JSON.parse(JSON.stringify({ body: { "1": `static:${fixedText}` } }));
+
+    const components = buildTemplateComponents(savedMapping, makeContext());
+
+    expect(components).toEqual([{ type: "body", parameters: [{ type: "text", text: fixedText }] }]);
+    expect(components[0].parameters[0].text).toContain("LIBERADO\n\nEu liberei");
+    expect(components[0].parameters[0].text).toContain("Grupo VIP.\n\nSe você");
+  });
+
   it("monta components com parameter_name para templates NAMED, casando pelo nome do template", () => {
     const components = buildTemplateComponents({ body: { product_name: "product_name" } }, makeContext(), "NAMED");
     expect(components).toEqual([{ type: "body", parameters: [{ type: "text", parameter_name: "product_name", text: "Shop Lab" }] }]);
