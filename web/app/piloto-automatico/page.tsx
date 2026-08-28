@@ -63,10 +63,11 @@ export default function AutopilotPage() {
   async function save() {
     setSaving(true); setError(""); setNotice("");
     try {
+      const wasEnabled = form.enabled === false && data?.automation?.enabled === true;
       const response = await fetch("/api/piloto-automatico", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Não foi possível salvar.");
-      setNotice("Configuração salva."); await load();
+      setNotice(wasEnabled ? "Piloto desativado. As mensagens automáticas pendentes foram canceladas." : "Configuração salva."); await load();
     } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível salvar."); }
     finally { setSaving(false); }
   }
