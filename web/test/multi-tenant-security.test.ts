@@ -62,8 +62,15 @@ describe("isolamento multi-tenant", () => {
     expect(source).toContain('"invoice.payment_succeeded"');
     expect(source).toContain('invoice.id');
     expect(source).toContain('const INITIAL_PASSWORD = "123456"');
+    expect(source).toContain("DATABASE_TIMEOUT_MS = 10_000");
+    expect(source).toContain('"Retry-After": "30"');
+    expect(source).toContain('status: "ignored"');
+    expect(source).toContain("Oferta não mapeada para o plano START");
     expect(source).toContain('"[REDACTED]"');
     expect(source).not.toContain("updateUserById");
+
+    const supabase = read("web/lib/supabase.ts");
+    expect(supabase).toContain("AbortSignal.timeout");
   });
 
   it("bloqueia fila quando a assinatura não está ativa", () => {

@@ -20,6 +20,14 @@ const EVENT_STATUS: Record<string, "active" | "cancelled" | "expired" | "refunde
 };
 
 const INITIAL_PASSWORD = "123456";
+const DATABASE_TIMEOUT_MS = 10_000;
+
+function temporarilyUnavailable() {
+  return NextResponse.json(
+    { error: "Serviço temporariamente indisponível. Tente novamente." },
+    { status: 503, headers: { "Retry-After": "30" } }
+  );
+}
 
 function safePayload(body: Record<string, unknown>) {
   const clone = JSON.parse(JSON.stringify(body));
@@ -78,13 +86,10 @@ export async function POST(request: NextRequest) {
   if (!idempotencyKey)
     return NextResponse.json({ error: "Identificador de idempotência ausente." }, { status: 400 });
 
-  // Não cria conta para compras de outros produtos que eventualmente usem a
-  // mesma URL de webhook. A oferta Shop Lab está mapeada explicitamente ao START.
-  if (eventType === "invoice.payment_succeeded" && planName !== "start") {
-    return NextResponse.json({ ok: true, ignored: true });
-  }
-
-  const admin = supabaseAdmin();
+  // Este endpoint precisa falhar rapidamente quando o banco estiver indisponível.
+  // A resposta 503 faz a Hubla tentar novamente em vez de prender a função até o
+  // limite de execução da Vercel.
+  const admin = supabaseAdmin({ timeoutMs: DATABASE_TIMEOUT_MS });
   const audit = {
     idempotency_key: idempotencyKey,
     event_type: eventType,
@@ -97,7 +102,19 @@ export async function POST(request: NextRequest) {
   if (auditError) {
     if (/duplicate|unique/i.test(auditError.message))
       return NextResponse.json({ ok: true, duplicate: true });
-    return NextResponse.json({ error: "Falha ao registrar evento." }, { status: 500 });
+    return temporarilyUnavailable();
+  }
+
+  // Não cria conta para compras de outros produtos que eventualmente usem a
+  // mesma URL de webhook. O evento fica auditado para que novas ofertas ou
+  // mudanças de payload não desapareçam silenciosamente.
+  if (eventType === "invoice.payment_succeeded" && planName !== "start") {
+    await admin.from("hubla_webhook_events").update({
+      status: "ignored",
+      error: "Oferta não mapeada para o plano START",
+      processed_at: new Date().toISOString(),
+    }).eq("idempotency_key", idempotencyKey);
+    return NextResponse.json({ ok: true, ignored: true });
   }
 
   const receivedSubscriptionId = String(
