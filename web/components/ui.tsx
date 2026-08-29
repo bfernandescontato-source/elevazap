@@ -29,6 +29,7 @@ import {
   Send,
   Smartphone,
   Upload,
+  UserPlus,
   Zap,
   X
 } from "lucide-react";
@@ -50,6 +51,12 @@ const navSections = [
     { href: "/configuracoes", label: "Configurações", icon: Cog }
   ] }
 ];
+
+const adminNavSection = { label: "Administração", items: [
+  { href: "/admin/contas", label: "Contas", icon: UserPlus },
+  { href: "/admin/whatsapp-oficial", label: "WhatsApp Oficial", icon: MessageCircle },
+  { href: "/admin/mercado-livre-catalog", label: "Mercado Livre", icon: ShoppingBag },
+] };
 
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
@@ -96,6 +103,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
 
 function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   const [communityUnread, setCommunityUnread] = useState(0);
+  const [internalAdmin, setInternalAdmin] = useState(pathname.startsWith("/admin"));
   useEffect(() => {
     let alive = true;
     const load = () => fetch("/api/comunidade/notifications", { cache: "no-store" })
@@ -106,15 +114,24 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
     const interval = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(interval); };
   }, []);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/access", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => { if (alive && body?.admin) setInternalAdmin(true); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const sections = internalAdmin ? [...navSections, adminNavSection] : navSections;
   return <nav className="space-y-6" aria-label="Navegação principal">
-    {navSections.map((section) => <div key={section.label}>
+    {sections.map((section) => <div key={section.label}>
       <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
       <div className="space-y-1">{section.items.map((item) => {
         const match = "match" in item ? item.match : item.href;
         const active = pathname === match || pathname.startsWith(`${match}/`);
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
-        const badge = dynamicBadge || ("badge" in item ? item.badge : null);
+        const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);
         return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
@@ -125,6 +142,7 @@ export function StatusBadge({ status }: { status?: string | null }) {
   const s = status || "sem dados";
   const cls = {
     sucesso: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    active: "bg-emerald-50 text-emerald-700 border-emerald-200",
     connected: "bg-emerald-50 text-emerald-700 border-emerald-200",
     erro: "bg-red-50 text-red-700 border-red-200",
     disconnected: "bg-red-50 text-red-700 border-red-200",
@@ -138,6 +156,7 @@ export function StatusBadge({ status }: { status?: string | null }) {
   } as Record<string, string>;
   const labels: Record<string, string> = {
     connected: "Conectado",
+    active: "Ativa",
     disconnected: "Desconectado",
     sucesso: "Enviado",
     erro: "Falhou",
