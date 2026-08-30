@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   const context = buildLeadContext(fullName, phone, contentName);
 
   try {
-    const result = await startFlow({ flowId: source.flow_id, rawPhone: phone, context, source: "external", sourceReference: capture.leadId });
+    const result = await startFlow({ flowId: source.flow_id, rawPhone: phone, context, source: "external", sourceReference: capture.leadId, connectionId: source.connection_id });
     await markExternalLeadResult(capture.leadId, "accepted", result.flowRunId, null);
     return NextResponse.json({ ok: true, flowRunId: result.flowRunId, status: "accepted" });
   } catch (error) {

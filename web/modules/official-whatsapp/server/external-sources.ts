@@ -1,8 +1,10 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase";
+import { connectionIdSchema, resolveOfficialConnection } from "./official-connections";
 
 export type ExternalSource = {
   id: string;
+  connection_id: string | null;
   name: string;
   source_key: string;
   flow_id: string;
@@ -81,13 +83,16 @@ export async function findExternalSourceByKey(sourceKey: string): Promise<Extern
 }
 
 // Retorna o segredo em texto puro só desta vez — chamado só na criação. Nunca é lido de volta.
-export async function createExternalSource(input: { name: string; sourceKey: string; flowId: string; fixedContentName: string | null }) {
+export async function createExternalSource(input: { name: string; sourceKey: string; flowId: string; fixedContentName: string | null; connectionId?: string | null }) {
   const admin = supabaseAdmin();
+  const connectionId = connectionIdSchema.parse(input.connectionId);
+  await resolveOfficialConnection(connectionId);
   const secret = generateExternalSecret();
   const { data, error } = await admin.from("official_external_sources").insert({
     name: input.name,
     source_key: input.sourceKey,
     flow_id: input.flowId,
+    connection_id: connectionId,
     secret_hash: hashExternalSecret(secret),
     fixed_content_name: input.fixedContentName,
     active: true
@@ -113,9 +118,13 @@ export function parseExternalSourceInput(body: Record<string, any> | null): { na
 // sourceKey pode ser editada — quem chama o endpoint público com a key antiga (ex: Apps
 // Script já implantado) simplesmente passa a receber SOURCE_NOT_FOUND até ser atualizado
 // com a key nova, então trocar aqui é uma decisão consciente do admin, não travada por padrão.
-export async function updateExternalSource(id: string, input: { name?: string; sourceKey?: string; flowId?: string; fixedContentName?: string | null; active?: boolean }) {
+export async function updateExternalSource(id: string, input: { name?: string; sourceKey?: string; flowId?: string; fixedContentName?: string | null; active?: boolean; connectionId?: string | null }) {
   const admin = supabaseAdmin();
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.connectionId !== undefined) {
+    patch.connection_id = connectionIdSchema.parse(input.connectionId);
+    await resolveOfficialConnection(patch.connection_id as string | null);
+  }
   if (input.name !== undefined) patch.name = input.name;
   if (input.sourceKey !== undefined) patch.source_key = input.sourceKey;
   if (input.flowId !== undefined) patch.flow_id = input.flowId;

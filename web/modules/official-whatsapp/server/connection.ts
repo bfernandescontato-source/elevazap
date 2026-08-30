@@ -1,5 +1,6 @@
 import { graphRequest, metaConfigStatus, metaIdentifiers } from "./meta-client";
 import { officialErrorCode } from "./errors";
+import { resolveOfficialConnection } from "./official-connections";
 
 async function check<T>(fn: () => Promise<T>): Promise<{ ok: true; data: T } | { ok: false; code: ReturnType<typeof officialErrorCode> }> {
   try {
@@ -11,9 +12,9 @@ async function check<T>(fn: () => Promise<T>): Promise<{ ok: true; data: T } | {
 
 // Confirma separadamente token + acesso ao número + acesso à WABA. Nunca lê nem
 // retorna META_ACCESS_TOKEN — apenas os campos públicos que a Graph API devolve.
-export async function testMetaConnection() {
-  const configStatus = metaConfigStatus();
-  if (!configStatus.tokenConfigured || !configStatus.phoneNumberIdConfigured || !configStatus.graphVersion) {
+export async function testMetaConnection(connectionId?: string | null) {
+  const configStatus = metaConfigStatus(connectionId);
+  if (!configStatus.tokenConfigured || !configStatus.phoneNumberIdConfigured) {
     return {
       connected: false as const,
       configStatus,
@@ -23,10 +24,12 @@ export async function testMetaConnection() {
     };
   }
 
-  const { phoneNumberId, wabaId } = metaIdentifiers();
+  const resolved = await resolveOfficialConnection(connectionId);
+  configStatus.graphVersion = resolved.version;
+  const { phoneNumberId, wabaId } = await metaIdentifiers(connectionId);
 
-  const phoneCheck = await check(() => graphRequest(`/${phoneNumberId}?fields=verified_name,display_phone_number,quality_rating`));
-  const wabaCheck = wabaId ? await check(() => graphRequest(`/${wabaId}?fields=id,name`)) : null;
+  const phoneCheck = await check(() => graphRequest(`/${phoneNumberId}?fields=verified_name,display_phone_number,quality_rating,throughput`, undefined, connectionId));
+  const wabaCheck = wabaId ? await check(() => graphRequest(`/${wabaId}?fields=id,name`, undefined, connectionId)) : null;
 
   const authFailed = (!phoneCheck.ok && phoneCheck.code === "META_AUTH_ERROR") || (wabaCheck !== null && !wabaCheck.ok && wabaCheck.code === "META_AUTH_ERROR");
 

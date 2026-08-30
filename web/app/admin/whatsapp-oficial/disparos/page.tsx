@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, DataTable, EmptyState, ErrorState, FileDropzone } from "@/components/ui";
 import { ArrowLeft, FileSpreadsheet, Send } from "lucide-react";
+import { ConnectionSelect } from "../connection-select";
 
 type FieldMapping = { mode: "column" | "fixed" | "none"; column: string; fixedValue: string };
 type Flow = { id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean; official_quick_reply_actions: { button_label: string | null; payload: string } };
@@ -14,7 +15,7 @@ type PreviewResult = {
   flow: { name: string; templateName: string; templateCategory: string; buttonLabel: string | null };
 };
 
-type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; delivery_speed: "standard" | "urgent"; official_flows: { name: string } | null };
+type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; delivery_speed: "standard" | "urgent"; official_flows: { name: string } | null; official_connections: { label: string } | null };
 
 const emptyMapping: FieldMapping = { mode: "none", column: "", fixedValue: "" };
 const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou" };
@@ -36,6 +37,7 @@ export default function DisparosPage() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [flowsLoaded, setFlowsLoaded] = useState(false);
   const [selectedFlowId, setSelectedFlowId] = useState("");
+  const [connectionId, setConnectionId] = useState("legacy");
 
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -106,7 +108,7 @@ export default function DisparosPage() {
       }));
       const response = await fetch("/api/admin/official/broadcasts/preview", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ flowId: selectedFlowId, contacts })
+        body: JSON.stringify({ flowId: selectedFlowId, contacts, connectionId })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao gerar preview.");
@@ -132,7 +134,7 @@ export default function DisparosPage() {
       }));
       const response = await fetch("/api/admin/official/broadcasts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, deliverySpeed })
+        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, deliverySpeed, connectionId })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao iniciar disparo.");
@@ -162,14 +164,16 @@ export default function DisparosPage() {
   return <AppShell title="Disparo 1x1" subtitle="Lista CSV/XLSX → escolher fluxo → mapear colunas → preview → confirmar e enviar">
     <div className="space-y-6">
       <Link href="/admin/whatsapp-oficial/fluxos" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"><ArrowLeft size={15} /> Fluxos</Link>
+      <section className="rounded-xl border border-line bg-panel p-5 shadow-soft"><ConnectionSelect value={connectionId} disabled={starting || previewing || confirming} onChange={(value) => { setConnectionId(value); setPreview(null); setPreviewError(""); }} /></section>
 
       {broadcasts.length ? <section>
         <h2 className="mb-3 text-lg font-semibold text-ink">Histórico</h2>
         <DataTable
-          columns={["Data", "Nome", "Fluxo", "Ritmo", "Contatos", "Aceitos", "Falharam", "Status"]}
+          columns={["Data", "Nome", "Conta", "Fluxo", "Ritmo", "Contatos", "Aceitos", "Falharam", "Status"]}
           rows={broadcasts.map((broadcast) => [
             new Date(broadcast.created_at).toLocaleString("pt-BR"),
             <Link key="name" href={`/admin/whatsapp-oficial/disparos/${broadcast.id}`} className="font-medium text-ink hover:underline">{broadcast.name}</Link>,
+            broadcast.official_connections?.label || "Conta principal",
             broadcast.official_flows?.name || "—",
             broadcast.delivery_speed === "urgent" ? "Urgente (até 60x)" : "Padrão (5x)",
             broadcast.total_rows,

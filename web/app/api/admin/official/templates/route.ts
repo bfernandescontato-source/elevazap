@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireInternalAdmin } from "@/lib/internal-admin";
 import { listTemplates } from "@/modules/official-whatsapp/server/templates";
 import { OFFICIAL_ERROR_LABELS, officialErrorCode } from "@/modules/official-whatsapp/server/errors";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const guard = await requireInternalAdmin();
   if (guard.error) return guard.error;
   try {
-    const templates = await listTemplates();
+    const templates = await listTemplates(request.nextUrl.searchParams.get("connectionId"));
     return NextResponse.json({ templates });
   } catch (error) {
     const code = officialErrorCode(error);

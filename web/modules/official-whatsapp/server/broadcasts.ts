@@ -5,17 +5,26 @@ import { type ValidContact } from "./broadcast-contacts";
 import { officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "./errors";
 import { getMetaMessageThroughput } from "./meta-client";
 import { URGENT_BROADCAST_MAX_CONCURRENCY, urgentBroadcastConcurrency } from "./throughput";
+import { connectionIdSchema, resolveOfficialConnection } from "./official-connections";
+import { getFlow } from "./flows";
+import { findTemplate } from "./templates";
 
 export async function createBroadcastAndStart(input: {
   name: string;
   flowId: string;
   contacts: ValidContact[];
   deliverySpeed?: "standard" | "urgent";
+  connectionId?: string | null;
 }) {
   const admin = supabaseAdmin();
+  const connectionId = connectionIdSchema.parse(input.connectionId);
+  await resolveOfficialConnection(connectionId, true);
+  const flow = await getFlow(input.flowId);
+  if (!flow?.active) throw new Error("Fluxo não encontrado ou inativo.");
+  await findTemplate(flow.initial_template_name, flow.initial_template_language, connectionId);
   // A Meta informa o throughput do número. Para urgências, ficamos abaixo do
   // limite retornado e nunca ultrapassamos 60 envios aceitos em paralelo.
-  const metaThroughput = input.deliverySpeed === "urgent" ? await getMetaMessageThroughput().catch(() => null) : null;
+  const metaThroughput = input.deliverySpeed === "urgent" ? await getMetaMessageThroughput(connectionId).catch(() => null) : null;
   const dispatchConcurrency = input.deliverySpeed === "urgent"
     ? urgentBroadcastConcurrency(metaThroughput)
     : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5);
@@ -23,6 +32,7 @@ export async function createBroadcastAndStart(input: {
   const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
     name: input.name,
     flow_id: input.flowId,
+    connection_id: connectionId,
     status: "processing",
     total_rows: input.contacts.length,
     valid_recipients: input.contacts.length,
@@ -59,6 +69,13 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
   const { data: broadcast, error: broadcastError } = await admin.from("official_broadcasts").select("*").eq("id", broadcastId).maybeSingle();
   if (broadcastError) throw broadcastError;
   if (!broadcast || broadcast.status !== "processing") return { hasMore: false };
+  if (broadcast.connection_id) {
+    try { await resolveOfficialConnection(broadcast.connection_id, true); }
+    catch {
+      await admin.from("official_broadcasts").update({ status: "paused" }).eq("id", broadcastId).eq("status", "processing");
+      return { hasMore: false };
+    }
+  }
 
   await admin.from("official_broadcasts").update({ last_batch_at: new Date().toISOString() }).eq("id", broadcastId);
 
@@ -66,7 +83,7 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
   // Corrige também disparos urgentes criados antes do suporte ao formato
   // { level: "STANDARD" }: o primeiro lote após o deploy sobe de 20 para 60.
   if (broadcast.delivery_speed === "urgent" && concurrency < URGENT_BROADCAST_MAX_CONCURRENCY) {
-    const metaThroughput = await getMetaMessageThroughput().catch(() => null);
+    const metaThroughput = await getMetaMessageThroughput(broadcast.connection_id).catch(() => null);
     const upgradedConcurrency = urgentBroadcastConcurrency(metaThroughput);
     if (upgradedConcurrency > concurrency) {
       concurrency = upgradedConcurrency;
@@ -96,6 +113,7 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
         rawPhone: recipient.phone,
         context: { customerName: rowData.name, productName: rowData.product, customerEmail: rowData.email, customerPhone: recipient.phone, amountCents: null, paymentUrl: null, accessUrl: null },
         source: "broadcast",
+        connectionId: broadcast.connection_id,
         sourceReference: recipient.id
       });
       await admin.from("official_broadcast_recipients").update({
@@ -202,6 +220,9 @@ export async function pauseBroadcast(id: string) {
 
 export async function resumeBroadcast(id: string) {
   const admin = supabaseAdmin();
+  const { data: existing, error: readError } = await admin.from("official_broadcasts").select("connection_id").eq("id", id).single();
+  if (readError) throw readError;
+  await resolveOfficialConnection(existing.connection_id, true);
   // Também renova last_batch_at aqui: evita que o poll (nudge) da tela de progresso dispare
   // um segundo encadeamento em paralelo ao que este resume acabou de iniciar via after().
   const { error } = await admin.from("official_broadcasts").update({ status: "processing", last_batch_at: new Date().toISOString() }).eq("id", id).eq("status", "paused");
@@ -210,7 +231,7 @@ export async function resumeBroadcast(id: string) {
 
 export async function listBroadcasts(limit = 30) {
   const admin = supabaseAdmin();
-  const { data, error } = await admin.from("official_broadcasts").select("*, official_flows(name)").order("created_at", { ascending: false }).limit(limit);
+  const { data, error } = await admin.from("official_broadcasts").select("*, official_flows(name), official_connections(label,display_phone_number)").order("created_at", { ascending: false }).limit(limit);
   if (error) throw error;
   return data || [];
 }

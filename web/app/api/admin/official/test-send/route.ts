@@ -9,20 +9,21 @@ export async function POST(request: NextRequest) {
   const guard = await guardInternalAdminMutation(request, "official_test_send_ip");
   if (guard) return guard;
 
-  const body = (await request.json().catch(() => null)) as { phone?: string; templateName?: string } | null;
+  const body = (await request.json().catch(() => null)) as { phone?: string; templateName?: string; connectionId?: string } | null;
   const phone = String(body?.phone || "").trim();
   const templateName = String(body?.templateName || "").trim();
   if (!phone || !templateName) return NextResponse.json({ error: "Informe telefone e template." }, { status: 400 });
 
   try {
-    const template = await findTemplate(templateName);
+    const template = await findTemplate(templateName, undefined, body?.connectionId);
     const components = buildTestComponents(template);
-    const result = await sendWhatsAppTemplate({ phone, templateName: template.name, language: template.language, components });
+    const result = await sendWhatsAppTemplate({ phone, templateName: template.name, language: template.language, components, connectionId: body?.connectionId });
     // "accepted": a Meta apenas confirmou o recebimento síncrono da requisição.
     // sent/delivered/read chegam depois pelo webhook de status da Meta.
     await logMessageAttempt({
       eventId: null,
       phone: result.phone,
+      connectionId: result.connectionId,
       templateName: template.name,
       templateLanguage: template.language,
       status: "accepted",

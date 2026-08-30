@@ -1,40 +1,32 @@
-import { env } from "@/lib/env";
 import { OfficialWhatsAppError, type SanitizedMetaError } from "./errors";
 import { parseMetaThroughputMps } from "./throughput";
+import { legacyConnectionSummary, resolveOfficialConnection } from "./official-connections";
 
-function config() {
-  const e = env();
-  if (!e.META_ACCESS_TOKEN || !e.META_PHONE_NUMBER_ID || !e.META_GRAPH_VERSION) {
-    throw new OfficialWhatsAppError("META_NOT_CONFIGURED", "Configure META_ACCESS_TOKEN, META_PHONE_NUMBER_ID e META_GRAPH_VERSION.");
-  }
-  return { token: e.META_ACCESS_TOKEN, phoneNumberId: e.META_PHONE_NUMBER_ID, wabaId: e.META_WABA_ID || null, version: e.META_GRAPH_VERSION };
-}
-
-export function metaConfigStatus() {
-  const e = env();
+export function metaConfigStatus(connectionId?: string | null) {
+  const legacy = !connectionId || connectionId === "legacy" ? legacyConnectionSummary() : null;
   return {
-    phoneNumberIdConfigured: Boolean(e.META_PHONE_NUMBER_ID),
-    wabaConfigured: Boolean(e.META_WABA_ID),
-    tokenConfigured: Boolean(e.META_ACCESS_TOKEN),
-    graphVersion: e.META_GRAPH_VERSION || null
+    phoneNumberIdConfigured: connectionId && connectionId !== "legacy" ? true : Boolean(legacy?.phone_number_id),
+    wabaConfigured: connectionId && connectionId !== "legacy" ? true : Boolean(legacy?.waba_id),
+    tokenConfigured: connectionId && connectionId !== "legacy" ? true : Boolean(legacy),
+    graphVersion: connectionId && connectionId !== "legacy" ? null : legacy?.graph_version || null
   };
 }
 
-export function metaIdentifiers() {
-  const { phoneNumberId, wabaId } = config();
-  return { phoneNumberId, wabaId };
+export async function metaIdentifiers(connectionId?: string | null, forSending = false) {
+  const { phoneNumberId, wabaId } = await resolveOfficialConnection(connectionId, forSending);
+  return { phoneNumberId, wabaId, connectionId: !connectionId || connectionId === "legacy" ? null : connectionId };
 }
 
-export async function getMetaMessageThroughput() {
-  const { phoneNumberId } = metaIdentifiers();
-  const data = await graphRequest(`/${phoneNumberId}?fields=throughput`);
+export async function getMetaMessageThroughput(connectionId?: string | null) {
+  const { phoneNumberId } = await metaIdentifiers(connectionId);
+  const data = await graphRequest(`/${phoneNumberId}?fields=throughput`, undefined, connectionId);
   return parseMetaThroughputMps(data?.throughput);
 }
 
 // Nunca loga nem retorna META_ACCESS_TOKEN. Toda chamada à Graph API passa por aqui
 // para centralizar versão, timeout e tradução de erros — sem hardcodar a versão em outros arquivos.
-export async function graphRequest(path: string, init?: RequestInit) {
-  const { token, version } = config();
+export async function graphRequest(path: string, init?: RequestInit, connectionId?: string | null) {
+  const { token, version } = await resolveOfficialConnection(connectionId);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   let response: Response;

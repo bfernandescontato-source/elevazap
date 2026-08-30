@@ -10,7 +10,7 @@ import { officialErrorCode, officialErrorMessage } from "./errors";
 // Chamado via after() pelo webhook da Meta — resposta HTTP já foi enviada. Uma única resposta
 // por payload de botão, sem fila/steps. Contexto (nome/produto) é melhor-esforço: procura o
 // evento de compra mais recente com esse telefone, não cria/mantém contato nenhum.
-export async function processQuickReplyClick(eventId: string, payload: string, fromPhone: string) {
+export async function processQuickReplyClick(eventId: string, payload: string, fromPhone: string, connectionId: string | null = null) {
   const action = await findActiveQuickReplyAction(payload);
   if (!action) {
     await markEventStatus(eventId, "ignored", null, { quickReplyActionId: null });
@@ -47,7 +47,7 @@ export async function processQuickReplyClick(eventId: string, payload: string, f
   let mediaId: string | null = null;
   try {
     if (action.response_type !== "text" && action.media_bucket && action.media_path) {
-      mediaId = await uploadMediaFromStorage(action.media_bucket, action.media_path, action.mime_type || "application/octet-stream", action.file_name || "arquivo");
+      mediaId = await uploadMediaFromStorage(action.media_bucket, action.media_path, action.mime_type || "application/octet-stream", action.file_name || "arquivo", connectionId);
     }
   } catch (error) {
     const summary = `${officialErrorCode(error)}: ${officialErrorMessage(error)}`.slice(0, 500);
@@ -57,10 +57,10 @@ export async function processQuickReplyClick(eventId: string, payload: string, f
   }
 
   try {
-    const result = await sendQuickReplyMessage(action, phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId });
+    const result = await sendQuickReplyMessage(action, phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId }, undefined, connectionId);
     await logMessageAttempt({
       eventId, phone: result.phone, status: "accepted", metaMessageId: result.messageId || null,
-      requestPayload: result.requestPayload, responsePayload: result.response
+      requestPayload: result.requestPayload, responsePayload: result.response, connectionId
     });
     await markEventStatus(eventId, "processed", null, { quickReplyActionId: action.id });
   } catch (error) {

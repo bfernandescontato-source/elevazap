@@ -75,7 +75,7 @@ describe("autorização do módulo WhatsApp Oficial", () => {
 });
 
 function makeTemplate(overrides: Partial<WhatsAppTemplate>): WhatsAppTemplate {
-  return { name: "t", category: "UTILITY", status: "APPROVED", language: "pt_BR", components: [], variables: { header: 0, body: 0, buttons: 0 }, parameterFormat: "POSITIONAL", namedVariables: { header: [], body: [] }, ...overrides };
+  return { name: "t", category: "UTILITY", status: "APPROVED", language: "pt_BR", components: [], variables: { header: 0, body: 0, buttons: 0 }, parameterFormat: "POSITIONAL", namedVariables: { header: [], body: [] }, dynamicUrlButtonIndexes: [], ...overrides };
 }
 
 describe("detecção de variáveis de template Meta (header, body e botões)", () => {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardInternalAdminMutation, requireInternalAdmin } from "@/lib/internal-admin";
 import { createAutomation, listAutomations } from "@/modules/official-whatsapp/server/automations";
+import { connectionIdSchema, resolveOfficialConnection } from "@/modules/official-whatsapp/server/official-connections";
+import { findTemplate } from "@/modules/official-whatsapp/server/templates";
 
 export async function GET() {
   const guard = await requireInternalAdmin();
@@ -26,7 +28,10 @@ export async function POST(request: NextRequest) {
   const active = body?.active !== false;
 
   try {
-    const automation = await createAutomation({ eventType, productId, productName, templateName, templateLanguage, variableMapping, active });
+    const connectionId = connectionIdSchema.parse(body?.connectionId);
+    await resolveOfficialConnection(connectionId);
+    await findTemplate(templateName, templateLanguage, connectionId);
+    const automation = await createAutomation({ eventType, productId, productName, templateName, templateLanguage, variableMapping, active, connectionId });
     return NextResponse.json({ ok: true, automation });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Falha ao criar automação." }, { status: 500 });

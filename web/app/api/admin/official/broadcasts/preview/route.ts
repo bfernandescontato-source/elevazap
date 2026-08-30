@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const guard = await guardInternalAdminMutation(request, "official_broadcast_preview_ip");
   if (guard) return guard;
 
-  const body = await request.json().catch(() => null) as { flowId?: string; contacts?: RawContact[] } | null;
+  const body = await request.json().catch(() => null) as { flowId?: string; contacts?: RawContact[]; connectionId?: string } | null;
   const flowId = String(body?.flowId || "");
   const contacts = Array.isArray(body?.contacts) ? body!.contacts! : [];
   if (!flowId || !contacts.length) return NextResponse.json({ error: "Selecione um fluxo e envie os contatos." }, { status: 400 });
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
   let template;
   try {
-    template = await findTemplate(flow.initial_template_name, flow.initial_template_language);
+    template = await findTemplate(flow.initial_template_name, flow.initial_template_language, body?.connectionId);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Falha ao consultar template." }, { status: 400 });
   }

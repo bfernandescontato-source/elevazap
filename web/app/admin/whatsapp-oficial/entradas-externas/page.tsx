@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { ConnectionSelect } from "../connection-select";
 import { useEffect, useState } from "react";
 import { ActionButton, AlertCard, AppShell, CopyButton, EmptyState, LoadingState, Toast } from "@/components/ui";
 import { ArrowLeft, ArrowRight, Pencil, Plus } from "lucide-react";
 
 type Flow = { id: string; name: string; active: boolean };
 type ExternalSource = {
+  connection_id: string | null;
   id: string; name: string; source_key: string; flow_id: string; fixed_content_name: string | null; active: boolean;
   official_flows: { name: string } | null;
   receivedToday: number; acceptedToday: number; duplicateToday: number; failedToday: number; lastEventAt: string | null;
@@ -33,6 +35,7 @@ export default function EntradasExternasPage() {
   const [name, setName] = useState("");
   const [sourceKey, setSourceKey] = useState("");
   const [flowId, setFlowId] = useState("");
+  const [connectionId, setConnectionId] = useState("legacy");
   const [fixedContentName, setFixedContentName] = useState("");
 
   async function loadSources() {
@@ -48,6 +51,7 @@ export default function EntradasExternasPage() {
   useEffect(() => { setLoading(true); Promise.all([loadSources(), loadFlows()]).finally(() => setLoading(false)); }, []);
 
   function resetForm() {
+    setConnectionId("legacy");
     setEditingId(null); setName(""); setSourceKey(""); setFlowId(""); setFixedContentName("");
   }
 
@@ -56,6 +60,7 @@ export default function EntradasExternasPage() {
     setName(source.name);
     setSourceKey(source.source_key);
     setFlowId(source.flow_id);
+    setConnectionId(source.connection_id || "legacy");
     setFixedContentName(source.fixed_content_name || "");
     setShowForm(true);
   }
@@ -66,7 +71,7 @@ export default function EntradasExternasPage() {
     try {
       const response = await fetch(editingId ? `/api/admin/official/external-sources/${editingId}` : "/api/admin/official/external-sources", {
         method: editingId ? "PATCH" : "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, sourceKey, flowId, fixedContentName: fixedContentName || null })
+        body: JSON.stringify({ name, sourceKey, flowId, fixedContentName: fixedContentName || null, connectionId })
       });
       const data = await response.json();
       if (!response.ok) { setToast(`Falha: ${data.error || "erro desconhecido"}.`); return; }
@@ -114,6 +119,7 @@ export default function EntradasExternasPage() {
 
         {showForm ? <div className="mb-4 rounded-lg border border-line bg-panel p-6 shadow-soft">
           <h3 className="mb-3 text-sm font-semibold text-ink">{editingId ? "Editar entrada" : "Nova entrada"}</h3>
+          <div className="mb-4"><ConnectionSelect value={connectionId} onChange={setConnectionId} disabled={saving} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-ink">Nome
               <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Roleta Achadinhos" className="mt-1 h-11 w-full rounded-lg border border-line px-3" />

@@ -19,6 +19,7 @@ export type FlowRun = {
   final_link_clicked_at: string | null;
   joined_group_at: string | null;
   joined_group_jid: string | null;
+  connection_id: string | null;
 };
 
 export async function createFlowRun(input: {
@@ -28,6 +29,7 @@ export async function createFlowRun(input: {
   phone: string;
   context: EventContext;
   initialMetaMessageId: string | null;
+  connectionId?: string | null;
 }): Promise<FlowRun> {
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_flow_runs").insert({
@@ -37,6 +39,7 @@ export async function createFlowRun(input: {
     phone: input.phone,
     context: input.context,
     initial_meta_message_id: input.initialMetaMessageId,
+    connection_id: input.connectionId || null,
     status: "sent"
   }).select("*").single();
   if (error) throw error;

@@ -16,7 +16,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 // Envia o template inicial de um fluxo pra UM contato e cria o flow_run que vai permitir achar
 // o contexto certo quando o clique chegar (fase B/C vão chamar isto em lote, um contato por vez).
-export async function startFlow(input: { flowId: string; rawPhone: string; context: EventContext; source: string; sourceReference: string | null }) {
+export async function startFlow(input: { flowId: string; rawPhone: string; context: EventContext; source: string; sourceReference: string | null; connectionId?: string | null }) {
   const flow = await getFlow(input.flowId);
   if (!flow || !flow.active) throw new OfficialWhatsAppError("NO_AUTOMATION", "Fluxo não encontrado ou inativo.");
 
@@ -27,14 +27,14 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
     throw new OfficialWhatsAppError("INVALID_PHONE", "Telefone inválido.");
   }
 
-  const template = await findTemplate(flow.initial_template_name, flow.initial_template_language);
+  const template = await findTemplate(flow.initial_template_name, flow.initial_template_language, input.connectionId);
   const missingMappings = missingTemplateMappings({ mapping: flow.variable_mapping, parameterFormat: template.parameterFormat, header: template.variables.header, body: template.variables.body, namedHeader: template.namedVariables.header, namedBody: template.namedVariables.body, dynamicButtons: template.dynamicUrlButtonIndexes });
   if (missingMappings.length) throw new OfficialWhatsAppError("MISSING_TEMPLATE_VARIABLE", `Configure o mapeamento: ${missingMappings.join(", ")}.`);
   const missing = missingRequiredVariables(flow.variable_mapping, input.context);
   if (missing.length) throw new OfficialWhatsAppError("MISSING_TEMPLATE_VARIABLE", `Faltam variáveis: ${missing.join(", ")}`);
 
   const components = buildTemplateComponents(flow.variable_mapping, input.context, template.parameterFormat);
-  const result = await sendWhatsAppTemplate({ phone, templateName: flow.initial_template_name, language: flow.initial_template_language, components });
+  const result = await sendWhatsAppTemplate({ phone, templateName: flow.initial_template_name, language: flow.initial_template_language, components, connectionId: input.connectionId });
   const initialStep = await getFlowStep(flow.id, "initial");
   let broadcastId: string | null = null;
   if (input.source === "broadcast" && input.sourceReference) {
@@ -45,12 +45,13 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
   await logMessageAttempt({
     eventId: null, phone: result.phone, templateName: flow.initial_template_name, templateLanguage: flow.initial_template_language,
     status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response,
-    attribution: { sourceType: input.source === "broadcast" ? "broadcast" : input.source === "external" ? "automation" : "manual", sourceId: input.sourceReference, flowId: flow.id, stepId: initialStep?.id || null, messageKey: "initial", templateId: flow.initial_template_name, broadcastId }
+    connectionId: result.connectionId,
+    attribution: { sourceType: input.source === "broadcast" ? "broadcast" : input.source === "external" ? "automation" : "manual", sourceId: input.sourceReference, flowId: flow.id, stepId: initialStep?.id || null, messageKey: "initial", templateId: flow.initial_template_name, broadcastId, phoneNumberId: result.phoneNumberId }
   });
 
   const run = await createFlowRun({
     flowId: flow.id, source: input.source, sourceReference: input.sourceReference,
-    phone: result.phone, context: input.context, initialMetaMessageId: result.messageId || null
+    phone: result.phone, context: input.context, initialMetaMessageId: result.messageId || null, connectionId: result.connectionId
   });
   await attachMessageToFlowRun(result.messageId, run.id).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem inicial ao fluxo:", error));
   return { flowRunId: run.id, phone: result.phone, messageId: result.messageId };
@@ -59,18 +60,22 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
 // Ponto de entrada único chamado pelo webhook. Tenta correlacionar pelo wamid da mensagem
 // respondida (fluxo); se não achar flow_run, cai no comportamento antigo de Quick Reply avulso
 // (payload + melhor esforço por telefone) — nada quebra pra quem não usa fluxo.
-export async function processButtonClickEvent(eventId: string, click: { button: { payload: string }; from: string; context?: { id?: string } }) {
+export async function processButtonClickEvent(eventId: string, click: { button: { payload: string }; from: string; context?: { id?: string } }, connectionId: string | null = null) {
   const replyToMessageId = click.context?.id;
-  const handledByFlow = replyToMessageId ? await processFlowClickByRepliedMessageId(eventId, replyToMessageId) : false;
+  const handledByFlow = replyToMessageId ? await processFlowClickByRepliedMessageId(eventId, replyToMessageId, connectionId, click.from) : false;
   if (!handledByFlow) {
-    await processQuickReplyClick(eventId, click.button.payload, click.from);
+    await processQuickReplyClick(eventId, click.button.payload, click.from, connectionId);
   }
 }
 
 // Retorna true se encontrou e processou via fluxo — o chamador cai no fallback antigo se false.
-async function processFlowClickByRepliedMessageId(eventId: string, replyToMessageId: string): Promise<boolean> {
+async function processFlowClickByRepliedMessageId(eventId: string, replyToMessageId: string, connectionId: string | null, from: string): Promise<boolean> {
   const run = await findFlowRunByMessageId(replyToMessageId);
   if (!run) return false;
+  if ((run.connection_id || null) !== connectionId || normalizeBrazilianPhone(from) !== run.phone) {
+    await markEventStatus(eventId, "ignored", "Resposta não pertence à conta e ao destinatário originais.");
+    return true;
+  }
 
   await markFlowRunStatus(run.id, "clicked");
   const flow = await getFlow(run.flow_id);
@@ -100,19 +105,19 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
   try {
     let mediaId: string | null = null;
     if (action.response_type !== "text" && action.media_bucket && action.media_path) {
-      mediaId = await uploadMediaFromStorage(action.media_bucket, action.media_path, action.mime_type || "application/octet-stream", action.file_name || "arquivo");
+      mediaId = await uploadMediaFromStorage(action.media_bucket, action.media_path, action.mime_type || "application/octet-stream", action.file_name || "arquivo", run.connection_id);
     }
     let buttonUrlOverride: string | undefined;
     if (action.button_config?.type === "url") {
       await setFlowRunFinalDestination(run.id, action.button_config.url);
       buttonUrlOverride = buildTrackedFinalLink(run.id);
     }
-    const result = await sendQuickReplyMessage(action, run.phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId }, buttonUrlOverride);
+    const result = await sendQuickReplyMessage(action, run.phone, { text: textResult?.text ?? null, caption: captionResult?.text ?? null, mediaId }, buttonUrlOverride, run.connection_id);
     const followUpStep = await getFlowStep(flow.id, "follow_up");
     await logMessageAttempt({
       eventId: null, flowRunId: run.id, phone: result.phone, status: "accepted", metaMessageId: result.messageId || null,
-      requestPayload: result.requestPayload, responsePayload: result.response,
-      attribution: { sourceType: originalMessage?.broadcast_id ? "broadcast" : "automation", sourceId: originalMessage?.broadcast_id || null, flowId: flow.id, stepId: followUpStep?.id || null, messageKey: "follow_up", broadcastId: originalMessage?.broadcast_id || null }
+      requestPayload: result.requestPayload, responsePayload: result.response, connectionId: run.connection_id,
+      attribution: { sourceType: originalMessage?.broadcast_id ? "broadcast" : "automation", sourceId: originalMessage?.broadcast_id || null, flowId: flow.id, stepId: followUpStep?.id || null, messageKey: "follow_up", broadcastId: originalMessage?.broadcast_id || null, phoneNumberId: result.phoneNumberId }
     });
     await setFlowRunFinalMessageId(run.id, result.messageId || null).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem final ao fluxo:", error));
     await markFlowRunStatus(run.id, "completed");

@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
-    const { source, secret } = await createExternalSource(parsed);
+    const { source, secret } = await createExternalSource({ ...parsed, connectionId: body?.connectionId });
     return NextResponse.json({ ok: true, source, secret });
   } catch (error) {
     const message = error instanceof Error && /duplicate|unique/i.test(error.message) ? "Já existe uma entrada com essa source key." : "Falha ao criar entrada externa.";

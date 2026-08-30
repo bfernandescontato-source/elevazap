@@ -5,6 +5,7 @@ import { ActionButton, AppShell, ConfirmModal, CopyButton, DataTable, EmptyState
 import { ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Send, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { QuickReplyPanel } from "./quick-reply-panel";
+import { ConnectionSelect } from "./connection-select";
 
 const STATIC_OPTION = "__static__";
 const INTERNAL_VARIABLES: { value: string; label: string }[] = [
@@ -31,7 +32,7 @@ type Status = {
 type Template = { name: string; category: string; status: string; language: string; variables: { header: number; body: number; buttons: number }; parameterFormat: "POSITIONAL" | "NAMED"; namedVariables: { header: string[]; body: string[] } };
 type MessageLog = { id: string; phone: string; template_name: string | null; template_language: string | null; status: string; error: string | null; created_at: string };
 type HublaEvent = { id: string; event_type: string | null; provider_event_id: string | null; customer_name: string | null; customer_phone: string | null; product_name: string | null; status: string; error: string | null; payload: unknown; created_at: string };
-type Automation = { id: string; event_type: string; product_id: string | null; product_name: string | null; template_name: string; template_language: string; variable_mapping: { header?: Record<string, string>; body?: Record<string, string> }; active: boolean };
+type Automation = { id: string; connection_id: string | null; event_type: string; product_id: string | null; product_name: string | null; template_name: string; template_language: string; variable_mapping: { header?: Record<string, string>; body?: Record<string, string> }; active: boolean };
 type FunnelSummary = {
   hours: number;
   totals: { sent: number; delivered: number; read: number; first_button_clicks: number; final_messages: number; final_link_clicks: number; group_joins: number; failures: number };
@@ -56,6 +57,8 @@ function CheckRow({ label, ok, detail }: { label: string; ok: boolean; detail?: 
 }
 
 export default function WhatsappOficialPage() {
+  const [connectionId, setConnectionId] = useState("legacy");
+  const connectionRef = useRef("legacy");
   const [status, setStatus] = useState<Status | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState("");
@@ -85,9 +88,12 @@ export default function WhatsappOficialPage() {
 
   async function loadStatus() {
     setCheckingStatus(true);
-    const response = await fetch("/api/admin/official/status", { cache: "no-store" });
-    setStatus(await response.json());
-    setCheckingStatus(false);
+    const selected = connectionId;
+    try {
+      const response = await fetch(`/api/admin/official/status?connectionId=${encodeURIComponent(selected)}`, { cache: "no-store" });
+      const data = await response.json();
+      if (connectionRef.current === selected) setStatus(response.ok ? data : null);
+    } finally { setCheckingStatus(false); }
   }
 
   async function loadMessages() {
@@ -103,8 +109,10 @@ export default function WhatsappOficialPage() {
   }
 
   async function loadTemplates() {
-    const response = await fetch("/api/admin/official/templates", { cache: "no-store" });
+    const selected = connectionId;
+    const response = await fetch(`/api/admin/official/templates?connectionId=${encodeURIComponent(selected)}`, { cache: "no-store" });
     const data = await response.json();
+    if (connectionRef.current !== selected) return;
     if (response.ok) { setTemplates(data.templates || []); setTemplatesError(""); }
     else setTemplatesError(data.error || "Falha ao carregar templates.");
   }
@@ -128,11 +136,17 @@ export default function WhatsappOficialPage() {
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadStatus(), loadTemplates(), loadMessages(), loadFunnel(), loadHubla(), loadAutomations()]);
-    setLoading(false);
+    try { await Promise.all([loadStatus(), loadTemplates(), loadMessages(), loadFunnel(), loadHubla(), loadAutomations()]); }
+    catch { setToast("Falha ao carregar o painel. Atualize para tentar novamente."); }
+    finally { setLoading(false); }
   }
 
   useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    connectionRef.current = connectionId;
+    setStatus(null); setTemplates([]); setTemplateName(""); resetAutomationForm();
+    Promise.all([loadStatus(), loadTemplates()]).catch(() => setTemplatesError("Falha ao consultar a conta selecionada."));
+  }, [connectionId]);
 
   async function sendTest() {
     // Guarda por ref (síncrona, imune a atraso de re-render) além do estado que desabilita o botão.
@@ -143,7 +157,7 @@ export default function WhatsappOficialPage() {
       const response = await fetch("/api/admin/official/test-send", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone, templateName })
+        body: JSON.stringify({ phone, templateName, connectionId })
       });
       const data = await response.json();
       setToast(response.ok ? "Mensagem de teste enviada." : `Falha no envio: ${data.error || "erro desconhecido"}.`);
@@ -194,6 +208,10 @@ export default function WhatsappOficialPage() {
   }
 
   function startEditingAutomation(automation: Automation) {
+    if ((automation.connection_id || "legacy") !== connectionId) {
+      setToast("Selecione primeiro a conta usada por esta automação para editar seus templates.");
+      return;
+    }
     const template = templates.find((item) => item.name === automation.template_name && item.language === automation.template_language);
     setEditingAutomationId(automation.id);
     setAutomationEventType(automation.event_type);
@@ -228,6 +246,7 @@ export default function WhatsappOficialPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           eventType: automationEventType,
+          connectionId,
           productId: automationProductId || null,
           templateName: selectedTemplate.name,
           templateLanguage: selectedTemplate.language,
@@ -286,11 +305,13 @@ export default function WhatsappOficialPage() {
         <Link href="/admin/whatsapp-oficial/operacao" className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">Abrir Visão Geral</Link>
       </section>
       <div className="flex flex-wrap gap-4">
+        <Link href="/admin/whatsapp-oficial/contas" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Contas de API oficial <ArrowRight size={15} /></Link>
         <Link href="/admin/whatsapp-oficial/fluxos" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Fluxos <ArrowRight size={15} /></Link>
         <Link href="/admin/whatsapp-oficial/entradas-externas" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Entradas externas <ArrowRight size={15} /></Link>
       </div>
 
       <section className="rounded-lg border border-line bg-panel p-6 shadow-soft">
+        <div className="mb-6"><ConnectionSelect value={connectionId} disabled={sending || savingAutomation} onChange={setConnectionId} /></div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-sm text-muted">Status da conexão</div>
@@ -411,7 +432,7 @@ export default function WhatsappOficialPage() {
 
         <DataTable
           columns={["Quando", "Produto", "Template", "Status", "Ações"]}
-          rows={automations.map((automation) => [
+          rows={automations.filter((automation) => (automation.connection_id || "legacy") === connectionId).map((automation) => [
             automation.event_type,
             automation.product_name || automation.product_id || "Todos",
             `${automation.template_name} (${automation.template_language})`,

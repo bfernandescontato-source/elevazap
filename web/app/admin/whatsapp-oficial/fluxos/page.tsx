@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ConnectionSelect } from "../connection-select";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActionButton, AppShell, DataTable, EmptyState, ErrorState, FileDropzone, LoadingState, Toast } from "@/components/ui";
 import { ArrowLeft, ArrowRight, Pencil, Plus, Send } from "lucide-react";
@@ -63,6 +64,7 @@ function StaticTextArea({ value, onChange }: { value: string; onChange: (value: 
 }
 
 export default function FluxosPage() {
+  const [connectionId, setConnectionId] = useState("legacy");
   const [flows, setFlows] = useState<Flow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState("");
@@ -101,12 +103,12 @@ export default function FluxosPage() {
     setFlows(data.flows || []);
   }
   async function loadTemplates() {
-    const response = await fetch("/api/admin/official/templates", { cache: "no-store" });
+    const response = await fetch(`/api/admin/official/templates?connectionId=${encodeURIComponent(connectionId)}`, { cache: "no-store" });
     const data = await response.json();
     if (response.ok) { setTemplates(data.templates || []); setTemplatesError(""); }
     else setTemplatesError(data.error || "Falha ao carregar templates.");
   }
-  useEffect(() => { setLoading(true); Promise.all([loadFlows(), loadTemplates()]).finally(() => setLoading(false)); }, []);
+  useEffect(() => { setLoading(true); Promise.all([loadFlows(), loadTemplates()]).catch(() => setTemplatesError("Não foi possível carregar os dados. Tente novamente.")).finally(() => setLoading(false)); }, [connectionId]);
 
   function decodeSlotValue(raw: string | undefined): { value: string; staticText: string } {
     if (!raw) return { value: "first_name", staticText: "" };
@@ -226,7 +228,7 @@ export default function FluxosPage() {
     try {
       const response = await fetch(`/api/admin/official/flows/${testFlowId}/start`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: testPhone, customerName: testName || null, productName: testProduct || null })
+        body: JSON.stringify({ phone: testPhone, customerName: testName || null, productName: testProduct || null, connectionId })
       });
       const data = await response.json();
       setToast(response.ok ? "Fluxo iniciado — mensagem enviada." : `Falha ao iniciar: ${data.error || "erro desconhecido"}.`);
@@ -248,6 +250,7 @@ export default function FluxosPage() {
         <Link href="/admin/whatsapp-oficial/disparos" className="inline-flex items-center gap-2 text-sm font-medium text-ink hover:underline">Disparo 1x1 <ArrowRight size={15} /></Link>
       </div>
 
+      <section className="rounded-xl border border-line bg-panel p-5"><ConnectionSelect value={connectionId} disabled={saving || starting || showForm} onChange={setConnectionId} /></section>
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Fluxos</h2>

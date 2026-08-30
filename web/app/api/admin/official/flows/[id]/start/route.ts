@@ -17,6 +17,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const result = await startFlow({
       flowId: id,
+      connectionId: body?.connectionId,
       rawPhone: phone,
       context: {
         customerName: body?.customerName || null,

@@ -3,6 +3,7 @@ import type { VariableMapping } from "./variable-resolver";
 
 export type OfficialAutomation = {
   id: string;
+  connection_id: string | null;
   event_type: string;
   product_id: string | null;
   product_name: string | null;
@@ -22,6 +23,7 @@ export async function listAutomations(): Promise<OfficialAutomation[]> {
 }
 
 export async function createAutomation(input: {
+  connectionId?: string | null;
   eventType: string;
   productId: string | null;
   productName: string | null;
@@ -33,6 +35,7 @@ export async function createAutomation(input: {
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_automations").insert({
     event_type: input.eventType,
+    connection_id: input.connectionId || null,
     product_id: input.productId,
     product_name: input.productName,
     template_name: input.templateName,
@@ -45,6 +48,7 @@ export async function createAutomation(input: {
 }
 
 export async function updateAutomation(id: string, changes: {
+  connection_id?: string | null;
   event_type?: string;
   product_id?: string | null;
   template_name?: string;

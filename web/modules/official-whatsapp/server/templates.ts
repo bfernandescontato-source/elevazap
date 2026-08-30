@@ -62,10 +62,10 @@ export function summarizeTemplateVariables(components: WhatsAppTemplateComponent
   };
 }
 
-export async function listTemplates(): Promise<WhatsAppTemplate[]> {
-  const { wabaId } = metaIdentifiers();
+export async function listTemplates(connectionId?: string | null): Promise<WhatsAppTemplate[]> {
+  const { wabaId } = await metaIdentifiers(connectionId);
   if (!wabaId) throw new OfficialWhatsAppError("META_NOT_CONFIGURED", "Configure META_WABA_ID.");
-  const data = await graphRequest(`/${wabaId}/message_templates?fields=name,category,status,language,parameter_format,components&limit=200`);
+  const data = await graphRequest(`/${wabaId}/message_templates?fields=name,category,status,language,parameter_format,components&limit=200`, undefined, connectionId);
   const templates: WhatsAppTemplate[] = (data.data || []).map((item: any) => {
     const components: WhatsAppTemplateComponent[] = item.components || [];
     const parameterFormat: ParameterFormat = item.parameter_format === "NAMED" ? "NAMED" : "POSITIONAL";
@@ -92,9 +92,9 @@ export async function listTemplates(): Promise<WhatsAppTemplate[]> {
   });
 }
 
-export async function findTemplate(name: string, language?: string): Promise<WhatsAppTemplate> {
-  const templates = await listTemplates();
-  const template = templates.find((item) => item.name === name && (!language || item.language === language)) || templates.find((item) => item.name === name);
+export async function findTemplate(name: string, language?: string, connectionId?: string | null): Promise<WhatsAppTemplate> {
+  const templates = await listTemplates(connectionId);
+  const template = templates.find((item) => item.name === name && (!language || item.language === language));
   if (!template) throw new OfficialWhatsAppError("TEMPLATE_NOT_FOUND", `Template "${name}" não encontrado.`);
   if (template.status !== "APPROVED") throw new OfficialWhatsAppError("TEMPLATE_NOT_APPROVED", `Template "${name}" não está aprovado (status: ${template.status}).`);
   return template;

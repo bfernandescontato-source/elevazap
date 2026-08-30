@@ -73,6 +73,7 @@ export async function logMessageAttempt(input: {
   requestPayload?: unknown;
   responsePayload?: unknown;
   attribution?: MessageAttribution;
+  connectionId?: string | null;
 }) {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
@@ -93,7 +94,8 @@ export async function logMessageAttempt(input: {
     source_id: input.attribution?.sourceId || null, flow_id: input.attribution?.flowId || null,
     step_id: input.attribution?.stepId || null, message_key: input.attribution?.messageKey || null,
     template_id: input.attribution?.templateId || null, broadcast_id: input.attribution?.broadcastId || null,
-    phone_number_id: input.attribution?.phoneNumberId || null
+    phone_number_id: input.attribution?.phoneNumberId || null,
+    connection_id: input.connectionId === "legacy" ? null : input.connectionId || null
   }).select("id").single();
   if (error) throw error;
   return data;
@@ -101,19 +103,20 @@ export async function logMessageAttempt(input: {
 
 // A Meta pode entregar webhooks fora de ordem. Nunca rebaixa "lida" para "entregue"
 // nem transforma uma mensagem já entregue/lida em falha por um evento atrasado.
-export async function applyMetaMessageStatus(rawStatus: unknown) {
+export async function applyMetaMessageStatus(rawStatus: unknown, connectionId?: string | null) {
   const status = (rawStatus || {}) as MetaStatusEvent;
   if (typeof status.id !== "string" || !isMetaStatus(status.status)) return { matched: false, ignored: true };
 
   const admin = supabaseAdmin();
   const { data: current, error: findError } = await admin
     .from("official_messages")
-    .select("status")
+    .select("status,connection_id")
     .eq("meta_message_id", status.id)
     .limit(1)
     .maybeSingle();
   if (findError) throw findError;
   if (!current) return { matched: false, ignored: false };
+  if (connectionId !== undefined && (current.connection_id || null) !== connectionId) return { matched: false, ignored: true };
 
   const currentStatus = current.status as OfficialMessageStatus;
   const ignoreFailure = status.status === "failed" && (currentStatus === "delivered" || currentStatus === "read");

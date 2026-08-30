@@ -41,15 +41,15 @@ export function buildQuickReplyMessage(action: QuickReplyAction, phone: string, 
   };
 }
 
-export async function sendQuickReplyMessage(action: QuickReplyAction, rawPhone: string, resolved: ResolvedContent, buttonUrlOverride?: string) {
+export async function sendQuickReplyMessage(action: QuickReplyAction, rawPhone: string, resolved: ResolvedContent, buttonUrlOverride?: string, connectionId?: string | null) {
   let phone: string;
   try {
     phone = normalizeBrazilianPhone(rawPhone);
   } catch {
     throw new OfficialWhatsAppError("INVALID_PHONE", "Telefone do clique inválido.");
   }
-  const { phoneNumberId } = metaIdentifiers();
+  const { phoneNumberId } = await metaIdentifiers(connectionId, true);
   const requestPayload = buildQuickReplyMessage(action, phone, resolved, buttonUrlOverride);
-  const response = await graphRequest(`/${phoneNumberId}/messages`, { method: "POST", body: JSON.stringify(requestPayload) });
-  return { phone, requestPayload, response, messageId: response?.messages?.[0]?.id as string | undefined };
+  const response = await graphRequest(`/${phoneNumberId}/messages`, { method: "POST", body: JSON.stringify(requestPayload) }, connectionId);
+  return { phone, requestPayload, response, messageId: response?.messages?.[0]?.id as string | undefined, phoneNumberId, connectionId: connectionId || null };
 }

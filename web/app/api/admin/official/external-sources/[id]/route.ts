@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const parsed = parseExternalSourceInput(body);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   try {
-    const source = await updateExternalSource(id, { name: parsed.name, sourceKey: parsed.sourceKey, flowId: parsed.flowId, fixedContentName: parsed.fixedContentName });
+    const source = await updateExternalSource(id, { name: parsed.name, sourceKey: parsed.sourceKey, flowId: parsed.flowId, fixedContentName: parsed.fixedContentName, connectionId: body?.connectionId });
     return NextResponse.json({ ok: true, source });
   } catch (error) {
     const message = error instanceof Error && /duplicate|unique/i.test(error.message) ? "Já existe uma entrada com essa source key." : "Falha ao atualizar.";

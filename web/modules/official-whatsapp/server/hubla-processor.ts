@@ -29,7 +29,7 @@ export async function processHublaEvent(eventId: string, parsed: ParsedHublaEven
   // (POSITIONAL/NAMED) atual — nunca assumimos o formato sem checar.
   let template;
   try {
-    template = await findTemplate(automation.template_name, automation.template_language);
+    template = await findTemplate(automation.template_name, automation.template_language, automation.connection_id);
   } catch (error) {
     const summary = `${officialErrorCode(error)}: ${officialErrorMessage(error)}`.slice(0, 500);
     await markEventStatus(eventId, "failed", summary, { automationId: automation.id });
@@ -56,10 +56,10 @@ export async function processHublaEvent(eventId: string, parsed: ParsedHublaEven
   const components = buildTemplateComponents(mapping, context, template.parameterFormat);
 
   try {
-    const result = await sendWhatsAppTemplate({ phone, templateName: automation.template_name, language: automation.template_language, components });
+    const result = await sendWhatsAppTemplate({ phone, templateName: automation.template_name, language: automation.template_language, components, connectionId: automation.connection_id });
     await logMessageAttempt({
       eventId, phone: result.phone, templateName: automation.template_name, templateLanguage: automation.template_language,
-      status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response
+      status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response, connectionId: result.connectionId
     });
     await markEventStatus(eventId, "processed", null, { automationId: automation.id });
   } catch (error) {

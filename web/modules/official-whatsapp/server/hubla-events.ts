@@ -80,10 +80,11 @@ export async function captureHublaEvent(input: {
 
 // Captura de clique de botão vindo do webhook da Meta (provider "meta") — mesma tabela
 // official_events, mesma garantia de idempotência por (provider, provider_event_id).
-export async function captureMetaButtonClick(input: { payload: unknown; providerEventId: string; buttonPayload: string; fromPhone: string }) {
+export async function captureMetaButtonClick(input: { payload: unknown; providerEventId: string; buttonPayload: string; fromPhone: string; connectionId?: string | null }) {
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_events").insert({
     provider: "meta",
+    connection_id: input.connectionId || null,
     provider_event_id: input.providerEventId,
     event_type: input.buttonPayload,
     customer_phone: input.fromPhone,

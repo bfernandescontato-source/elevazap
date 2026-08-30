@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardInternalAdminMutation } from "@/lib/internal-admin";
 import { updateAutomation } from "@/modules/official-whatsapp/server/automations";
+import { connectionIdSchema } from "@/modules/official-whatsapp/server/official-connections";
+import { findTemplate } from "@/modules/official-whatsapp/server/templates";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -31,6 +33,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!Object.keys(changes).length) return NextResponse.json({ error: "Nenhuma alteração informada." }, { status: 400 });
 
   try {
+    if (isEditing && body.connectionId !== undefined) {
+      changes.connection_id = connectionIdSchema.parse(body.connectionId);
+      await findTemplate(changes.template_name!, changes.template_language, changes.connection_id);
+    }
     const automation = await updateAutomation(id, changes);
     return NextResponse.json({ ok: true, automation });
   } catch (error) {
