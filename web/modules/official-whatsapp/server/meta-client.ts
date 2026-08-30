@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { OfficialWhatsAppError, type SanitizedMetaError } from "./errors";
+import { parseMetaThroughputMps } from "./throughput";
 
 function config() {
   const e = env();
@@ -27,8 +28,7 @@ export function metaIdentifiers() {
 export async function getMetaMessageThroughput() {
   const { phoneNumberId } = metaIdentifiers();
   const data = await graphRequest(`/${phoneNumberId}?fields=throughput`);
-  const value = Number(data?.throughput);
-  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+  return parseMetaThroughputMps(data?.throughput);
 }
 
 // Nunca loga nem retorna META_ACCESS_TOKEN. Toda chamada à Graph API passa por aqui

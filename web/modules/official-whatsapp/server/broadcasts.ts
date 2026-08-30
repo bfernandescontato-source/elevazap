@@ -4,6 +4,7 @@ import { startFlow } from "./flow-processor";
 import { type ValidContact } from "./broadcast-contacts";
 import { officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "./errors";
 import { getMetaMessageThroughput } from "./meta-client";
+import { URGENT_BROADCAST_MAX_CONCURRENCY, urgentBroadcastConcurrency } from "./throughput";
 
 export async function createBroadcastAndStart(input: {
   name: string;
@@ -16,7 +17,7 @@ export async function createBroadcastAndStart(input: {
   // limite retornado e nunca ultrapassamos 60 envios aceitos em paralelo.
   const metaThroughput = input.deliverySpeed === "urgent" ? await getMetaMessageThroughput().catch(() => null) : null;
   const dispatchConcurrency = input.deliverySpeed === "urgent"
-    ? Math.min(60, Math.max(20, metaThroughput ? Math.floor(metaThroughput * 0.75) : 20))
+    ? urgentBroadcastConcurrency(metaThroughput)
     : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5);
 
   const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
@@ -61,7 +62,17 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
 
   await admin.from("official_broadcasts").update({ last_batch_at: new Date().toISOString() }).eq("id", broadcastId);
 
-  const concurrency = broadcast.dispatch_concurrency || (broadcast.delivery_speed === "urgent" ? 20 : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5));
+  let concurrency = broadcast.dispatch_concurrency || (broadcast.delivery_speed === "urgent" ? 20 : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5));
+  // Corrige também disparos urgentes criados antes do suporte ao formato
+  // { level: "STANDARD" }: o primeiro lote após o deploy sobe de 20 para 60.
+  if (broadcast.delivery_speed === "urgent" && concurrency < URGENT_BROADCAST_MAX_CONCURRENCY) {
+    const metaThroughput = await getMetaMessageThroughput().catch(() => null);
+    const upgradedConcurrency = urgentBroadcastConcurrency(metaThroughput);
+    if (upgradedConcurrency > concurrency) {
+      concurrency = upgradedConcurrency;
+      await admin.from("official_broadcasts").update({ dispatch_concurrency: concurrency }).eq("id", broadcastId);
+    }
+  }
   const { data: batch, error: batchError } = await admin.from("official_broadcast_recipients")
     .select("*").eq("broadcast_id", broadcastId).eq("status", "queued").order("created_at", { ascending: true }).limit(concurrency);
   if (batchError) throw batchError;
