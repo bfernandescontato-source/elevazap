@@ -122,5 +122,13 @@ export async function syncCampaignGroupInviteLinks(accountId: string, campaignId
     .eq("account_id", accountId)
     .eq("group_jid", row.group_jid)));
 
-  return { total: groupJids.length, updated: links.length };
+  const updatedJids = new Set(links.map((row) => row.group_jid));
+  const failed = groupJids.filter((groupJid) => !updatedJids.has(groupJid)).map((groupJid) => {
+    const row = rows.find((item) => item.group_jid === groupJid);
+    return {
+      group_jid: groupJid,
+      error: row?.invite_error || row?.participant_error || "O WhatsApp não retornou um novo link de convite. Verifique se o número conectado é administrador deste grupo."
+    };
+  });
+  return { total: groupJids.length, updated: links.length, failed };
 }

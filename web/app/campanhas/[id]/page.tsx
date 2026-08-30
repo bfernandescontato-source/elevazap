@@ -123,6 +123,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [downloadingGroup, setDownloadingGroup] = useState("");
+  const [linkSyncFailures, setLinkSyncFailures] = useState<{ group_jid: string; error: string }[]>([]);
 
   const campaign = detail?.campaign;
   const groups = useMemo(() => campaign?.groups || [], [campaign?.groups]);
@@ -225,7 +226,10 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
       const r = await fetch(`/api/campanhas/${id}/sync-invite-links`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Falha ao atualizar os links dos grupos.");
-      showMessage(d.updated === 1 ? "Link de 1 grupo atualizado." : `Links de ${d.updated || 0} grupos atualizados.`);
+      const failures = Array.isArray(d.failed) ? d.failed : [];
+      setLinkSyncFailures(failures);
+      if (failures.length) showMessage(`${d.updated || 0} link(s) atualizado(s). ${failures.length} grupo(s) precisam de atenção.`);
+      else showMessage(d.updated === 1 ? "Link de 1 grupo atualizado." : `Links de ${d.updated || 0} grupos atualizados.`);
       await load();
     } catch (e: any) { showMessage(e.message); } finally { setSaving(""); }
   }
@@ -478,6 +482,16 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
             </ActionButton>
           </div>
         </div>
+
+        {linkSyncFailures.length ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-semibold">Alguns links não foram atualizados</div>
+            <p className="mt-1">O número conectado precisa ser administrador para o WhatsApp liberar o link novo.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {linkSyncFailures.map((failure) => <li key={failure.group_jid}><span className="font-medium">{groups.find((group) => group.group_jid === failure.group_jid)?.nome || failure.group_jid}:</span> {failure.error}</li>)}
+            </ul>
+          </div>
+        ) : null}
 
         {!groups.length
           ? <EmptyState title="Nenhum grupo nesta campanha" description="Adicione grupos para ativar o link inteligente." />
