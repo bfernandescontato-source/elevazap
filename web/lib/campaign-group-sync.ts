@@ -80,3 +80,47 @@ export async function syncCampaignGroups(accountId: string, campaignId: string) 
   }));
   return rows;
 }
+
+/** Atualiza apenas os links de convite, sem alterar métricas de participantes. */
+export async function syncCampaignGroupInviteLinks(accountId: string, campaignId: string) {
+  const sb = supabaseAdmin();
+  const { data: campaign, error } = await sb
+    .from("campanhas")
+    .select("id,whatsapp_sender_id,whatsapp_senders(session_name),campanha_grupos(group_jid)")
+    .eq("id", campaignId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!campaign) throw new Error("Campanha não encontrada.");
+
+  const groupJids = (campaign.campanha_grupos || []).map((item: any) => item.group_jid);
+  if (!groupJids.length) return { total: 0, updated: 0 };
+
+  let sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] : campaign.whatsapp_senders;
+  if (!sender?.session_name) {
+    const { data: firstSender, error: senderError } = await sb.from("whatsapp_senders")
+      .select("id,session_name")
+      .eq("account_id", accountId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (senderError) throw senderError;
+    if (!firstSender) throw new Error("A campanha não possui um número WhatsApp conectado.");
+    sender = firstSender;
+  }
+
+  const result = await callWhatsappService(`/senders/${sender.session_name}/groups/sync`, {
+    method: "POST",
+    body: JSON.stringify({ groupJids })
+  });
+  const rows: SyncedGroup[] = Array.isArray(result.groups) ? result.groups : [];
+  const links = rows.filter((row) => row.invite_url && /^https:\/\/chat\.whatsapp\.com\//.test(row.invite_url));
+  const now = new Date().toISOString();
+  await Promise.all(links.map((row) => sb.from("campanha_grupos")
+    .update({ invite_url: row.invite_url, updated_at: now })
+    .eq("campanha_id", campaignId)
+    .eq("account_id", accountId)
+    .eq("group_jid", row.group_jid)));
+
+  return { total: groupJids.length, updated: links.length };
+}

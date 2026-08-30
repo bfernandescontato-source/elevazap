@@ -219,6 +219,17 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
     } catch (e: any) { showMessage(e.message); } finally { setSaving(""); }
   }
 
+  async function updateInviteLinks() {
+    setSaving("invite-links");
+    try {
+      const r = await fetch(`/api/campanhas/${id}/sync-invite-links`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Falha ao atualizar os links dos grupos.");
+      showMessage(d.updated === 1 ? "Link de 1 grupo atualizado." : `Links de ${d.updated || 0} grupos atualizados.`);
+      await load();
+    } catch (e: any) { showMessage(e.message); } finally { setSaving(""); }
+  }
+
   async function updateSender(senderId: string) {
     setSaving("sender");
     try {
@@ -461,6 +472,9 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
             )}
             <ActionButton icon={saving === "sync" ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} disabled={saving === "sync"} onClick={updateNow}>
               Atualizar participantes
+            </ActionButton>
+            <ActionButton icon={saving === "invite-links" ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} disabled={saving === "invite-links"} onClick={updateInviteLinks}>
+              Atualizar links dos grupos
             </ActionButton>
           </div>
         </div>
