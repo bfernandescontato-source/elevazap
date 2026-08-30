@@ -130,7 +130,11 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
       .catch(() => {});
     return () => { alive = false; };
   }, []);
-  const sections = internalAdmin ? [...navSections, adminNavSection, officialNavSection] : navSections;
+  const sections = internalAdmin
+    ? pathname.startsWith("/admin/whatsapp-oficial")
+      ? [officialNavSection, adminNavSection, ...navSections]
+      : [...navSections, adminNavSection, officialNavSection]
+    : navSections;
   return <nav className="space-y-6" aria-label="Navegação principal">
     {sections.map((section) => <div key={section.label}>
       <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
