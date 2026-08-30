@@ -5,6 +5,7 @@ import {
   disconnectSenderSession,
   getSenderStatus,
   refreshSenderGroups,
+  regenerateSenderGroupInviteLinks,
   resolveSenderGroupInvite,
   syncSenderGroups,
   listSenderGroupContacts,
@@ -112,6 +113,15 @@ export function createHttpServer(
     try {
       const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
       res.json({ groups: await syncSenderGroups(req.params.sessionName, groupJids) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/groups/regenerate-invites", async (req, res) => {
+    try {
+      const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
+      res.json({ groups: await regenerateSenderGroupInviteLinks(req.params.sessionName, groupJids) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

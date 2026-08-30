@@ -109,7 +109,7 @@ export async function syncCampaignGroupInviteLinks(accountId: string, campaignId
     sender = firstSender;
   }
 
-  const result = await callWhatsappService(`/senders/${sender.session_name}/groups/sync`, {
+  const result = await callWhatsappService(`/senders/${sender.session_name}/groups/regenerate-invites`, {
     method: "POST",
     body: JSON.stringify({ groupJids })
   });

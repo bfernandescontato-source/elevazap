@@ -478,7 +478,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
               Atualizar participantes
             </ActionButton>
             <ActionButton icon={saving === "invite-links" ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} disabled={saving === "invite-links"} onClick={updateInviteLinks}>
-              Atualizar links dos grupos
+              Gerar novos links dos grupos
             </ActionButton>
           </div>
         </div>

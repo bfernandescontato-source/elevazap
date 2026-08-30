@@ -71,3 +71,25 @@ export async function syncGroupMetadata(sock: any, groupJids: string[], accountI
   }
   return rows;
 }
+
+/** Revoga os convites atuais e cria links novos. Requer que o número seja administrador. */
+export async function regenerateGroupInviteLinks(sock: any, groupJids: string[]): Promise<SyncedGroup[]> {
+  const uniqueJids = Array.from(new Set(groupJids.filter((jid) => /^\d+(-\d+)?@g\.us$/.test(jid))));
+  const rows: SyncedGroup[] = [];
+  for (const groupJid of uniqueJids) {
+    const syncedAt = new Date().toISOString();
+    try {
+      const inviteCode = await withTimeout("groups.revoke-invite", env.GROUP_SYNC_TIMEOUT_MS, sock.groupRevokeInvite(groupJid));
+      if (!inviteCode) throw new Error("O WhatsApp não retornou o novo link de convite.");
+      rows.push({ group_jid: groupJid, invite_url: `https://chat.whatsapp.com/${inviteCode}`, synced_at: syncedAt, participant_error: null, invite_error: null });
+    } catch (error: any) {
+      rows.push({
+        group_jid: groupJid,
+        synced_at: syncedAt,
+        participant_error: null,
+        invite_error: error?.message || "Não foi possível gerar um novo link. Verifique se o número é administrador do grupo."
+      });
+    }
+  }
+  return rows;
+}
