@@ -344,11 +344,11 @@ export default function FluxosPage() {
         </div> : null}
 
         {!flows.length ? <EmptyState title="Nenhum fluxo ainda" description="Crie o primeiro fluxo acima." /> : <DataTable
-          columns={["Nome", "Template inicial", "Quick Reply", "Status", "", ""]}
+          columns={["Nome", "Modelo inicial", "Botão inicial", "Status", "", ""]}
           rows={flows.map((flow) => [
             flow.name,
             `${flow.initial_template_name} (${flow.initial_template_language})`,
-            flow.official_quick_reply_actions?.button_label || flow.official_quick_reply_actions?.payload || "—",
+            flow.official_quick_reply_actions?.button_label || flow.quick_reply_payload || flow.official_quick_reply_actions?.payload || "—",
             <button key="toggle" type="button" onClick={() => toggleFlow(flow)} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${flow.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-line bg-wash text-muted"}`}>{flow.active ? "Ativo" : "Inativo"}</button>,
             <button key="edit" type="button" onClick={() => startEdit(flow)} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"><Pencil size={13} /> Editar</button>,
             <button key="test" type="button" onClick={() => setTestFlowId(testFlowId === flow.id ? null : flow.id)} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash">Testar</button>
