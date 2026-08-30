@@ -1,39 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { guardInternalAdminMutation, requireInternalAdmin } from "@/lib/internal-admin";
-import { createAutomation, listAutomations } from "@/modules/official-whatsapp/server/automations";
-import { connectionIdSchema, resolveOfficialConnection } from "@/modules/official-whatsapp/server/official-connections";
-import { findTemplate } from "@/modules/official-whatsapp/server/templates";
+import { automationWriteError, createAutomation, listAutomations, validateAutomationInput } from "@/modules/official-whatsapp/server/automations";
+import { automationInputSchema } from "@/modules/official-whatsapp/automation-config";
 
 export async function GET() {
   const guard = await requireInternalAdmin();
   if (guard.error) return guard.error;
-  const automations = await listAutomations();
-  return NextResponse.json({ automations });
+  try { return NextResponse.json({ automations: await listAutomations() }); }
+  catch { return NextResponse.json({ error: "Não foi possível carregar as automações." }, { status: 503 }); }
 }
-
 export async function POST(request: NextRequest) {
   const guard = await guardInternalAdminMutation(request, "official_automation_write_ip");
   if (guard) return guard;
-
-  const body = await request.json().catch(() => null) as Record<string, any> | null;
-  const eventType = String(body?.eventType || "").trim();
-  const templateName = String(body?.templateName || "").trim();
-  const templateLanguage = String(body?.templateLanguage || "").trim();
-  if (!eventType || !templateName || !templateLanguage) {
-    return NextResponse.json({ error: "Evento, template e idioma são obrigatórios." }, { status: 400 });
-  }
-  const productId = String(body?.productId || "").trim() || null;
-  const productName = String(body?.productName || "").trim() || null;
-  const variableMapping = body?.variableMapping && typeof body.variableMapping === "object" ? body.variableMapping : {};
-  const active = body?.active !== false;
-
   try {
-    const connectionId = connectionIdSchema.parse(body?.connectionId);
-    await resolveOfficialConnection(connectionId);
-    await findTemplate(templateName, templateLanguage, connectionId);
-    const automation = await createAutomation({ eventType, productId, productName, templateName, templateLanguage, variableMapping, active, connectionId });
-    return NextResponse.json({ ok: true, automation });
+    const input = automationInputSchema.parse(await request.json());
+    if (input.followupMode === "legacy") throw new Error("Novas automações devem configurar sua própria segunda mensagem.");
+    await validateAutomationInput(input);
+    return NextResponse.json({ ok: true, automation: await createAutomation(input) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Falha ao criar automação." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof ZodError ? error.issues.map((issue) => issue.message).join(" ") : automationWriteError(error) }, { status: 400 });
   }
 }

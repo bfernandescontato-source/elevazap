@@ -13,6 +13,7 @@ import { OfficialWhatsAppError, officialErrorCode, officialErrorMessage } from "
 import { buildTrackedFinalLink } from "./tracked-links";
 import { getFlowCta, getFlowStep, recordCtaClick } from "./analytics-attribution";
 import { supabaseAdmin } from "@/lib/supabase";
+import { processAutomationButtonClick } from "./automation-followup";
 
 // Envia o template inicial de um fluxo pra UM contato e cria o flow_run que vai permitir achar
 // o contexto certo quando o clique chegar (fase B/C vão chamar isto em lote, um contato por vez).
@@ -61,6 +62,7 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
 // respondida (fluxo); se não achar flow_run, cai no comportamento antigo de Quick Reply avulso
 // (payload + melhor esforço por telefone) — nada quebra pra quem não usa fluxo.
 export async function processButtonClickEvent(eventId: string, click: { button: { payload: string }; from: string; context?: { id?: string } }, connectionId: string | null = null) {
+  if (await processAutomationButtonClick(eventId, click, connectionId)) return;
   const replyToMessageId = click.context?.id;
   const handledByFlow = replyToMessageId ? await processFlowClickByRepliedMessageId(eventId, replyToMessageId, connectionId, click.from) : false;
   if (!handledByFlow) {

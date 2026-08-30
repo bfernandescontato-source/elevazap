@@ -35,6 +35,7 @@ type FlowAction = {
   button_config: { type: "url" | "quick_reply"; text: string; url?: string; payload?: string } | null;
 };
 type Flow = {
+  quick_reply_payload?: string | null;
   id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean;
   variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
   official_quick_reply_actions: FlowAction;
@@ -148,7 +149,7 @@ export default function FluxosPage() {
     setEditingFlowId(flow.id);
     setName(flow.name);
     selectTemplate(flow.initial_template_name, flow.variable_mapping);
-    setQrPayload(action.payload);
+    setQrPayload(flow.quick_reply_payload || action.payload);
     setQrLabel(action.button_label || "");
     setResponseType(action.response_type);
     setResponseText(action.response_text || "");
@@ -243,7 +244,7 @@ export default function FluxosPage() {
 
   if (loading) return <AppShell title="Fluxos" subtitle="WhatsApp Oficial"><LoadingState /></AppShell>;
 
-  return <AppShell title="Fluxos" subtitle="Template inicial + Quick Reply + resposta única, sem sequência ou ramificação">
+  return <AppShell title="Fluxos para disparos" subtitle="Prepare a conversa que será usada ao enviar uma lista. Compras aprovadas são configuradas em Automações.">
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <Link href="/admin/whatsapp-oficial" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"><ArrowLeft size={15} /> Visão geral</Link>
@@ -251,6 +252,7 @@ export default function FluxosPage() {
       </div>
 
       <section className="rounded-xl border border-line bg-panel p-5"><ConnectionSelect value={connectionId} disabled={saving || starting || showForm} onChange={setConnectionId} /></section>
+      <p className="rounded-xl border border-line bg-wash p-4 text-sm text-muted">Aqui você prepara o modelo inicial e a resposta ao clique para <Link href="/admin/whatsapp-oficial/disparos" className="font-medium underline">Disparos 1 a 1</Link>. Para compra aprovada de um produto, configure tudo em <Link href="/admin/whatsapp-oficial/automacoes" className="font-medium underline">Automações</Link>.</p>
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">Fluxos</h2>
@@ -287,9 +289,9 @@ export default function FluxosPage() {
           </div> : null}
 
           <div className="mt-4 rounded-lg border border-line bg-wash p-4">
-            <div className="text-sm font-medium text-ink">Quick Reply</div>
+            <div className="text-sm font-medium text-ink">Botão que inicia a resposta</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-sm text-ink">Payload do botão (exatamente como o clique manda)
+              <label className="text-sm text-ink">Texto do botão da mensagem inicial
                 <input value={qrPayload} onChange={(event) => setQrPayload(event.target.value)} placeholder="QUERO ACESSAR" className="mt-1 h-10 w-full rounded-lg border border-line px-3" />
               </label>
               <label className="text-sm text-ink">Rótulo (opcional)

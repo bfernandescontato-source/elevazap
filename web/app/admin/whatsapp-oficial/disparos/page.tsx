@@ -161,7 +161,7 @@ export default function DisparosPage() {
     </div>;
   }
 
-  return <AppShell title="Disparo 1x1" subtitle="Lista CSV/XLSX → escolher fluxo → mapear colunas → preview → confirmar e enviar">
+  return <AppShell title="Disparos 1 a 1" subtitle="Escolha a conta, envie sua lista e selecione um fluxo. Automações de compra não são usadas aqui.">
     <div className="space-y-6">
       <Link href="/admin/whatsapp-oficial/fluxos" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"><ArrowLeft size={15} /> Fluxos</Link>
       <section className="rounded-xl border border-line bg-panel p-5 shadow-soft"><ConnectionSelect value={connectionId} disabled={starting || previewing || confirming} onChange={(value) => { setConnectionId(value); setPreview(null); setPreviewError(""); }} /></section>

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import type { MessageAttribution } from "./analytics-attribution";
+import type { AutomationSnapshot } from "./automation-followup";
 
 export type OfficialMessageStatus = "queued" | "sent" | "accepted" | "delivered" | "read" | "failed";
 
@@ -74,11 +75,16 @@ export async function logMessageAttempt(input: {
   responsePayload?: unknown;
   attribution?: MessageAttribution;
   connectionId?: string | null;
+  automationId?: string | null;
+  automationSnapshot?: AutomationSnapshot | null;
 }) {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
   const { data, error } = await admin.from("official_messages").insert({
     event_id: input.eventId,
+    automation_id: input.automationId || null,
+    automation_snapshot: input.automationSnapshot || null,
+    automation_reply_state: input.automationSnapshot?.mode === "button" ? "waiting" : null,
     flow_run_id: input.flowRunId ?? null,
     phone: input.phone,
     template_name: input.templateName ?? null,

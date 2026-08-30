@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { randomUUID } from "node:crypto";
 import { createQuickReplyAction, type ButtonConfig, type QuickReplyAction } from "./quick-reply-actions";
 import type { VariableMapping } from "./variable-resolver";
 
@@ -9,6 +10,7 @@ export type OfficialFlow = {
   initial_template_language: string;
   variable_mapping: VariableMapping;
   quick_reply_action_id: string;
+  quick_reply_payload: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -49,7 +51,7 @@ export async function getFlow(id: string): Promise<OfficialFlowWithAction | null
 
 async function upsertFollowupAction(input: FlowInput) {
   return createQuickReplyAction({
-    payload: input.quickReplyPayload,
+    payload: `flow-private:${randomUUID()}`,
     buttonLabel: input.quickReplyLabel,
     responseType: input.followupResponseType,
     responseText: input.followupResponseText,
@@ -63,9 +65,8 @@ async function upsertFollowupAction(input: FlowInput) {
   });
 }
 
-// Cria (ou atualiza, se o payload já existir) a ação de resposta e o fluxo que a referencia,
-// numa única chamada — o admin preenche um formulário só, mas reaproveitamos a tabela existente
-// em vez de duplicar campos de resposta dentro de official_flows.
+// Each flow revision gets a private action; never overwrite a legacy/global response
+// merely because the visible button text matches another product or flow.
 export async function createFlow(input: FlowInput): Promise<OfficialFlowWithAction> {
   const action = await upsertFollowupAction(input);
   const admin = supabaseAdmin();
@@ -75,6 +76,7 @@ export async function createFlow(input: FlowInput): Promise<OfficialFlowWithActi
     initial_template_language: input.initialTemplateLanguage,
     variable_mapping: input.variableMapping,
     quick_reply_action_id: action.id,
+    quick_reply_payload: input.quickReplyPayload,
     active: true
   }).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;
@@ -92,6 +94,7 @@ export async function updateFlow(id: string, input: FlowInput): Promise<Official
     initial_template_language: input.initialTemplateLanguage,
     variable_mapping: input.variableMapping,
     quick_reply_action_id: action.id,
+    quick_reply_payload: input.quickReplyPayload,
     updated_at: new Date().toISOString()
   }).eq("id", id).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;

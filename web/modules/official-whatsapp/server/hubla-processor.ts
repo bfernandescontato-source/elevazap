@@ -3,10 +3,12 @@ import { findActiveAutomation } from "./automations";
 import { markEventStatus } from "./hubla-events";
 import type { ParsedHublaEvent } from "./hubla-parser";
 import { findTemplate } from "./templates";
-import { sendWhatsAppTemplate } from "./send-template";
+import { sendWhatsAppTemplate, type TemplateComponent } from "./send-template";
 import { logMessageAttempt } from "./messages-store";
 import { buildTemplateComponents, missingRequiredVariables, type EventContext, type VariableMapping } from "./variable-resolver";
 import { officialErrorCode, officialErrorMessage } from "./errors";
+import { automationButtonPayload, followupConfigSchema } from "../automation-config";
+import type { AutomationSnapshot } from "./automation-followup";
 
 // Chamado via after() pelo webhook — a resposta HTTP já foi enviada à Hubla antes disso rodar.
 // Fluxo: procura automação ativa -> normaliza telefone -> resolve variáveis -> envia via Meta -> loga.
@@ -53,13 +55,32 @@ export async function processHublaEvent(eventId: string, parsed: ParsedHublaEven
     return;
   }
 
-  const components = buildTemplateComponents(mapping, context, template.parameterFormat);
+  const components: TemplateComponent[] = buildTemplateComponents(mapping, context, template.parameterFormat);
+  let snapshot: AutomationSnapshot | null = null;
+  try {
+    if (automation.followup_mode && automation.followup_mode !== "legacy") {
+    snapshot = { version: 1, mode: automation.followup_mode, context, config: null, triggerPayload: null };
+    if (automation.followup_mode === "button") {
+      const config = followupConfigSchema.parse(automation.followup_config);
+      const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(config.triggerButtonIndex)];
+      if (button?.type !== "QUICK_REPLY") { await markEventStatus(eventId, "failed", "O botão configurado não existe mais no modelo.", { automationId: automation.id }); return; }
+      snapshot.config = config;
+      snapshot.triggerPayload = automationButtonPayload(automation.id);
+      components.push({ type: "button", sub_type: "quick_reply", index: config.triggerButtonIndex, parameters: [{ type: "payload", payload: snapshot.triggerPayload }] });
+    }
+    }
+  } catch {
+    await markEventStatus(eventId, "failed", "Revise a configuração da segunda mensagem nesta automação.", { automationId: automation.id });
+    return;
+  }
 
   try {
     const result = await sendWhatsAppTemplate({ phone, templateName: automation.template_name, language: automation.template_language, components, connectionId: automation.connection_id });
     await logMessageAttempt({
       eventId, phone: result.phone, templateName: automation.template_name, templateLanguage: automation.template_language,
-      status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response, connectionId: result.connectionId
+      status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response, connectionId: result.connectionId,
+      automationId: automation.id, automationSnapshot: snapshot,
+      attribution: { sourceType: "automation", sourceId: automation.id, messageKey: "initial", templateId: automation.template_name, phoneNumberId: result.phoneNumberId }
     });
     await markEventStatus(eventId, "processed", null, { automationId: automation.id });
   } catch (error) {

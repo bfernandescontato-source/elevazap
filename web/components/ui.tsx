@@ -54,8 +54,16 @@ const navSections = [
 
 const adminNavSection = { label: "Administração", items: [
   { href: "/admin/contas", label: "Contas", icon: UserPlus },
-  { href: "/admin/whatsapp-oficial", label: "WhatsApp Oficial", icon: MessageCircle },
   { href: "/admin/mercado-livre-catalog", label: "Mercado Livre", icon: ShoppingBag },
+] };
+const officialNavSection = { label: "WhatsApp API oficial", items: [
+  { href: "/admin/whatsapp-oficial", label: "Painel", icon: BarChart3, exact: true },
+  { href: "/admin/whatsapp-oficial/contas", label: "Contas de API", icon: Smartphone },
+  { href: "/admin/whatsapp-oficial/automacoes", label: "Automações", icon: Zap },
+  { href: "/admin/whatsapp-oficial/fluxos", label: "Fluxos para disparos", icon: FolderOpen },
+  { href: "/admin/whatsapp-oficial/disparos", label: "Disparos 1 a 1", icon: Send },
+  { href: "/admin/whatsapp-oficial/historico", label: "Histórico", icon: Clock },
+  { href: "/admin/whatsapp-oficial/configuracoes", label: "Configurações da API", icon: Cog }
 ] };
 
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
@@ -63,7 +71,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-line bg-white px-4 py-5 lg:block">
+      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 overflow-y-auto border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
         </div>
@@ -122,13 +130,13 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
       .catch(() => {});
     return () => { alive = false; };
   }, []);
-  const sections = internalAdmin ? [...navSections, adminNavSection] : navSections;
+  const sections = internalAdmin ? [...navSections, adminNavSection, officialNavSection] : navSections;
   return <nav className="space-y-6" aria-label="Navegação principal">
     {sections.map((section) => <div key={section.label}>
       <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
       <div className="space-y-1">{section.items.map((item) => {
         const match = "match" in item ? item.match : item.href;
-        const active = pathname === match || pathname.startsWith(`${match}/`);
+        const active = pathname === match || (!("exact" in item && item.exact) && pathname.startsWith(`${match}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
         const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);

@@ -25,10 +25,11 @@ export async function listQuickReplyActions(): Promise<QuickReplyAction[]> {
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_quick_reply_actions").select("*").order("created_at", { ascending: false });
   if (error) throw error;
-  return data || [];
+  return (data || []).filter((action) => !action.payload.startsWith("flow-private:"));
 }
 
 export async function findActiveQuickReplyAction(payload: string): Promise<QuickReplyAction | null> {
+  if (payload.startsWith("flow-private:") || payload.startsWith("automation:")) return null;
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_quick_reply_actions").select("*").eq("payload", payload).eq("active", true).maybeSingle();
   if (error) throw error;

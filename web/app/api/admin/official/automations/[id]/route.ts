@@ -1,45 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { guardInternalAdminMutation } from "@/lib/internal-admin";
-import { updateAutomation } from "@/modules/official-whatsapp/server/automations";
-import { connectionIdSchema } from "@/modules/official-whatsapp/server/official-connections";
-import { findTemplate } from "@/modules/official-whatsapp/server/templates";
+import { supabaseAdmin } from "@/lib/supabase";
+import { automationInputSchema } from "@/modules/official-whatsapp/automation-config";
+import { automationWriteError, updateAutomation, validateAutomationInput } from "@/modules/official-whatsapp/server/automations";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
   const guard = await guardInternalAdminMutation(request, "official_automation_write_ip");
   if (guard) return guard;
-
-  const body = await request.json().catch(() => null) as Record<string, unknown> | null;
-  if (!body) return NextResponse.json({ error: "Dados da automação não informados." }, { status: 400 });
-
-  const changes: Parameters<typeof updateAutomation>[1] = {};
-  if (typeof body.active === "boolean") changes.active = body.active;
-
-  const isEditing = body.eventType !== undefined || body.templateName !== undefined || body.templateLanguage !== undefined;
-  if (isEditing) {
-    const eventType = String(body.eventType || "").trim();
-    const templateName = String(body.templateName || "").trim();
-    const templateLanguage = String(body.templateLanguage || "").trim();
-    if (!eventType || !templateName || !templateLanguage) {
-      return NextResponse.json({ error: "Evento, template e idioma são obrigatórios." }, { status: 400 });
-    }
-    changes.event_type = eventType;
-    changes.product_id = String(body.productId || "").trim() || null;
-    changes.template_name = templateName;
-    changes.template_language = templateLanguage;
-    changes.variable_mapping = body.variableMapping && typeof body.variableMapping === "object" ? body.variableMapping : {};
-  }
-
-  if (!Object.keys(changes).length) return NextResponse.json({ error: "Nenhuma alteração informada." }, { status: 400 });
-
   try {
-    if (isEditing && body.connectionId !== undefined) {
-      changes.connection_id = connectionIdSchema.parse(body.connectionId);
-      await findTemplate(changes.template_name!, changes.template_language, changes.connection_id);
+    const { id } = await params; z.string().uuid().parse(id);
+    const body = await request.json();
+    if (body && Object.keys(body).length === 1 && typeof body.active === "boolean") {
+      return NextResponse.json({ ok: true, automation: await updateAutomation(id, { active: body.active }) });
     }
-    const automation = await updateAutomation(id, changes);
+    const input = automationInputSchema.parse(body);
+    const { data: current, error } = await supabaseAdmin().from("official_automations").select("followup_mode").eq("id", id).single();
+    if (error) throw error;
+    if (input.followupMode === "legacy" && current.followup_mode !== "legacy") throw new Error("Uma automação organizada não pode voltar ao modo antigo.");
+    await validateAutomationInput(input);
+    const automation = await updateAutomation(id, { name: input.name, event_type: input.eventType, product_id: input.productId, product_name: input.productName, template_name: input.templateName, template_language: input.templateLanguage, connection_id: input.connectionId, variable_mapping: input.variableMapping, followup_mode: input.followupMode, followup_config: input.followupConfig, active: input.active });
     return NextResponse.json({ ok: true, automation });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Falha ao atualizar automação." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof z.ZodError ? error.issues.map((issue) => issue.message).join(" ") : automationWriteError(error) }, { status: 400 });
   }
 }
