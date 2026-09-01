@@ -21,6 +21,12 @@ const schema = z.object({
   DB_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10_000),
   SEND_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
   MEDIA_DOWNLOAD_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
+  MEDIA_CACHE_MAX_BYTES: z.coerce.number().int().min(1_048_576).default(256 * 1024 * 1024),
+  MEDIA_CACHE_TTL_MS: z.coerce.number().int().min(1_000).default(30 * 60_000),
+  TEMPORARY_MEDIA_GC_INTERVAL_MS: z.coerce.number().int().min(60_000).default(60 * 60_000),
+  TEMPORARY_MEDIA_GC_MIN_AGE_MS: z.coerce.number().int().min(3_600_000).default(48 * 60 * 60_000),
+  // Enable only after the first audited inventory in production.
+  TEMPORARY_MEDIA_GC_ENABLED: z.coerce.boolean().default(false),
   FFMPEG_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60_000),
   GROUP_SYNC_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
   WHATSAPP_START_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
@@ -31,7 +37,8 @@ const schema = z.object({
   WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-5.6")
+  OPENAI_MODEL: z.string().default("gpt-5.6"),
+  OPENAI_REWRITE_MODEL: z.string().default("gpt-4o-mini")
 });
 
 export const env = schema.parse(process.env);

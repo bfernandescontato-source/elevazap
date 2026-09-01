@@ -60,7 +60,9 @@ export class OfferAiRewriter {
   private client: ResponsesClient;
   constructor(
     apiKey = process.env.OPENAI_API_KEY,
-    private model = process.env.OPENAI_MODEL || "gpt-5.6",
+    // Modelo dedicado ao rewrite de ofertas — independente do OPENAI_MODEL global.
+    // Troque via OPENAI_REWRITE_MODEL no Railway sem afetar outros fluxos de IA.
+    private model = process.env.OPENAI_REWRITE_MODEL || "gpt-4o-mini",
     client?: ResponsesClient
   ) {
     if (!apiKey && !client) throw new Error("OPENAI_API_KEY não configurada.");
@@ -72,8 +74,7 @@ export class OfferAiRewriter {
     const sanitizedText = sanitizeSourcePromotion(input.text, purchaseLink);
     const response = await this.client.responses.create({
       model: this.model,
-      reasoning: { effort: "low" },
-      max_output_tokens: 900,
+      max_output_tokens: 250,
       input: [
         {
           role: "system",
@@ -112,6 +113,19 @@ export class OfferAiRewriter {
     });
     if (response.status !== "completed" || !response.output_text) throw new Error("A OpenAI não retornou uma copy válida.");
     const parsed = RewriteOutput.parse(JSON.parse(response.output_text));
-    return { text: validateRewrite(sanitizedText, parsed.rewritten_text, purchaseLink), model: this.model };
+    const result = validateRewrite(sanitizedText, parsed.rewritten_text, purchaseLink);
+
+    // Observabilidade: custo do rewrite por oferta
+    const usage = (response as any).usage;
+    console.info({
+      event: "offer_rewrite_completed",
+      feature: "offer_rewrite",
+      model: this.model,
+      input_tokens: usage?.input_tokens ?? null,
+      output_tokens: usage?.output_tokens ?? null,
+      total_tokens: usage?.total_tokens ?? null,
+    });
+
+    return { text: result, model: this.model };
   }
 }
