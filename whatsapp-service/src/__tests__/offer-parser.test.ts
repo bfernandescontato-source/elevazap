@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOffer } from "../offers/offer-parser.js";
+import { isSupportedMarketplaceUrl, parseOffer } from "../offers/offer-parser.js";
 import { mediaFrom, unwrapMessage } from "../offers/whatsapp-monitor.js";
 
 describe("OfferParser", () => {
@@ -52,6 +52,13 @@ describe("OfferParser", () => {
       text: "https://link.amazon/B00jBYJv8", timestamp: new Date()
     });
     expect(result.amazonLinks).toEqual(["https://link.amazon/B00jBYJv8"]);
+  });
+
+  it("aceita somente URLs da Shopee e do Mercado Livre para o Piloto", () => {
+    expect(isSupportedMarketplaceUrl("https://s.shopee.com.br/abc")).toBe(true);
+    expect(isSupportedMarketplaceUrl("https://meli.la/xyz")).toBe(true);
+    expect(isSupportedMarketplaceUrl("https://www.amazon.com.br/dp/B0ABCDEFG")).toBe(false);
+    expect(isSupportedMarketplaceUrl("https://loja-exemplo.com/produto")).toBe(false);
   });
 });
 

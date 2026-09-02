@@ -15,6 +15,11 @@ export function isMercadoLivreUrl(value: string) {
   return getAffiliateProviderName(value) === "mercado_livre";
 }
 
+/** O Piloto só pode distribuir ofertas dos marketplaces já integrados. */
+export function isSupportedMarketplaceUrl(value: string) {
+  return isShopeeUrl(value) || isMercadoLivreUrl(value);
+}
+
 const AMAZON_HOSTS = new Set(["amazon.com.br", "www.amazon.com.br", "amazon.com", "www.amazon.com", "amzn.to", "a.co"]);
 export function isAmazonUrl(value: string) {
   try {

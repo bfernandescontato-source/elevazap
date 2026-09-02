@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
-import { parseOffer } from "./offer-parser.js";
+import { isSupportedMarketplaceUrl, parseOffer } from "./offer-parser.js";
 import { nextOfferSlot } from "./offer-scheduler.js";
 import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
@@ -59,6 +59,10 @@ export class OfferProcessor {
 
     const shopeeConversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
     const mercadoLivreConversionRequired = parsed.mercadoLivreLinks.length > 0 && automation.mercado_livre_conversion_enabled;
+    // Nunca repasse links de lojas ainda não integradas, nem mensagens sem link de marketplace.
+    // Isso também deixa a Amazon bloqueada até a integração ser disponibilizada.
+    const unsupportedLinks = parsed.links.filter((value) => !isSupportedMarketplaceUrl(value));
+    const hasSupportedMarketplaceLink = parsed.shopeeLinks.length > 0 || parsed.mercadoLivreLinks.length > 0;
     const unsafeUnconvertedMercadoLivreLink = parsed.mercadoLivreLinks.some((value) => {
       try { return new URL(value).hostname.toLowerCase() === "meli.la"; } catch { return false; }
     }) && !automation.mercado_livre_conversion_enabled;
@@ -87,13 +91,17 @@ export class OfferProcessor {
       throw insertError;
     }
     log("offer_captured", { ...common, offer_id: offer.id });
-    if (parsed.amazonLinks.length > 0) {
-      const message = "Amazon ainda não integrado ao Piloto Automático; oferta ignorada.";
+    if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0) {
+      const message = parsed.amazonLinks.length > 0
+        ? "Amazon ainda não integrado ao Piloto Automático; oferta ignorada."
+        : !hasSupportedMarketplaceLink
+          ? "A oferta não possui link Shopee ou Mercado Livre; oferta ignorada."
+          : "A oferta contém link não permitido; oferta ignorada.";
       await this.database.from("captured_offers").update({
-        status: "ignored", error_code: "AMAZON_NOT_SUPPORTED_YET", error_message: message,
+        status: "ignored", error_code: parsed.amazonLinks.length > 0 ? "AMAZON_NOT_SUPPORTED_YET" : "UNSUPPORTED_MARKETPLACE_LINK", error_message: message,
         processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
       }).eq("id", offer.id).eq("account_id", automation.account_id);
-      log("offer_ignored_amazon_not_supported", { ...common, offer_id: offer.id });
+      log("offer_ignored_unsupported_marketplace", { ...common, offer_id: offer.id, unsupported_link_count: unsupportedLinks.length });
       return { ...offer, status: "ignored" };
     }
     if (unsafeUnconvertedMercadoLivreLink) {
