@@ -1,8 +1,18 @@
 "use client";
 
 import { ActionButton, AppShell, Toast } from "@/components/ui";
-import { Check, Clipboard, Phone, Send, Upload } from "lucide-react";
+import { Calendar, Check, Clipboard, Phone, Send, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+function scheduledAtToIso(date: string, time: string) {
+  if (!date || !time) return null;
+  const parsed = new Date(`${date}T${time}:00-03:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatBrasilia(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+}
 
 const sample = {
   nome: "Marina",
@@ -98,9 +108,13 @@ export default function MensagemPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [selectedSenderId, setSelectedSenderId] = useState("");
+  const [sendMode, setSendMode] = useState<"agora" | "agendar">("agora");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
   const preview = useMemo(() => renderPreview(message), [message]);
   const validBulkClients = useMemo(() => bulkClients.filter((client) => !client.error), [bulkClients]);
   const selectedSender = useMemo(() => senders.find((sender) => sender.id === selectedSenderId), [senders, selectedSenderId]);
+  const scheduledAtIso = useMemo(() => (sendMode === "agendar" ? scheduledAtToIso(scheduleDate, scheduleTime) : null), [sendMode, scheduleDate, scheduleTime]);
 
   useEffect(() => {
     fetch("/api/mensagem/save")
@@ -144,15 +158,25 @@ export default function MensagemPage() {
   }
 
   async function sendBulk() {
+    if (sendMode === "agendar") {
+      if (!scheduledAtIso) throw new Error("Escolha uma data e um horário para o agendamento.");
+      if (new Date(scheduledAtIso).getTime() < Date.now()) throw new Error("Escolha uma data e horário futuros.");
+    }
     setBulkLoading(true);
     try {
       const response = await fetch("/api/mensagem/bulk", {
         method: "POST",
-        body: JSON.stringify({ mensagem: message, clientes: validBulkClients, whatsapp_sender_id: selectedSenderId || undefined })
+        body: JSON.stringify({
+          mensagem: message,
+          clientes: validBulkClients,
+          whatsapp_sender_id: selectedSenderId || undefined,
+          scheduled_at: scheduledAtIso || undefined
+        })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível preparar os disparos.");
-      setToast(`${data.enfileirados} cliente(s) preparados para envio. Acompanhe em Campanhas. ${data.erros || 0} linha(s) com erro.`);
+      const when = scheduledAtIso ? `Agendado para ${formatBrasilia(scheduledAtIso)} (horário de Brasília).` : "Envio imediato.";
+      setToast(`${data.enfileirados} cliente(s) preparados para envio. ${when} Acompanhe em Envios. ${data.erros || 0} linha(s) com erro.`);
     } finally {
       setBulkLoading(false);
     }
@@ -198,6 +222,20 @@ export default function MensagemPage() {
             </select>
             <div className="mt-2 text-xs text-muted">{selectedSender ? `A planilha será disparada pelo número "${selectedSender.label}".` : "Sem seleção extra: usa o número principal da página Conexão."}</div>
           </div>
+          <div className="mt-4 rounded-lg border border-line bg-wash p-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-ink"><Calendar size={16} /> Quando disparar</label>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setSendMode("agora")} className={`h-10 flex-1 rounded-lg border text-sm font-medium ${sendMode === "agora" ? "border-accent bg-accent text-white" : "border-line bg-panel text-ink"}`}>Enviar agora</button>
+              <button type="button" onClick={() => setSendMode("agendar")} className={`h-10 flex-1 rounded-lg border text-sm font-medium ${sendMode === "agendar" ? "border-accent bg-accent text-white" : "border-line bg-panel text-ink"}`}>Agendar envio</button>
+            </div>
+            {sendMode === "agendar" ? <div className="mt-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="focus-ring h-11 rounded-lg border border-line bg-panel px-3 text-sm" />
+                <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="focus-ring h-11 rounded-lg border border-line bg-panel px-3 text-sm" />
+              </div>
+              <div className="mt-2 text-xs text-muted">Horário de Brasília (GMT-3).{scheduledAtIso ? ` Disparo programado para ${formatBrasilia(scheduledAtIso)}.` : ""}</div>
+            </div> : null}
+          </div>
           <div className="mt-4 rounded-lg border border-dashed border-line bg-wash p-5">
             <label className="flex cursor-pointer flex-col items-center justify-center text-center">
               <Upload className="text-muted" />
@@ -218,7 +256,7 @@ export default function MensagemPage() {
                 <tbody className="divide-y divide-line">{bulkClients.slice(0, 100).map((client, index) => <tr key={index}><td className="px-3 py-2">{client.nome || "-"}</td><td className="px-3 py-2 font-mono">{client.telefone || "-"}</td><td className="px-3 py-2">{client.email || "-"}</td><td className={`px-3 py-2 ${client.error ? "text-red-600" : "text-emerald-700"}`}>{client.error || "ok"}</td></tr>)}</tbody>
               </table>
             </div>
-            <ActionButton icon={<Send size={16} />} disabled={!validBulkClients.length || bulkLoading} onClick={() => sendBulk().catch((error) => setToast(error.message))} className="mt-4 bg-accent text-white">{bulkLoading ? "Enfileirando..." : "Enfileirar disparos em massa"}</ActionButton>
+            <ActionButton icon={<Send size={16} />} disabled={!validBulkClients.length || bulkLoading} onClick={() => sendBulk().catch((error) => setToast(error.message))} className="mt-4 bg-accent text-white">{bulkLoading ? "Enfileirando..." : sendMode === "agendar" ? "Agendar disparos em massa" : "Enfileirar disparos em massa"}</ActionButton>
           </div> : null}
         </div>
       </section>
