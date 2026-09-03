@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { runDueScheduledBroadcasts } from "@/modules/official-whatsapp/server/broadcasts";
 
+export const maxDuration = 300;
+
 // Único gatilho para disparos 1x1 agendados: chamado pelo Vercel Cron (ver vercel.json) uma vez
 // por minuto. A Vercel injeta "Authorization: Bearer <CRON_SECRET>" automaticamente nas
 // invocações de cron quando a env var CRON_SECRET está configurada no projeto — é assim que
@@ -12,6 +14,6 @@ export async function GET(request: NextRequest) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
-  await runDueScheduledBroadcasts();
-  return NextResponse.json({ ok: true });
+  const result = await runDueScheduledBroadcasts();
+  return NextResponse.json({ ok: true, ...result });
 }

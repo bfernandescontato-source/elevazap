@@ -8,6 +8,13 @@ import { URGENT_BROADCAST_MAX_CONCURRENCY, urgentBroadcastConcurrency } from "./
 import { connectionIdSchema, resolveOfficialConnection } from "./official-connections";
 import { getFlow } from "./flows";
 import { findTemplate } from "./templates";
+import { randomUUID } from "node:crypto";
+
+type ClaimedBroadcastRecipient = {
+  id: string;
+  phone: string;
+  row_data: { name: string | null; email: string | null; product: string | null } | null;
+};
 
 export async function createBroadcastAndStart(input: {
   name: string;
@@ -34,32 +41,22 @@ export async function createBroadcastAndStart(input: {
   // no envio imediato) — só o status fica "scheduled" até o poller (ver runDueScheduledBroadcasts)
   // promovê-lo pra "processing" na hora marcada. Isso evita ter que persistir CSV/mapeamento à parte.
   const isScheduled = Boolean(input.scheduledAt);
-  const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
-    name: input.name,
-    flow_id: input.flowId,
-    connection_id: connectionId,
-    status: isScheduled ? "scheduled" : "processing",
-    scheduled_at: input.scheduledAt || null,
-    total_rows: input.contacts.length,
-    valid_recipients: input.contacts.length,
-    delivery_speed: input.deliverySpeed === "urgent" ? "urgent" : "standard",
-    dispatch_concurrency: dispatchConcurrency,
-    skip_recipients_with_prior_run: false,
-    started_at: isScheduled ? null : new Date().toISOString(),
-    last_batch_at: isScheduled ? null : new Date().toISOString()
-  }).select("id").single();
-  if (error) throw error;
-
-  const rows = input.contacts.map((contact) => ({
-    broadcast_id: broadcast.id,
+  const recipients = input.contacts.map((contact) => ({
     phone: contact.phone,
-    row_data: { name: contact.name, email: contact.email, product: contact.product },
-    status: "queued" as const
+    row_data: { name: contact.name, email: contact.email, product: contact.product }
   }));
-  const { error: insertError } = await admin.from("official_broadcast_recipients").insert(rows);
-  if (insertError) throw insertError;
-
-  return { broadcastId: broadcast.id as string, skippedForPriorRun: 0, scheduled: isScheduled };
+  const { data: broadcastId, error } = await admin.rpc("create_official_broadcast_with_recipients", {
+    p_name: input.name,
+    p_flow_id: input.flowId,
+    p_connection_id: connectionId,
+    p_status: isScheduled ? "scheduled" : "processing",
+    p_scheduled_at: input.scheduledAt || null,
+    p_delivery_speed: input.deliverySpeed === "urgent" ? "urgent" : "standard",
+    p_dispatch_concurrency: dispatchConcurrency,
+    p_recipients: recipients
+  });
+  if (error) throw error;
+  return { broadcastId: broadcastId as string, skippedForPriorRun: 0, scheduled: isScheduled };
 }
 
 // O modo urgente usa até 60 chamadas paralelas, limitado pelo throughput consultado
@@ -83,8 +80,6 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
     }
   }
 
-  await admin.from("official_broadcasts").update({ last_batch_at: new Date().toISOString() }).eq("id", broadcastId);
-
   let concurrency = broadcast.dispatch_concurrency || (broadcast.delivery_speed === "urgent" ? 20 : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5));
   // Corrige também disparos urgentes criados antes do suporte ao formato
   // { level: "STANDARD" }: o primeiro lote após o deploy sobe de 20 para 60.
@@ -96,23 +91,28 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
       await admin.from("official_broadcasts").update({ dispatch_concurrency: concurrency }).eq("id", broadcastId);
     }
   }
-  const { data: batch, error: batchError } = await admin.from("official_broadcast_recipients")
-    .select("*").eq("broadcast_id", broadcastId).eq("status", "queued").order("created_at", { ascending: true }).limit(concurrency);
+  const workerToken = randomUUID();
+  const { data: batch, error: batchError } = await admin.rpc("claim_official_broadcast_batch", {
+    p_broadcast_id: broadcastId,
+    p_worker_token: workerToken,
+    p_limit: concurrency,
+    p_lease_seconds: 600
+  });
   if (batchError) throw batchError;
 
+  // Outro worker já detém o lease deste disparo. Ele continuará o encadeamento.
   if (!batch?.length) {
-    await admin.from("official_broadcasts").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", broadcastId);
-    return { hasMore: false };
+    const { data: finished, error: finishError } = await admin.rpc("finish_official_broadcast_batch", {
+      p_broadcast_id: broadcastId, p_worker_token: workerToken, p_pause: false
+    });
+    if (finishError) throw finishError;
+    return { hasMore: Boolean(finished?.[0]?.has_more) };
   }
 
-  await admin.from("official_broadcast_recipients").update({ status: "processing" }).in("id", batch.map((recipient) => recipient.id));
-
   let rateLimited = false;
-  let acceptedDelta = 0;
-  let failedDelta = 0;
-
-  await Promise.all(batch.map(async (recipient) => {
-    const rowData = recipient.row_data as { name: string | null; email: string | null; product: string | null };
+  await Promise.all((batch as ClaimedBroadcastRecipient[]).map(async (recipient) => {
+    const rowData = recipient.row_data || { name: null, email: null, product: null };
+    let acceptedByMeta = false;
     try {
       const result = await startFlow({
         flowId: broadcast.flow_id,
@@ -122,9 +122,11 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
         connectionId: broadcast.connection_id,
         sourceReference: recipient.id
       });
-      await admin.from("official_broadcast_recipients").update({
+      acceptedByMeta = true;
+      const { error: recipientError } = await admin.from("official_broadcast_recipients").update({
         status: "accepted", meta_message_id: result.messageId || null, flow_run_id: result.flowRunId, sent_at: new Date().toISOString()
-      }).eq("id", recipient.id);
+      }).eq("id", recipient.id).eq("status", "processing").eq("lease_token", workerToken);
+      if (recipientError) throw recipientError;
       // Fecha a corrida em que o status da Meta chega antes de o recipient receber o wamid.
       if (result.messageId) {
         const { data: latestMessage } = await admin.from("official_messages")
@@ -140,36 +142,27 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
             read_at: latestMessage.read_at,
             failed_at: latestMessage.failed_at,
             status_payload: latestMessage.status_payload
-          }).eq("id", recipient.id);
+          }).eq("id", recipient.id).eq("lease_token", workerToken);
         }
       }
-      acceptedDelta += 1;
     } catch (error) {
+      // Depois que a Meta aceitou, qualquer falha local deixa o resultado ambíguo. Mantemos
+      // processing para o lease expirado virar UNCERTAIN_DELIVERY, nunca uma falha reenviável.
+      if (acceptedByMeta) throw error;
       const code = officialErrorCode(error);
       if (officialErrorMetaDetails(error)?.httpStatus === 429) rateLimited = true;
       const summary = `${code}: ${officialErrorMessage(error)}`.slice(0, 500);
-      await admin.from("official_broadcast_recipients").update({ status: "failed", error: summary }).eq("id", recipient.id);
-      failedDelta += 1;
+      await admin.from("official_broadcast_recipients").update({ status: "failed", error: summary, failed_at: new Date().toISOString() })
+        .eq("id", recipient.id).eq("status", "processing").eq("lease_token", workerToken);
     }
   }));
 
-  await admin.from("official_broadcasts").update({
-    processed: broadcast.processed + acceptedDelta + failedDelta,
-    accepted: broadcast.accepted + acceptedDelta,
-    failed: broadcast.failed + failedDelta,
-    ...(rateLimited ? { status: "paused" } : {})
-  }).eq("id", broadcastId);
-
-  if (rateLimited) return { hasMore: false };
-  const { count, error: countError } = await admin.from("official_broadcast_recipients").select("id", { count: "exact", head: true }).eq("broadcast_id", broadcastId).eq("status", "queued");
-  // Se a contagem falhar (ex.: instabilidade pontual do Supabase), assume que pode haver mais
-  // gente na fila em vez de encerrar o disparo em silêncio — o próximo lote confirma de verdade
-  // consultando as linhas "queued" e marca "completed" só quando elas realmente acabarem.
-  if (countError) {
-    console.error(`[official-broadcast] falha ao contar fila do disparo ${broadcastId}:`, countError);
-    return { hasMore: true };
-  }
-  return { hasMore: (count || 0) > 0 };
+  const { data: finished, error: finishError } = await admin.rpc("finish_official_broadcast_batch", {
+    p_broadcast_id: broadcastId, p_worker_token: workerToken, p_pause: rateLimited
+  });
+  if (finishError) throw finishError;
+  if (!finished?.length) throw new Error("O lease do lote expirou antes da finalização.");
+  return { hasMore: Boolean(finished[0].has_more) };
 }
 
 // Chamada dentro de after() pelas rotas (criar, process-batch, resume) — dispara o próximo lote
@@ -178,14 +171,11 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
 // IMPORTANTE: precisa retornar/aguardar o fetch — after() só garante que o trabalho termina se
 // esperar a promise dele. Sem o await aqui, a função podia ser encerrada antes do fetch sair.
 export async function triggerBatchProcessing(broadcastId: string) {
-  try {
-    await fetch(`${appUrl()}/api/admin/official/broadcasts/${broadcastId}/process-batch`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-internal-api-key": env().INTERNAL_API_KEY }
-    });
-  } catch (error) {
-    console.error(`[official-broadcast] falha ao encadear próximo lote do disparo ${broadcastId}:`, error);
-  }
+  const response = await fetch(`${appUrl()}/api/admin/official/broadcasts/${broadcastId}/process-batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-internal-api-key": env().INTERNAL_API_KEY }
+  });
+  if (!response.ok) throw new Error(`Falha HTTP ${response.status} ao iniciar lote do disparo ${broadcastId}.`);
 }
 
 // Rede de segurança: chamada a cada poll da tela de progresso (admin com a aba aberta).
@@ -193,7 +183,7 @@ export async function triggerBatchProcessing(broadcastId: string) {
 // after() morreu em silêncio (ex.: falha pontual do self-fetch) — reativa sem exigir
 // pausar/continuar manual. Usa update condicional em last_batch_at como trava simples contra
 // reativar um lote que já está rodando (evita disparo duplicado para o mesmo contato).
-const STALL_THRESHOLD_MS = 15_000;
+const STALL_THRESHOLD_MS = 45_000;
 
 export async function nudgeBroadcastIfStalled(id: string) {
   const admin = supabaseAdmin();
@@ -232,16 +222,13 @@ export async function cancelScheduledBroadcast(id: string) {
 // realmente "ganha" cada disparo (a segunda tentativa não afeta nenhuma linha).
 export async function runDueScheduledBroadcasts() {
   const admin = supabaseAdmin();
-  const { data: due, error } = await admin.from("official_broadcasts")
-    .select("id").eq("status", "scheduled").lte("scheduled_at", new Date().toISOString()).limit(20);
+  const { data: due, error } = await admin.rpc("claim_due_official_broadcasts", { p_limit: 5, p_stale_seconds: 45 });
   if (error) throw error;
-  for (const row of due || []) {
-    const { data: claimed, error: claimError } = await admin.from("official_broadcasts")
-      .update({ status: "processing", started_at: new Date().toISOString(), last_batch_at: new Date().toISOString() })
-      .eq("id", row.id).eq("status", "scheduled").select("id");
-    if (claimError) { console.error(`[official-broadcast] falha ao promover disparo agendado ${row.id}:`, claimError); continue; }
-    if (claimed?.length) await triggerBatchProcessing(row.id);
-  }
+  await Promise.all((due || []).map(async (row: { id: string }) => {
+    try { await triggerBatchProcessing(row.id); }
+    catch (error) { console.error(`[official-broadcast] falha ao acordar disparo ${row.id}:`, error); }
+  }));
+  return { triggered: due?.length || 0 };
 }
 
 export async function pauseBroadcast(id: string) {

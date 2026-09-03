@@ -1,9 +1,8 @@
 -- Agendamento de disparo 1x1 (WhatsApp Oficial / Meta Cloud API): permite criar o disparo com
 -- contatos e fluxo já resolvidos (mesma gravação de sempre em official_broadcast_recipients),
 -- mas adiar o envio real para uma data/hora futura. O horário chega já convertido pro admin em
--- UTC (o front-end converte a partir do horário de Brasília, GMT-3 fixo). Um poller no processo
--- do Next.js (web/instrumentation.ts -> startScheduledBroadcastPoller) promove os disparos
--- "scheduled" vencidos para "processing" e retoma o encadeamento via triggerBatchProcessing.
+-- UTC (o front-end converte a partir do fuso de Brasília). O Vercel Cron chama a rota interna
+-- que promove os disparos "scheduled" vencidos e retoma o processamento em lotes.
 alter table public.official_broadcasts
   drop constraint if exists official_broadcasts_status_check;
 alter table public.official_broadcasts

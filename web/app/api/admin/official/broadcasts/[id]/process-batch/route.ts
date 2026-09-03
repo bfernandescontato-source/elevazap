@@ -3,6 +3,8 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { processBroadcastBatch, triggerBatchProcessing } from "@/modules/official-whatsapp/server/broadcasts";
 
+export const maxDuration = 300;
+
 function internalKeyValid(provided: string | null, expected: string) {
   if (!provided) return false;
   const a = Buffer.from(provided);

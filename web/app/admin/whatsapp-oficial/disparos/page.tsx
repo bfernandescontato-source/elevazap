@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, DataTable, EmptyState, ErrorState, FileDropzone } from "@/components/ui";
 import { ArrowLeft, Calendar, FileSpreadsheet, Send } from "lucide-react";
 import { ConnectionSelect } from "../connection-select";
+import { localDateTimeToIso } from "@/lib/timezone";
 
 type FieldMapping = { mode: "column" | "fixed" | "none"; column: string; fixedValue: string };
 type Flow = { id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean; official_quick_reply_actions: { button_label: string | null; payload: string } };
@@ -21,9 +22,7 @@ const emptyMapping: FieldMapping = { mode: "none", column: "", fixedValue: "" };
 const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", scheduled: "Agendado", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 
 function scheduledAtToIso(date: string, time: string) {
-  if (!date || !time) return null;
-  const parsed = new Date(`${date}T${time}:00-03:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  return localDateTimeToIso(date, time, "America/Sao_Paulo");
 }
 
 function formatBrasilia(iso: string) {
@@ -169,11 +168,14 @@ export default function DisparosPage() {
 
   async function cancelBroadcast(id: string) {
     setCancelingId(id);
+    setStartError("");
     try {
       const response = await fetch(`/api/admin/official/broadcasts/${id}/cancel`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao cancelar agendamento.");
       await loadBroadcasts();
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : "Falha ao cancelar agendamento.");
     } finally {
       setCancelingId("");
     }

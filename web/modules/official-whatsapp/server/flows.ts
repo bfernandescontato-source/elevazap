@@ -65,6 +65,15 @@ async function upsertFollowupAction(input: FlowInput) {
   });
 }
 
+async function assertFlowHasNoPendingBroadcasts(id: string) {
+  const { count, error } = await supabaseAdmin().from("official_broadcasts")
+    .select("id", { count: "exact", head: true })
+    .eq("flow_id", id)
+    .in("status", ["scheduled", "processing", "paused"]);
+  if (error) throw error;
+  if (count) throw new Error("Este fluxo está vinculado a um disparo agendado ou em andamento. Cancele ou conclua o disparo antes de alterar o fluxo.");
+}
+
 // Each flow revision gets a private action; never overwrite a legacy/global response
 // merely because the visible button text matches another product or flow.
 export async function createFlow(input: FlowInput): Promise<OfficialFlowWithAction> {
@@ -86,6 +95,7 @@ export async function createFlow(input: FlowInput): Promise<OfficialFlowWithActi
 // Edita um fluxo existente: atualiza (ou troca, se o payload mudou) a ação de resposta
 // vinculada e os campos do fluxo. Não mexe em flow_runs já criados.
 export async function updateFlow(id: string, input: FlowInput): Promise<OfficialFlowWithAction> {
+  await assertFlowHasNoPendingBroadcasts(id);
   const action = await upsertFollowupAction(input);
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_flows").update({
@@ -140,6 +150,7 @@ export function parseFlowInput(body: Record<string, any> | null): FlowInput | { 
 }
 
 export async function updateFlowActive(id: string, active: boolean): Promise<OfficialFlow> {
+  if (!active) await assertFlowHasNoPendingBroadcasts(id);
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_flows").update({ active, updated_at: new Date().toISOString() }).eq("id", id).select("*").single();
   if (error) throw error;

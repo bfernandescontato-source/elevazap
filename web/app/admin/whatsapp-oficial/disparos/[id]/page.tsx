@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ActionButton, AppShell, DataTable, EmptyState, LoadingState, ProgressBar } from "@/components/ui";
+import { ActionButton, AppShell, DataTable, EmptyState, ErrorState, LoadingState, ProgressBar } from "@/components/ui";
 import { ArrowLeft, Download, Pause, Play } from "lucide-react";
 
 type Broadcast = {
@@ -30,6 +30,7 @@ export default function BroadcastDetailPage() {
   const [loading, setLoading] = useState(true);
   const [pausing, setPausing] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [actionError, setActionError] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load(currentFilter = filter) {
@@ -64,9 +65,17 @@ export default function BroadcastDetailPage() {
   async function cancelSchedule() {
     if (!broadcast || canceling) return;
     setCanceling(true);
-    await fetch(`/api/admin/official/broadcasts/${id}/cancel`, { method: "POST" });
-    await load(filter);
-    setCanceling(false);
+    setActionError("");
+    try {
+      const response = await fetch(`/api/admin/official/broadcasts/${id}/cancel`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao cancelar agendamento.");
+      await load(filter);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Falha ao cancelar agendamento.");
+    } finally {
+      setCanceling(false);
+    }
   }
 
   if (loading) return <AppShell title="Disparo" subtitle="WhatsApp Oficial"><LoadingState /></AppShell>;
@@ -79,6 +88,7 @@ export default function BroadcastDetailPage() {
       <Link href="/admin/whatsapp-oficial/disparos" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"><ArrowLeft size={15} /> Disparo 1x1</Link>
 
       <section className="rounded-lg border border-line bg-panel p-6 shadow-soft">
+        {actionError ? <div className="mb-4"><ErrorState message={actionError} /></div> : null}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-sm text-muted">Status</div>
