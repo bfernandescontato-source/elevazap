@@ -28,7 +28,19 @@ export async function POST(request: NextRequest) {
       continue;
     }
     const { error: cancelError } = await sb.rpc("transition_lote_atomic", { p_lote_id: batch.id, p_action: "cancel" });
-    if (cancelError) return NextResponse.json({ error: `Falha ao cancelar os agendamentos selecionados: ${cancelError.message}`, cancelled, skipped }, { status: 409 });
+    const rpcMissing = cancelError && (
+      cancelError.code === "PGRST202" || cancelError.code === "42883" ||
+      /could not find the function.*transition_lote_atomic/i.test(cancelError.message || "")
+    );
+    if (cancelError && !rpcMissing) {
+      return NextResponse.json({ error: `Falha ao cancelar os agendamentos selecionados: ${cancelError.message}`, cancelled, skipped }, { status: 409 });
+    }
+    if (rpcMissing) {
+      await sb.from("envios_grupo").update({ status: "cancelado", claim_token: null, updated_at: new Date().toISOString() })
+        .eq("lote_id", batch.id).eq("account_id", context.accountId).in("status", ["pendente", "enfileirado", "pausado"]);
+      await sb.from("envios_grupo_lotes").update({ status: "cancelado", updated_at: new Date().toISOString() })
+        .eq("id", batch.id).eq("account_id", context.accountId);
+    }
     cancelled.push(batch.id);
   }
 
