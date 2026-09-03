@@ -27,7 +27,8 @@ const serverEnvSchema = z.object({
   HUBLA_WEBHOOK_SECRET: z.string().min(16).optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
   META_APP_SECRET: z.string().min(16).optional(),
-  OFFICIAL_BROADCAST_CONCURRENCY: z.coerce.number().int().min(1).max(20).optional()
+  OFFICIAL_BROADCAST_CONCURRENCY: z.coerce.number().int().min(1).max(20).optional(),
+  CRON_SECRET: z.string().min(16).optional()
 });
 
 export function env() {

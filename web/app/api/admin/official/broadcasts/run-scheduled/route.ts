@@ -1,21 +1,15 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { runDueScheduledBroadcasts } from "@/modules/official-whatsapp/server/broadcasts";
 
-function internalKeyValid(provided: string | null, expected: string) {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-// Chamado pelo poller de web/instrumentation.ts (setInterval no processo do Next). Promove pra
-// "processing" qualquer disparo 1x1 agendado cujo horário já chegou. Mesmo padrão de autenticação
-// de process-batch: chave interna, não sessão de admin, porque quem chama é o próprio servidor.
-export async function POST(request: NextRequest) {
-  if (!internalKeyValid(request.headers.get("x-internal-api-key"), env().INTERNAL_API_KEY)) {
+// Único gatilho para disparos 1x1 agendados: chamado pelo Vercel Cron (ver vercel.json) uma vez
+// por minuto. A Vercel injeta "Authorization: Bearer <CRON_SECRET>" automaticamente nas
+// invocações de cron quando a env var CRON_SECRET está configurada no projeto — é assim que
+// autenticamos, sem sessão de admin nem o INTERNAL_API_KEY usado pelas rotas chamadas pelo
+// próprio servidor (aqui quem chama é a infraestrutura da Vercel).
+export async function GET(request: NextRequest) {
+  const secret = env().CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
   await runDueScheduledBroadcasts();
