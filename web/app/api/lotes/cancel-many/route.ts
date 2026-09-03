@@ -32,12 +32,15 @@ export async function POST(request: NextRequest) {
       cancelError.code === "PGRST202" || cancelError.code === "42883" ||
       /could not find the function.*transition_lote_atomic/i.test(cancelError.message || "")
     );
-    if (cancelError && !rpcMissing) {
+    // "no cancellable items" (incerto lotes) is treated as success — lote still gets cancelled below
+    const rpcNoItems = cancelError && cancelError.code === "22023" && /não possui itens canceláveis/i.test(cancelError.message || "");
+    if (cancelError && !rpcMissing && !rpcNoItems) {
       return NextResponse.json({ error: `Falha ao cancelar os agendamentos selecionados: ${cancelError.message}`, cancelled, skipped }, { status: 409 });
     }
-    if (rpcMissing) {
+    if (rpcMissing || rpcNoItems) {
       await sb.from("envios_grupo").update({ status: "cancelado", claim_token: null, updated_at: new Date().toISOString() })
-        .eq("lote_id", batch.id).eq("account_id", context.accountId).in("status", ["pendente", "enfileirado", "pausado"]);
+        .eq("lote_id", batch.id).eq("account_id", context.accountId)
+        .in("status", ["pendente", "enfileirado", "pausado", "incerto"]);
       await sb.from("envios_grupo_lotes").update({ status: "cancelado", updated_at: new Date().toISOString() })
         .eq("id", batch.id).eq("account_id", context.accountId);
     }
