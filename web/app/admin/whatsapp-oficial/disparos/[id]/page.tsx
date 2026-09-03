@@ -9,12 +9,16 @@ import { ArrowLeft, Download, Pause, Play } from "lucide-react";
 type Broadcast = {
   id: string; name: string; status: string; total_rows: number; valid_recipients: number;
   processed: number; accepted: number; failed: number; skip_recipients_with_prior_run: boolean;
-  created_at: string; started_at: string | null; completed_at: string | null;
+  created_at: string; started_at: string | null; completed_at: string | null; scheduled_at: string | null;
   official_flows: { name: string } | null;
 };
 type Recipient = { id: string; phone: string; row_data: { name: string | null }; status: string; meta_message_id: string | null; error: string | null; created_at: string };
 
-const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou" };
+const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", scheduled: "Agendado", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
+
+function formatBrasilia(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+}
 const FILTERS = [{ value: "all", label: "Todos" }, { value: "accepted", label: "Aceitos" }, { value: "failed", label: "Falharam" }];
 
 export default function BroadcastDetailPage() {
@@ -25,6 +29,7 @@ export default function BroadcastDetailPage() {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [pausing, setPausing] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load(currentFilter = filter) {
@@ -56,6 +61,14 @@ export default function BroadcastDetailPage() {
     setPausing(false);
   }
 
+  async function cancelSchedule() {
+    if (!broadcast || canceling) return;
+    setCanceling(true);
+    await fetch(`/api/admin/official/broadcasts/${id}/cancel`, { method: "POST" });
+    await load(filter);
+    setCanceling(false);
+  }
+
   if (loading) return <AppShell title="Disparo" subtitle="WhatsApp Oficial"><LoadingState /></AppShell>;
   if (!broadcast) return <AppShell title="Disparo" subtitle="WhatsApp Oficial"><EmptyState title="Disparo não encontrado" description="Volte para o histórico de disparos." /></AppShell>;
 
@@ -72,12 +85,15 @@ export default function BroadcastDetailPage() {
             <div className="mt-1 text-lg font-semibold text-ink">{STATUS_LABELS[broadcast.status] || broadcast.status}</div>
           </div>
           {["processing", "paused"].includes(broadcast.status) ? <ActionButton icon={broadcast.status === "processing" ? <Pause size={16} /> : <Play size={16} />} disabled={pausing} onClick={togglePause} className="border border-line bg-white text-ink hover:bg-wash">{broadcast.status === "processing" ? "Pausar" : "Continuar"}</ActionButton> : null}
+          {broadcast.status === "scheduled" ? <ActionButton disabled={canceling} onClick={cancelSchedule} className="border border-line bg-white text-red-700 hover:bg-wash">{canceling ? "Cancelando…" : "Cancelar agendamento"}</ActionButton> : null}
         </div>
 
-        <div className="mt-4">
-          <div className="mb-1 flex justify-between text-sm text-muted"><span>{broadcast.processed} / {broadcast.valid_recipients} processados</span><span>{progressPercent}%</span></div>
-          <ProgressBar value={progressPercent} />
-        </div>
+        {broadcast.status === "scheduled" && broadcast.scheduled_at
+          ? <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">Envio programado para {formatBrasilia(broadcast.scheduled_at)} (horário de Brasília).</div>
+          : <div className="mt-4">
+            <div className="mb-1 flex justify-between text-sm text-muted"><span>{broadcast.processed} / {broadcast.valid_recipients} processados</span><span>{progressPercent}%</span></div>
+            <ProgressBar value={progressPercent} />
+          </div>}
 
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-line bg-wash p-3"><div className="text-xs text-muted">Total válidos</div><div className="text-lg font-semibold text-ink">{broadcast.valid_recipients}</div></div>

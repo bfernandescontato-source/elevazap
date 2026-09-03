@@ -15,6 +15,7 @@ export async function createBroadcastAndStart(input: {
   contacts: ValidContact[];
   deliverySpeed?: "standard" | "urgent";
   connectionId?: string | null;
+  scheduledAt?: string | null;
 }) {
   const admin = supabaseAdmin();
   const connectionId = connectionIdSchema.parse(input.connectionId);
@@ -29,18 +30,23 @@ export async function createBroadcastAndStart(input: {
     ? urgentBroadcastConcurrency(metaThroughput)
     : (env().OFFICIAL_BROADCAST_CONCURRENCY || 5);
 
+  // Um disparo agendado já entra com todos os recipients gravados (mesma lista que seria usada
+  // no envio imediato) — só o status fica "scheduled" até o poller (ver runDueScheduledBroadcasts)
+  // promovê-lo pra "processing" na hora marcada. Isso evita ter que persistir CSV/mapeamento à parte.
+  const isScheduled = Boolean(input.scheduledAt);
   const { data: broadcast, error } = await admin.from("official_broadcasts").insert({
     name: input.name,
     flow_id: input.flowId,
     connection_id: connectionId,
-    status: "processing",
+    status: isScheduled ? "scheduled" : "processing",
+    scheduled_at: input.scheduledAt || null,
     total_rows: input.contacts.length,
     valid_recipients: input.contacts.length,
     delivery_speed: input.deliverySpeed === "urgent" ? "urgent" : "standard",
     dispatch_concurrency: dispatchConcurrency,
     skip_recipients_with_prior_run: false,
-    started_at: new Date().toISOString(),
-    last_batch_at: new Date().toISOString()
+    started_at: isScheduled ? null : new Date().toISOString(),
+    last_batch_at: isScheduled ? null : new Date().toISOString()
   }).select("id").single();
   if (error) throw error;
 
@@ -53,7 +59,7 @@ export async function createBroadcastAndStart(input: {
   const { error: insertError } = await admin.from("official_broadcast_recipients").insert(rows);
   if (insertError) throw insertError;
 
-  return { broadcastId: broadcast.id as string, skippedForPriorRun: 0 };
+  return { broadcastId: broadcast.id as string, skippedForPriorRun: 0, scheduled: isScheduled };
 }
 
 // O modo urgente usa até 60 chamadas paralelas, limitado pelo throughput consultado
@@ -210,6 +216,32 @@ export async function nudgeBroadcastIfStalled(id: string) {
 
   await triggerBatchProcessing(id);
   return { nudged: true };
+}
+
+export async function cancelScheduledBroadcast(id: string) {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("official_broadcasts")
+    .update({ status: "cancelled" }).eq("id", id).eq("status", "scheduled").select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("Disparo não está agendado ou já foi processado.");
+}
+
+// Promove disparos agendados vencidos para "processing" e retoma o mesmo encadeamento via
+// after()/triggerBatchProcessing já usado no envio imediato. O update condicional em
+// status="scheduled" garante que, mesmo rodando em mais de uma instância, só uma delas
+// realmente "ganha" cada disparo (a segunda tentativa não afeta nenhuma linha).
+export async function runDueScheduledBroadcasts() {
+  const admin = supabaseAdmin();
+  const { data: due, error } = await admin.from("official_broadcasts")
+    .select("id").eq("status", "scheduled").lte("scheduled_at", new Date().toISOString()).limit(20);
+  if (error) throw error;
+  for (const row of due || []) {
+    const { data: claimed, error: claimError } = await admin.from("official_broadcasts")
+      .update({ status: "processing", started_at: new Date().toISOString(), last_batch_at: new Date().toISOString() })
+      .eq("id", row.id).eq("status", "scheduled").select("id");
+    if (claimError) { console.error(`[official-broadcast] falha ao promover disparo agendado ${row.id}:`, claimError); continue; }
+    if (claimed?.length) await triggerBatchProcessing(row.id);
+  }
 }
 
 export async function pauseBroadcast(id: string) {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, DataTable, EmptyState, ErrorState, FileDropzone } from "@/components/ui";
-import { ArrowLeft, FileSpreadsheet, Send } from "lucide-react";
+import { ArrowLeft, Calendar, FileSpreadsheet, Send } from "lucide-react";
 import { ConnectionSelect } from "../connection-select";
 
 type FieldMapping = { mode: "column" | "fixed" | "none"; column: string; fixedValue: string };
@@ -15,10 +15,20 @@ type PreviewResult = {
   flow: { name: string; templateName: string; templateCategory: string; buttonLabel: string | null };
 };
 
-type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; delivery_speed: "standard" | "urgent"; official_flows: { name: string } | null; official_connections: { label: string } | null };
+type BroadcastSummary = { id: string; name: string; status: string; total_rows: number; accepted: number; failed: number; processed: number; created_at: string; scheduled_at: string | null; delivery_speed: "standard" | "urgent"; official_flows: { name: string } | null; official_connections: { label: string } | null };
 
 const emptyMapping: FieldMapping = { mode: "none", column: "", fixedValue: "" };
-const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou" };
+const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", scheduled: "Agendado", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
+
+function scheduledAtToIso(date: string, time: string) {
+  if (!date || !time) return null;
+  const parsed = new Date(`${date}T${time}:00-03:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatBrasilia(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+}
 
 export default function DisparosPage() {
   const router = useRouter();
@@ -45,9 +55,15 @@ export default function DisparosPage() {
 
   const [broadcastName, setBroadcastName] = useState("");
   const [deliverySpeed, setDeliverySpeed] = useState<"standard" | "urgent">("standard");
+  const [sendMode, setSendMode] = useState<"agora" | "agendar">("agora");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
+  const [cancelingId, setCancelingId] = useState("");
+
+  const scheduledAtIso = sendMode === "agendar" ? scheduledAtToIso(scheduleDate, scheduleTime) : null;
 
   async function loadBroadcasts() {
     const response = await fetch("/api/admin/official/broadcasts", { cache: "no-store" });
@@ -122,6 +138,11 @@ export default function DisparosPage() {
 
   async function startBroadcast() {
     if (!phoneColumn || !selectedFlowId || !broadcastName.trim() || starting) return;
+    if (sendMode === "agendar" && (!scheduledAtIso || new Date(scheduledAtIso).getTime() < Date.now())) {
+      setStartError("Escolha uma data e horário futuros para o agendamento.");
+      setConfirming(false);
+      return;
+    }
     setStarting(true);
     setStartError("");
     try {
@@ -134,7 +155,7 @@ export default function DisparosPage() {
       }));
       const response = await fetch("/api/admin/official/broadcasts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, deliverySpeed, connectionId })
+        body: JSON.stringify({ name: broadcastName.trim(), flowId: selectedFlowId, contacts, deliverySpeed, connectionId, scheduledAt: scheduledAtIso || undefined })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao iniciar disparo.");
@@ -143,6 +164,18 @@ export default function DisparosPage() {
       setStartError(error instanceof Error ? error.message : "Falha ao iniciar disparo.");
       setConfirming(false);
       setStarting(false);
+    }
+  }
+
+  async function cancelBroadcast(id: string) {
+    setCancelingId(id);
+    try {
+      const response = await fetch(`/api/admin/official/broadcasts/${id}/cancel`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao cancelar agendamento.");
+      await loadBroadcasts();
+    } finally {
+      setCancelingId("");
     }
   }
 
@@ -169,9 +202,11 @@ export default function DisparosPage() {
       {broadcasts.length ? <section>
         <h2 className="mb-3 text-lg font-semibold text-ink">Histórico</h2>
         <DataTable
-          columns={["Data", "Nome", "Conta", "Fluxo", "Ritmo", "Contatos", "Aceitos", "Falharam", "Status"]}
+          columns={["Data", "Nome", "Conta", "Fluxo", "Ritmo", "Contatos", "Aceitos", "Falharam", "Status", ""]}
           rows={broadcasts.map((broadcast) => [
-            new Date(broadcast.created_at).toLocaleString("pt-BR"),
+            broadcast.status === "scheduled" && broadcast.scheduled_at
+              ? <span key="date" className="text-amber-700">Agendado: {formatBrasilia(broadcast.scheduled_at)}</span>
+              : new Date(broadcast.created_at).toLocaleString("pt-BR"),
             <Link key="name" href={`/admin/whatsapp-oficial/disparos/${broadcast.id}`} className="font-medium text-ink hover:underline">{broadcast.name}</Link>,
             broadcast.official_connections?.label || "Conta principal",
             broadcast.official_flows?.name || "—",
@@ -179,7 +214,8 @@ export default function DisparosPage() {
             broadcast.total_rows,
             broadcast.accepted,
             broadcast.failed,
-            <span key="status" className={`rounded-full border px-2.5 py-1 text-xs font-medium ${broadcast.status === "failed" ? "border-red-200 bg-red-50 text-red-700" : broadcast.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-line bg-wash text-muted"}`}>{STATUS_LABELS[broadcast.status] || broadcast.status}</span>
+            <span key="status" className={`rounded-full border px-2.5 py-1 text-xs font-medium ${broadcast.status === "failed" ? "border-red-200 bg-red-50 text-red-700" : broadcast.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : broadcast.status === "scheduled" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-line bg-wash text-muted"}`}>{STATUS_LABELS[broadcast.status] || broadcast.status}</span>,
+            broadcast.status === "scheduled" ? <button key="cancel" type="button" disabled={cancelingId === broadcast.id} onClick={() => cancelBroadcast(broadcast.id)} className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50">{cancelingId === broadcast.id ? "Cancelando…" : "Cancelar"}</button> : null
           ])}
         />
       </section> : null}
@@ -255,21 +291,37 @@ export default function DisparosPage() {
             </select>
           </label>
           {deliverySpeed === "urgent" ? <p className="mt-2 text-sm text-amber-700">Para avisos urgentes. O ritmo é limitado pelo throughput informado pela Meta; se ela limitar o envio, o disparo pausa automaticamente para proteger a conta.</p> : null}
+
+          <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink"><Calendar size={16} /> Quando disparar</label>
+          <div className="mt-2 flex max-w-md gap-2">
+            <button type="button" onClick={() => setSendMode("agora")} className={`h-10 flex-1 rounded-lg border text-sm font-medium ${sendMode === "agora" ? "border-ink bg-ink text-white" : "border-line bg-white text-ink"}`}>Enviar agora</button>
+            <button type="button" onClick={() => setSendMode("agendar")} className={`h-10 flex-1 rounded-lg border text-sm font-medium ${sendMode === "agendar" ? "border-ink bg-ink text-white" : "border-line bg-white text-ink"}`}>Agendar envio</button>
+          </div>
+          {sendMode === "agendar" ? <div className="mt-2 max-w-md">
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} className="h-11 rounded-lg border border-line bg-white px-3 text-sm" />
+              <input type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} className="h-11 rounded-lg border border-line bg-white px-3 text-sm" />
+            </div>
+            <div className="mt-2 text-xs text-muted">Horário de Brasília (GMT-3).{scheduledAtIso ? ` Disparo programado para ${formatBrasilia(scheduledAtIso)}.` : ""}</div>
+          </div> : null}
+
           {startError ? <div className="mt-3"><ErrorState message={startError} /></div> : null}
-          <ActionButton icon={<Send size={16} />} disabled={!broadcastName.trim() || !preview.validCount} onClick={() => setConfirming(true)} className="mt-4">Iniciar disparo</ActionButton>
+          <ActionButton icon={<Send size={16} />} disabled={!broadcastName.trim() || !preview.validCount} onClick={() => setConfirming(true)} className="mt-4">{sendMode === "agendar" ? "Agendar disparo" : "Iniciar disparo"}</ActionButton>
         </div>
       </section> : null}
     </div>
 
     <ConfirmModal
       open={confirming}
-      title="Iniciar disparo?"
+      title={sendMode === "agendar" ? "Agendar disparo?" : "Iniciar disparo?"}
       onCancel={() => setConfirming(false)}
       onConfirm={startBroadcast}
-      confirmLabel={starting ? "Iniciando…" : "Confirmar disparo"}
+      confirmLabel={starting ? (sendMode === "agendar" ? "Agendando…" : "Iniciando…") : (sendMode === "agendar" ? "Confirmar agendamento" : "Confirmar disparo")}
       loading={starting}
     >
-      Você está prestes a iniciar o fluxo &quot;{preview?.flow.name}&quot; para {preview?.validCount.toLocaleString("pt-BR")} contatos no ritmo {deliverySpeed === "urgent" ? "Urgente/Ao Vivo (até 60 em paralelo)" : "Padrão (5 em paralelo)"}. Essa ação envia mensagens reais via WhatsApp.
+      {sendMode === "agendar" && scheduledAtIso
+        ? <>Você está prestes a agendar o fluxo &quot;{preview?.flow.name}&quot; para {preview?.validCount.toLocaleString("pt-BR")} contatos, com envio em {formatBrasilia(scheduledAtIso)} (horário de Brasília), no ritmo {deliverySpeed === "urgent" ? "Urgente/Ao Vivo (até 60 em paralelo)" : "Padrão (5 em paralelo)"}. Essa ação enviará mensagens reais via WhatsApp na hora marcada.</>
+        : <>Você está prestes a iniciar o fluxo &quot;{preview?.flow.name}&quot; para {preview?.validCount.toLocaleString("pt-BR")} contatos no ritmo {deliverySpeed === "urgent" ? "Urgente/Ao Vivo (até 60 em paralelo)" : "Padrão (5 em paralelo)"}. Essa ação envia mensagens reais via WhatsApp.</>}
     </ConfirmModal>
   </AppShell>;
 }
