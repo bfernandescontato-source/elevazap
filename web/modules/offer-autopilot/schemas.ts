@@ -14,7 +14,7 @@ export const automationConfigSchema = z.object({
   shopee_conversion_enabled: z.boolean(),
   mercado_livre_conversion_enabled: z.boolean(),
   conversion_failure_policy: z.enum(["pause", "send_original"]),
-  source_group_ids: z.array(z.string().endsWith("@g.us")).max(2, "Máximo de 2 grupos fonte por automação."),
+  source_group_ids: z.array(z.string().endsWith("@g.us")).max(500),
   destination_group_ids: z.array(z.string().endsWith("@g.us")).max(500)
 }).superRefine((value, context) => {
   if (value.operating_start >= value.operating_end) context.addIssue({ code: "custom", message: "O horário inicial deve ser anterior ao final." });
