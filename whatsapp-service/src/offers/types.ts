@@ -13,6 +13,8 @@ export type RawOfferMessage = {
   text?: string;
   caption?: string;
   media?: { buffer: Buffer; mimeType: string; extension: string };
+  hasMedia?: boolean;
+  mediaLoader?: () => Promise<RawOfferMessage["media"]>;
   timestamp: Date;
 };
 

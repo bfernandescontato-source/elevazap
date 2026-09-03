@@ -27,6 +27,7 @@ export const offerActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ignore") }),
   z.object({ action: z.literal("dispatch_now") }),
   z.object({ action: z.literal("retry_conversion") }),
+  z.object({ action: z.literal("retry_queue") }),
   z.object({ action: z.literal("edit"), text: z.string().trim().min(1).max(10000) })
 ]);
 

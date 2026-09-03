@@ -81,7 +81,8 @@ export async function monitorOfferMessages(
       senderId: incoming.key.participant || incoming.participant,
       text: content?.conversation || content?.extendedTextMessage?.text || "",
       caption: content?.imageMessage?.caption || content?.videoMessage?.caption || "",
-      media: await mediaFrom(content),
+      hasMedia: Boolean(content?.imageMessage || content?.extendedTextMessage),
+      mediaLoader: () => mediaFrom(content),
       timestamp: new Date(Number(incoming.messageTimestamp || Date.now() / 1000) * 1000)
     };
     for (const automation of automations) await processor.process(automation as never, raw);

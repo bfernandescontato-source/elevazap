@@ -17,7 +17,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
     senderId ? database.from("whatsapp_sender_grupos").select("group_jid,grupos(group_jid,nome,foto_url)").eq("account_id", accountId).eq("whatsapp_sender_id", senderId) : Promise.resolve({ data: [], error: null }),
     automation ? database.from("automation_source_groups").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
     automation ? database.from("automation_destinations").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
-    database.from("captured_offers").select("id,original_text,processed_text,original_media_url,media_bucket,media_path,original_link,affiliate_link,affiliate_conversion_status,affiliate_conversion_error,status,captured_at,scheduled_at,sent_at,source_group_id,grupos!captured_offers_account_id_source_group_id_fkey(nome)")
+    database.from("captured_offers").select("id,original_text,processed_text,original_media_url,media_bucket,media_path,original_link,affiliate_link,affiliate_conversion_status,affiliate_conversion_error,status,error_code,error_message,captured_at,scheduled_at,sent_at,source_group_id,grupos!captured_offers_account_id_source_group_id_fkey(nome)")
       .eq("account_id", accountId).order("captured_at", { ascending: false }).limit(50),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("captured_at", today.toISOString()),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("affiliate_conversion_status", "converted"),
@@ -40,7 +40,8 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
     metrics: {
       captured_today: capturedCount.count || 0,
       converted: convertedCount.count || 0,
-      queued: queuedCount.count || 0,
+      queued: automation?.active_queue_count ?? queuedCount.count ?? 0,
+      queue_limit: 5,
       sent_today: sentCount.count || 0,
       ignored: ignoredCount.count || 0,
       conversion_failed: conversionFailedCount.count || 0
@@ -48,7 +49,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
   };
 }
 
-export async function saveAutopilot(database: SupabaseClient, accountId: string, userId: string, input: any) {
+export async function saveAutopilot(database: SupabaseClient, accountId: string, _userId: string, input: any) {
   const uniqueGroups = Array.from(new Set([...input.source_group_ids, ...input.destination_group_ids])) as string[];
   const [{ data: sender }, { data: senderGroups }] = await Promise.all([
     database.from("whatsapp_senders").select("id").eq("id", input.whatsapp_sender_id).eq("account_id", accountId).maybeSingle(),
@@ -63,23 +64,13 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
     if (!await hasConnectedIntegration(database, accountId, "mercado_livre")) throw new Error("Conecte o Mercado Livre antes de ativar a conversão.");
   }
 
-  const { source_group_ids, destination_group_ids, ...config } = input;
-  const { data: automation, error } = await database.from("offer_automations").upsert({
-    ...config, account_id: accountId, created_by: userId, updated_at: new Date().toISOString()
-  }, { onConflict: "account_id" }).select("*").single();
+  const { data, error } = await database.rpc("save_offer_autopilot_configuration", {
+    p_account_id: accountId,
+    p_input: input
+  });
   if (error) throw error;
-  await Promise.all([
-    database.from("automation_source_groups").delete().eq("account_id", accountId).eq("automation_id", automation.id),
-    database.from("automation_destinations").delete().eq("account_id", accountId).eq("automation_id", automation.id)
-  ]);
-  if (source_group_ids.length) {
-    const { error: sourceError } = await database.from("automation_source_groups").insert(source_group_ids.map((groupId: string, priority: number) => ({ account_id: accountId, automation_id: automation.id, whatsapp_group_id: groupId, priority })));
-    if (sourceError) throw sourceError;
-  }
-  if (destination_group_ids.length) {
-    const { error: destinationError } = await database.from("automation_destinations").insert(destination_group_ids.map((groupId: string) => ({ account_id: accountId, automation_id: automation.id, whatsapp_group_id: groupId })));
-    if (destinationError) throw destinationError;
-  }
+  const automation = Array.isArray(data) ? data[0] : data;
+  if (!automation) throw new Error("Não foi possível salvar as alterações.");
   return automation;
 }
 

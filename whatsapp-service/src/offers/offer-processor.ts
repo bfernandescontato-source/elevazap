@@ -30,6 +30,13 @@ function log(event: string, fields: Record<string, unknown>) {
   console.info({ event, component: "offer-autopilot", ...fields });
 }
 
+export function queueAdmissionRejection(offer: { status?: string; error_code?: string }) {
+  if (offer.status !== "ignored") return null;
+  if (offer.error_code === "PILOT_QUEUE_FULL") return "full" as const;
+  if (offer.error_code === "PILOT_DISABLED") return "disabled" as const;
+  return null;
+}
+
 export class OfferProcessor {
   constructor(private database: SupabaseClient) {}
 
@@ -53,7 +60,7 @@ export class OfferProcessor {
   async process(automation: Automation, message: RawOfferMessage) {
     if (!(await this.automationEnabled(automation))) return null;
     const parsed = parseOffer(message);
-    if (!parsed.text && !parsed.media) return null;
+    if (!parsed.text && !parsed.media && !message.hasMedia) return null;
     const common = { account_id: automation.account_id, automation_id: automation.id, source_group_id: parsed.sourceGroupId };
     log("offer_parsed", { ...common, source_message_id: parsed.sourceMessageId, link_count: parsed.links.length });
 
@@ -91,6 +98,12 @@ export class OfferProcessor {
       throw insertError;
     }
     log("offer_captured", { ...common, offer_id: offer.id });
+    const admissionRejection = queueAdmissionRejection(offer);
+    if (admissionRejection === "full") {
+      log("offer_ignored_queue_full", { ...common, offer_id: offer.id, queue_limit: 5 });
+      return offer;
+    }
+    if (admissionRejection === "disabled") return offer;
     if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0) {
       const message = parsed.amazonLinks.length > 0
         ? "Amazon ainda não integrado ao Piloto Automático; oferta ignorada."
@@ -116,6 +129,7 @@ export class OfferProcessor {
     }
 
     try {
+      if (!parsed.media && message.mediaLoader) parsed.media = await message.mediaLoader();
       let mediaFields: Record<string, string | null> = {};
       if (automation.keep_original_media && parsed.media) {
         const path = `${automation.account_id}/${automation.id}/${offer.id}.${parsed.media.extension}`;
