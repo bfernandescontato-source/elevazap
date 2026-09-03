@@ -106,6 +106,9 @@ create trigger release_deleted_offer_queue_capacity
 after delete on public.captured_offers
 for each row execute function public.release_deleted_offer_queue_capacity();
 
+revoke all on function public.manage_offer_queue_capacity() from public, anon, authenticated;
+revoke all on function public.release_deleted_offer_queue_capacity() from public, anon, authenticated;
+
 create table if not exists public.offer_automation_config_events (
   id uuid primary key default gen_random_uuid(),
   account_id uuid not null references public.accounts(id) on delete restrict,
