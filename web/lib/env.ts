@@ -19,6 +19,7 @@ const serverEnvSchema = z.object({
   MERCADO_LIVRE_CLIENT_ID: z.string().min(10).optional(),
   MERCADO_LIVRE_CLIENT_SECRET: z.string().min(10).optional(),
   MERCADO_LIVRE_REDIRECT_URI: z.string().url().optional(),
+  MERCADO_LIVRE_COLLECTOR_TOKEN_HASH: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   META_WABA_ID: z.string().min(1).optional(),
   META_PHONE_NUMBER_ID: z.string().min(1).optional(),
   META_ACCESS_TOKEN: z.string().min(1).optional(),

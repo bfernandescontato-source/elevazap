@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
+import { env } from "@/lib/env";
 
 export const MERCADO_LIVRE_CONNECTION_TEST_URL = "https://www.mercadolivre.com.br/creatina-1kg-suplemento-monohidratada-em-po-100-pura-soldiers-nutrition/p/MLB18725310?pdp_filters=item_id%3AMLB6713010960";
 
@@ -24,6 +25,17 @@ export async function requireMercadoLivreExtension(request: Request) {
   const received = Buffer.from(hash, "hex");
   if (stored.length !== received.length || !timingSafeEqual(stored, received)) return null;
   return data;
+}
+
+export async function requireMercadoLivreCatalogCollector(request: Request) {
+  const token = safeBearer(request);
+  if (!token) return false;
+  const configured = env().MERCADO_LIVRE_COLLECTOR_TOKEN_HASH;
+  if (configured) {
+    const received = Buffer.from(tokenHash(token), "hex"); const stored = Buffer.from(configured, "hex");
+    if (received.length === stored.length && timingSafeEqual(received, stored)) return true;
+  }
+  return Boolean(await requireMercadoLivreExtension(request));
 }
 
 export const extensionCorsHeaders = {

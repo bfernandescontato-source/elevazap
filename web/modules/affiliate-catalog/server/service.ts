@@ -1,7 +1,7 @@
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
 import { catalogCategories } from "../categories";
 import type { CatalogCategory, CatalogListing, CatalogPage, CatalogProviderFilter } from "../types";
-import { withMercadoLivreAuthRetry } from "./mercado-livre-token-manager";
+import { getStoredMercadoLivreCatalog } from "./mercado-livre-catalog-service";
 import { ShopeeAffiliateProvider } from "./shopee-provider";
 import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 
@@ -36,7 +36,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
       const adapter = await shopeeProvider(database, accountId);
       return cached(key, ttl, () => adapter.searchProducts({ ...input, categoryId }));
     }
-    return cached(key, ttl, () => withMercadoLivreAuthRetry(client => client.searchProducts({ ...input, categoryId })));
+    return cached(key, ttl, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page: input.page, limit: input.limit }));
   }));
   const providerErrors: CatalogResult["providerErrors"] = {};
   const pages: CatalogPage[] = [];
@@ -56,8 +56,8 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   // a navegação por categoria da vitrine, mesmo quando há mais de um marketplace.
   if (input.provider === "SHOPEE" || input.provider === "ALL") categories = catalogCategories.map(category => ({ ...category, id: category.id === null ? null : String(category.id) }));
   if (input.provider === "MERCADO_LIVRE") {
-    try { categories = await cached("mercado-livre:categories", 24 * 60 * 60_000, () => withMercadoLivreAuthRetry(client => client.getCategories())); }
-    catch (error) { providerErrors.MERCADO_LIVRE ||= codeOf(error, "MERCADO_LIVRE_CATEGORIES_UNAVAILABLE"); }
+    const mlPage = pages[0] as (CatalogPage & { categories?: CatalogCategory[] }) | undefined;
+    if (mlPage?.categories?.length) categories = mlPage.categories;
   }
   return { offers, pageInfo: { page: input.page, limit: input.limit, hasNextPage: pages.some(page => page.pageInfo.hasNextPage) }, categories, providerErrors };
 }

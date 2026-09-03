@@ -12,6 +12,10 @@ export async function getIntegration(database: SupabaseClient, accountId: string
   if (provider === "amazon") return null;
   const { data, error } = await database.from("affiliate_integrations").select(visibleColumns).eq("account_id", accountId).eq("provider", provider).maybeSingle();
   if (error) throw error;
+  if (provider === "mercado_livre" && data?.status === "connecting" && data.updated_at) {
+    const connectionExpired = Date.now() - new Date(data.updated_at).getTime() > 5 * 60_000;
+    if (connectionExpired) return { ...data, status: "error", last_error: "A extensão não concluiu a conexão. Confirme que ela está instalada e tente novamente." };
+  }
   return data;
 }
 
@@ -57,7 +61,6 @@ export async function startMercadoLivreIntegration(database: SupabaseClient, acc
   const nonce = secretToken(); const now = new Date(); const expiresAt = new Date(now.getTime() + 5 * 60_000).toISOString();
   const { error } = await database.from("affiliate_connection_nonces").insert({ account_id: accountId, provider: "mercado_livre", nonce_hash: tokenHash(nonce), expires_at: expiresAt, created_by: userId });
   if (error) throw error;
-  await database.from("affiliate_integrations").upsert({ account_id: accountId, user_id: userId, provider: "mercado_livre", status: "connecting", last_error: null, updated_at: now.toISOString() }, { onConflict: "account_id,provider" });
   return { nonce, expires_at: expiresAt };
 }
 
