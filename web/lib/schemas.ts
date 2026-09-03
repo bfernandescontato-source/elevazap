@@ -29,8 +29,7 @@ export const bulkMensagemClienteSchema = z.object({
 export const bulkMensagemSchema = z.object({
   mensagem: z.string().trim().min(1).max(4000),
   clientes: z.array(bulkMensagemClienteSchema).min(1).max(2000),
-  whatsapp_sender_id: z.string().uuid().optional(),
-  scheduled_at: z.string().datetime().optional()
+  whatsapp_sender_id: z.string().uuid().optional()
 });
 
 export const mediaKindSchema = z.enum(["imagem", "video", "audio", "audio_voz", "documento"]);

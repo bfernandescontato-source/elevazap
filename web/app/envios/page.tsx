@@ -30,12 +30,7 @@ export default function EnviosPage() {
     });
   }, [individual, groups, batches, campaigns, senderData.senders, query, status, campaignId, senderId, batchId, date]);
 
-  const formatDate = (value?: string) => value ? new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
-  const dateColumn = (item: any) => {
-    const isScheduled = item.status === "pendente" && item.scheduled_at && new Date(item.scheduled_at).getTime() > Date.now();
-    if (!isScheduled) return formatDate(item.created_at);
-    return <span className="text-amber-700">Agendado: {formatDate(item.scheduled_at)}</span>;
-  };
+  const formatDate = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "—";
   return <AppShell title="Envios" subtitle="Registros individuais de mensagens">
     <div className="mb-5 space-y-3">
       <SearchInput placeholder="Pesquisar destinatário, grupo ou mensagem" value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -47,7 +42,7 @@ export default function EnviosPage() {
         <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="focus-ring h-11 rounded-lg border border-line bg-white px-3 text-sm" />
       </div>
     </div>
-    {!rows.length ? <EmptyState title="Não há envios registrados." description="Os registros aparecerão aqui quando houver mensagens processadas." /> : <DataTable columns={["Destinatário ou grupo", "Número", "Campanha", "Lote", "Status", "Data e horário", "Erro", "Identificador"]} rows={rows.map((item) => [item.recipient, item.sender, item.campaign, item.batch, <StatusBadge key="status" status={item.status} />, dateColumn(item), item.erro || "—", <span key="id" className="font-mono text-xs text-muted">{item.id}</span>])} />}
+    {!rows.length ? <EmptyState title="Não há envios registrados." description="Os registros aparecerão aqui quando houver mensagens processadas." /> : <DataTable columns={["Destinatário ou grupo", "Número", "Campanha", "Lote", "Status", "Data e horário", "Erro", "Identificador"]} rows={rows.map((item) => [item.recipient, item.sender, item.campaign, item.batch, <StatusBadge key="status" status={item.status} />, formatDate(item.created_at), item.erro || "—", <span key="id" className="font-mono text-xs text-muted">{item.id}</span>])} />}
   </AppShell>;
 }
 

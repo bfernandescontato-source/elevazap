@@ -15,9 +15,6 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "Lista inválida." }, { status: 400 });
   }
-  if (parsed.data.scheduled_at && new Date(parsed.data.scheduled_at).getTime() < Date.now() - 60_000) {
-    return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
-  }
 
   const sb = supabaseAdmin();
   const { data: sender } = parsed.data.whatsapp_sender_id
@@ -45,7 +42,6 @@ export async function POST(request: NextRequest) {
         order_id: cliente.order_id || null,
         transaction_id: cliente.transaction_id || null,
         ...(sender ? { whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name } : {}),
-        ...(parsed.data.scheduled_at ? { scheduled_at: parsed.data.scheduled_at } : {}),
         mensagem_enviada: renderApprovedPurchaseMessage(parsed.data.mensagem, {
           nome: cliente.nome,
           produto,
