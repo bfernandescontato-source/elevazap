@@ -1,6 +1,6 @@
 import { env } from "../env.js";
 import { supabase } from "../supabase.js";
-import { downloadMedia, buildBaileysMessage, convertVoiceToOpus } from "../utils/media.js";
+import { downloadMedia, buildBaileysMessage, convertVoiceToOpus, sharedMediaCache } from "../utils/media.js";
 import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
@@ -27,7 +27,7 @@ export class GlobalSendQueue {
   }
 
   stats() {
-    return this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeSessions.size);
+    return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeSessions.size), media_cache: sharedMediaCache.snapshot() };
   }
 
   start() {
@@ -243,8 +243,14 @@ export class GlobalSendQueue {
     const sock = this.selectSocket(row, true);
     let media: Buffer | undefined;
     if (row.media_bucket && row.media_path) {
-      media = await downloadMedia(row.media_bucket, row.media_path);
-      if (row.tipo === "audio_voz") media = await convertVoiceToOpus(media);
+      const sourceKey = `${row.media_bucket}:${row.media_path}`;
+      const source = await sharedMediaCache.getOrLoad(sourceKey, () => downloadMedia(row.media_bucket, row.media_path));
+      media = row.tipo === "audio_voz"
+        ? await sharedMediaCache.getOrLoad(`${sourceKey}:opus`, () => convertVoiceToOpus(source))
+        : source;
+      console.info({ event: "media_cache_snapshot", component: "queue", lote_id: row.lote_id || null,
+        media_id: sourceKey, media_size: media.byteLength, destinations_count: row.lote_id ? undefined : 1,
+        ...sharedMediaCache.snapshot() });
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const result = await withTimeout<any>(

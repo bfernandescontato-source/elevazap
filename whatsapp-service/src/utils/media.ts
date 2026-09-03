@@ -7,6 +7,11 @@ import { supabase } from "../supabase.js";
 import { env } from "../env.js";
 import { dbResult } from "./db.js";
 import { withTimeout } from "./timeout.js";
+import { MediaCache } from "./media-cache.js";
+
+// One cache per service process. The documented production topology has one
+// dispatcher replica; the in-flight guard also protects concurrent queue jobs.
+export const sharedMediaCache = new MediaCache(env.MEDIA_CACHE_MAX_BYTES, env.MEDIA_CACHE_TTL_MS);
 
 export async function downloadMedia(bucket: string, path: string) {
   const data = await dbResult("storage.createSignedUrl", supabase.storage.from(bucket).createSignedUrl(path, 60));

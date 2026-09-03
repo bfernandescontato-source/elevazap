@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { OfferProcessor } from "./offer-processor.js";
+import { sharedMediaCache } from "../utils/media.js";
 
 export async function retryCapturedOffer(accountId: string, offerId: string) {
   const { data: offer, error } = await supabase.from("captured_offers").select("*")
@@ -12,10 +13,14 @@ export async function retryCapturedOffer(accountId: string, offerId: string) {
   if (!automation) throw new Error("Automação não encontrada.");
   let media: { buffer: Buffer; mimeType: string; extension: string } | undefined;
   if (offer.media_bucket && offer.media_path) {
-    const { data, error: mediaError } = await supabase.storage.from(offer.media_bucket).download(offer.media_path);
-    if (mediaError) throw mediaError;
+    const key = `${offer.media_bucket}:${offer.media_path}`;
+    const buffer = await sharedMediaCache.getOrLoad(key, async () => {
+      const { data, error: mediaError } = await supabase.storage.from(offer.media_bucket).download(offer.media_path);
+      if (mediaError) throw mediaError;
+      return Buffer.from(await data.arrayBuffer());
+    });
     const mimeType = offer.media_mime_type || "image/jpeg";
-    media = { buffer: Buffer.from(await data.arrayBuffer()), mimeType, extension: mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg" };
+    media = { buffer, mimeType, extension: mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg" };
   }
   const result = await new OfferProcessor(supabase).process(automation as never, {
     sourceType: offer.source_type,

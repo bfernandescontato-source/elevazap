@@ -6,6 +6,7 @@ import { bootSenderSessions, renewOwnedSenderLeases, syncSenderSessionOwnership 
 import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
 import { detectDatabaseCapabilities } from "./database-capabilities.js";
 import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
+import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 
 async function main() {
   const queueRef: { current: GlobalSendQueue | null } = { current: null };
@@ -20,6 +21,7 @@ async function main() {
     await recoverStuckJobsOnBoot(databaseCapabilities);
     await repairPendingGroupJobsWithoutSession();
     const queue = new GlobalSendQueue(databaseCapabilities);
+    const mediaGc = new TemporaryMediaGarbageCollector();
     queueRef.current = queue;
     queue.start();
     readiness.queue = true;
@@ -31,6 +33,16 @@ async function main() {
     setInterval(() => periodicReclaim(databaseCapabilities).catch((error) => {
       readiness.lastError = error instanceof Error ? error.message : "Falha na recuperação da fila.";
     }), 60_000);
+    if (env.TEMPORARY_MEDIA_GC_ENABLED) {
+      setInterval(() => mediaGc.runIfDue().catch((error) => {
+        console.error({ event: "temporary_media_gc_failed", component: "media-gc", error: error instanceof Error ? error.message : "unknown" });
+      }), 60_000);
+      setTimeout(() => mediaGc.runIfDue().catch((error) => {
+        console.error({ event: "temporary_media_gc_initial_failed", component: "media-gc", error: error instanceof Error ? error.message : "unknown" });
+      }), 30_000);
+    } else {
+      console.info({ event: "temporary_media_gc_disabled", component: "media-gc", reason: "awaiting_first_audited_inventory" });
+    }
 
     // A transient session/lease error must not prevent the dispatcher and the
     // supervisor from recovering on the next pass.
