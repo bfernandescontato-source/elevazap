@@ -423,16 +423,16 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       {/* ── Create / Edit model modal ─────────────────────────────────────────── */}
       {showModelModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-end bg-black/45 sm:items-center sm:justify-center sm:p-4"
           onClick={closeModal}
         >
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            className="flex h-dvh w-full max-w-lg flex-col overflow-hidden bg-white shadow-xl sm:h-auto sm:max-h-[90dvh] sm:rounded-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-line px-6 py-5">
+            <div className="flex items-center justify-between border-b border-line px-4 py-4 sm:px-6 sm:py-5">
               <h2 className="text-lg font-semibold text-ink">
                 {editingModel ? "Editar modelo" : "Novo modelo"}
               </h2>
@@ -440,13 +440,13 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                 type="button"
                 onClick={closeModal}
                 aria-label="Fechar"
-                className="rounded-lg p-1.5 text-muted hover:bg-wash hover:text-ink"
+                className="touch-target grid place-items-center rounded-lg text-muted hover:bg-wash hover:text-ink"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
               <div>
                 <label className="text-sm font-medium text-ink">Nome do modelo</label>
                 <input
@@ -502,7 +502,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               )}
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-line px-6 py-4">
+            <div className="app-safe-bottom grid grid-cols-2 gap-2 border-t border-line px-4 py-3 sm:flex sm:justify-end sm:px-6 sm:py-4">
               <ActionButton
                 disabled={saving}
                 onClick={closeModal}
@@ -526,17 +526,17 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       {/* ── Import modal ──────────────────────────────────────────────────────── */}
       {importOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-end bg-black/45 sm:items-center sm:justify-center sm:p-4"
           onClick={() => importStep !== "importing" && closeImport()}
         >
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            className="flex h-dvh w-full max-w-lg flex-col overflow-hidden bg-white shadow-xl sm:h-auto sm:max-h-[90dvh] sm:rounded-xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal header */}
-            <div className="flex items-center justify-between border-b border-line px-6 py-5">
+            <div className="flex items-center justify-between border-b border-line px-4 py-4 sm:px-6 sm:py-5">
               <div>
                 <h2 className="text-lg font-semibold text-ink">
                   {importStep === "idle" && "Importar modelos"}
@@ -556,7 +556,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                   type="button"
                   onClick={closeImport}
                   aria-label="Fechar"
-                  className="rounded-lg p-1.5 text-muted hover:bg-wash hover:text-ink"
+                  className="touch-target grid place-items-center rounded-lg text-muted hover:bg-wash hover:text-ink"
                 >
                   <X size={18} />
                 </button>
@@ -564,7 +564,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
             </div>
 
             {/* Modal body */}
-            <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
 
               {/* Step: idle — file selector */}
               {importStep === "idle" && (

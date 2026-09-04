@@ -26,11 +26,11 @@ export function ComunidadeReportModal({ postId, onClose, onDone }: { postId: str
     } finally { setLoading(false); }
   };
 
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
-    <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-lg bg-panel p-5 shadow-soft">
+  return <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4">
+    <div role="dialog" aria-modal="true" className="app-safe-bottom max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-panel p-5 shadow-soft sm:rounded-xl">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-ink">Denunciar publicação</h3>
-        <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-wash"><X size={16} /></button>
+        <button type="button" aria-label="Fechar" onClick={onClose} className="touch-target grid place-items-center rounded-lg text-muted hover:bg-wash"><X size={18} /></button>
       </div>
       <div className="mt-4 space-y-3">
         <div>
@@ -45,7 +45,7 @@ export function ComunidadeReportModal({ postId, onClose, onDone }: { postId: str
         </div>
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
       </div>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end">
         <button type="button" disabled={loading} className="rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onClose}>Cancelar</button>
         <button type="button" disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50" onClick={submit}>
           {loading ? <Loader2 size={15} className="animate-spin" /> : null} Denunciar

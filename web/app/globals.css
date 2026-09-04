@@ -5,16 +5,66 @@
 :root {
   color-scheme: light;
   background: #f7f7f7;
+  --app-gutter: 1rem;
+}
+
+html {
+  min-width: 320px;
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  min-width: 320px;
   color: #111111;
   background: #f7f7f7;
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
 }
 
 button, input, textarea, select {
   font: inherit;
+}
+
+button, a, input, textarea, select, summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select {
+  max-width: 100%;
+}
+
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --app-gutter: 2rem;
+  }
+}
+
+@layer utilities {
+  .app-safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .scrollbar-subtle {
+    scrollbar-color: #d4d4d4 transparent;
+    scrollbar-width: thin;
+  }
 }
 
 .focus-ring {

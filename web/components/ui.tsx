@@ -33,7 +33,7 @@ import {
   Zap,
   X
 } from "lucide-react";
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useId, useMemo, useState } from "react";
 
 const navSections = [
   { label: "Principal", items: [
@@ -69,41 +69,48 @@ const officialNavSection = { label: "WhatsApp API oficial", items: [
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [mobileMenuOpen]);
+  useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="min-h-dvh min-w-0 lg:flex">
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 overflow-y-auto border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
         </div>
         <SidebarNav pathname={pathname} />
       </aside>
-      {mobileMenuOpen ? <div className="fixed inset-0 z-40 bg-black/35 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
-        <aside className="h-full w-[min(84vw,320px)] overflow-y-auto bg-white px-4 py-5 shadow-soft" onClick={(event) => event.stopPropagation()}>
-          <div className="mb-7 flex items-center justify-between gap-3 px-2"><BrandLogo className="h-11 flex-1" imageClassName="w-[220px]" /><button type="button" title="Fechar menu" onClick={() => setMobileMenuOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-muted"><X size={18} /></button></div>
+      {mobileMenuOpen ? <div className="fixed inset-0 z-40 bg-black/35 lg:hidden" role="presentation" onClick={() => setMobileMenuOpen(false)}>
+        <aside aria-label="Menu principal" className="app-safe-bottom h-dvh w-[min(88vw,340px)] overflow-y-auto overscroll-contain bg-white px-4 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] shadow-soft" onClick={(event) => event.stopPropagation()}>
+          <div className="mb-7 flex items-center justify-between gap-3 px-2"><BrandLogo className="h-11 min-w-0 flex-1" imageClassName="w-[220px] max-w-full" /><button type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)} className="touch-target grid shrink-0 place-items-center rounded-lg border border-line text-muted"><X size={20} /></button></div>
           <SidebarNav pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
         </aside>
       </div> : null}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-4 py-4 backdrop-blur lg:px-8">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <button type="button" title="Abrir menu" onClick={() => setMobileMenuOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-white text-ink lg:hidden"><Menu size={19} /></button>
+        <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-3 pt-[max(.75rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 sm:flex-nowrap sm:items-center">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <button type="button" aria-label="Abrir menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)} className="touch-target grid shrink-0 place-items-center rounded-lg border border-line bg-white text-ink lg:hidden"><Menu size={20} /></button>
               <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-normal text-ink">{title}</h1>
-              {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
+              <h1 className="break-words text-lg font-semibold leading-tight tracking-normal text-ink sm:text-xl">{title}</h1>
+              {subtitle ? <p className="mt-1 break-words text-xs leading-5 text-muted sm:text-sm">{subtitle}</p> : null}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="ml-[3.5rem] flex max-w-full flex-wrap items-center justify-end gap-2 sm:ml-0 sm:shrink-0">
               {action}
               {!hideLogout ? <form action="/api/auth/logout" method="post">
-                <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
+                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
                   <LogOut size={16} /> <span className="hidden sm:inline">Sair</span>
                 </button>
               </form> : null}
             </div>
           </div>
         </header>
-        <main className="flex-1 px-4 py-6 lg:px-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] py-5 sm:py-6">{children}</main>
       </div>
     </div>
   );
@@ -193,7 +200,10 @@ export function StatCard({ label, value, icon }: { label: string; value: ReactNo
 
 export function DataTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }) {
   if (!rows.length) return <EmptyState title="Sem dados" description="Nada encontrado para os filtros atuais." />;
-  return <div className="overflow-hidden rounded-lg border border-line bg-panel shadow-soft"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-wash text-xs uppercase text-muted"><tr>{columns.map((c) => <th key={c} className="px-4 py-3 font-medium">{c}</th>)}</tr></thead><tbody className="divide-y divide-line">{rows.map((row, i) => <tr key={i} className="hover:bg-wash/60">{row.map((cell, j) => <td key={j} className="px-4 py-3 align-top">{cell}</td>)}</tr>)}</tbody></table></div></div>;
+  return <div className="min-w-0">
+    <div className="space-y-3 md:hidden">{rows.map((row, i) => <article key={i} className="min-w-0 overflow-hidden rounded-xl border border-line bg-panel p-4 shadow-soft"><dl className="space-y-3">{row.map((cell, j) => <div key={j} className={`min-w-0 ${j ? "border-t border-line/70 pt-3" : ""}`}><dt className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{columns[j] || `Campo ${j + 1}`}</dt><dd className="min-w-0 break-words text-sm text-ink [&_button]:min-h-10 [&_code]:break-all [&_pre]:max-w-full">{cell}</dd></div>)}</dl></article>)}</div>
+    <div className="scrollbar-subtle hidden overflow-x-auto rounded-lg border border-line bg-panel shadow-soft md:block" tabIndex={0} aria-label="Tabela com rolagem horizontal"><table className="min-w-full text-left text-sm"><thead className="bg-wash text-xs uppercase text-muted"><tr>{columns.map((c) => <th key={c} className="whitespace-nowrap px-4 py-3 font-medium">{c}</th>)}</tr></thead><tbody className="divide-y divide-line">{rows.map((row, i) => <tr key={i} className="hover:bg-wash/60">{row.map((cell, j) => <td key={j} className="px-4 py-3 align-top">{cell}</td>)}</tr>)}</tbody></table></div>
+  </div>;
 }
 
 export function EmptyState({ title, description }: { title: string; description: string }) {
@@ -241,17 +251,26 @@ export function PhoneMaskedText({ value }: { value: string }) {
 }
 
 export function ConfirmModal({ open, title, children, onCancel, onConfirm, confirmLabel = "Confirmar", loading = false, destructive = false }: { open: boolean; title: string; children: ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string; loading?: boolean; destructive?: boolean }) {
+  const titleId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !loading) onCancel(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", onKeyDown); };
+  }, [open, loading, onCancel]);
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="w-full max-w-md rounded-lg bg-panel p-5 shadow-soft"><h3 id="confirm-title" className="font-semibold text-ink">{title}</h3><div className="mt-2 text-sm text-muted">{children}</div><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={loading} className="rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onCancel}>Voltar</button><button type="button" disabled={loading} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${destructive ? "bg-red-600 hover:bg-red-700" : "bg-black hover:bg-zinc-800"}`} onClick={onConfirm}>{loading ? <Loader2 size={15} className="animate-spin" /> : null}{confirmLabel}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !loading) onCancel(); }}><div role="dialog" aria-modal="true" aria-labelledby={titleId} className="app-safe-bottom max-h-[min(90dvh,720px)] w-full overflow-y-auto rounded-t-2xl bg-panel p-5 shadow-soft sm:max-w-md sm:rounded-xl"><div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-300 sm:hidden"/><h3 id={titleId} className="break-words font-semibold text-ink">{title}</h3><div className="mt-2 break-words text-sm text-muted">{children}</div><div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end"><button type="button" disabled={loading} className="touch-target rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onCancel}>Voltar</button><button type="button" disabled={loading} className={`touch-target inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${destructive ? "bg-red-600 hover:bg-red-700" : "bg-black hover:bg-zinc-800"}`} onClick={onConfirm}>{loading ? <Loader2 size={15} className="animate-spin" /> : null}{confirmLabel}</button></div></div></div>;
 }
 
 export function Toast({ message }: { message: string }) {
   if (!message) return null;
-  return <div className="fixed bottom-4 right-4 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-soft">{message}</div>;
+  return <div role="status" aria-live="polite" className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] mx-auto max-w-md break-words rounded-xl bg-ink px-4 py-3 text-center text-sm text-white shadow-soft sm:left-auto sm:right-4 sm:mx-0 sm:text-left">{message}</div>;
 }
 
 export function ConnectionStatusCard({ status, qr }: { status?: string; qr?: string }) {
-  return <div className="rounded-lg border border-line bg-panel p-6 shadow-soft"><div className="flex items-center justify-between"><div><div className="text-sm text-muted">WhatsApp</div><div className="mt-1 text-lg font-semibold text-ink">{status || "desconectado"}</div></div><StatusBadge status={status} /></div>{qr ? <div className="mt-6 flex justify-center rounded-lg bg-wash p-5"><Image src={qr} alt="QR Code do WhatsApp" width={288} height={288} unoptimized className="h-72 w-72 rounded-lg bg-white p-3" /></div> : null}</div>;
+  return <div className="min-w-0 rounded-lg border border-line bg-panel p-4 shadow-soft sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><div className="text-sm text-muted">WhatsApp</div><div className="mt-1 break-words text-lg font-semibold text-ink">{status || "desconectado"}</div></div><StatusBadge status={status} /></div>{qr ? <div className="mt-6 flex justify-center rounded-lg bg-wash p-3 sm:p-5"><Image src={qr} alt="QR Code do WhatsApp" width={288} height={288} unoptimized className="aspect-square h-auto w-full max-w-72 rounded-lg bg-white p-3" /></div> : null}</div>;
 }
 
 export function UncertainStatusCard({ critical, item, onAction }: { critical?: boolean; item: any; onAction?: (action: string, item: any) => void }) {
@@ -263,7 +282,7 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
 }
 
 export function ActionButton({ children, icon, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: ReactNode }) {
-  return <button {...props} className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition disabled:opacity-50 ${props.className || "bg-accent text-white hover:bg-accent/90"}`}>{icon}{children}</button>;
+  return <button {...props} className={`inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-lg px-4 text-center text-sm font-medium transition disabled:opacity-50 ${props.className || "bg-accent text-white hover:bg-accent/90"}`}>{icon}{children}</button>;
 }
 
 export const Icons = { ChevronRight, Clock, Pause, Play, RefreshCw, Send };

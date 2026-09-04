@@ -666,10 +666,10 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
       {/* ── Modal: Adicionar grupos ───────────────────────────────────── */}
       {showAdd ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={() => saving !== "add" && setShowAdd(false)}>
-          <div className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4" onClick={() => saving !== "add" && setShowAdd(false)}>
+          <div className="flex h-dvh w-full max-w-lg flex-col overflow-hidden bg-white sm:h-auto sm:max-h-[88dvh] sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
             <div className="border-b border-line p-5"><h2 className="font-semibold text-ink">Adicionar grupos</h2></div>
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               <div className="mb-4 rounded-xl border border-line bg-wash p-3">
                 <label className="text-sm font-medium text-ink">Buscar pelo link do grupo</label>
                 <div className="mt-2 flex gap-2">
@@ -692,7 +692,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
               </div>
               <p className="mt-3 text-sm text-muted">{addJids.length} selecionado(s)</p>
             </div>
-            <div className="flex justify-end gap-2 border-t border-line p-4">
+            <div className="app-safe-bottom grid grid-cols-2 gap-2 border-t border-line p-4 sm:flex sm:justify-end">
               <ActionButton className="border border-line bg-white text-ink" onClick={() => setShowAdd(false)}>Cancelar</ActionButton>
               <ActionButton disabled={!addJids.length || saving === "add"} onClick={addGroups}>{saving === "add" ? "Adicionando..." : "Adicionar selecionados"}</ActionButton>
             </div>

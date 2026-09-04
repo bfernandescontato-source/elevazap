@@ -252,20 +252,20 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={handleClose}>
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" onClick={handleClose}>
+      <div className="flex h-dvh w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-line px-6 py-4">
+        <div className="flex items-center justify-between border-b border-line px-4 py-4 sm:px-6">
           <div>
             <h2 className="font-semibold text-ink">Agendar em massa</h2>
             {!done && <p className="mt-0.5 text-xs text-muted">Passo {step} de 4</p>}
           </div>
-          <button type="button" onClick={handleClose} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-wash"><X size={16} /></button>
+          <button type="button" aria-label="Fechar" onClick={handleClose} className="touch-target grid place-items-center rounded-lg hover:bg-wash"><X size={18} /></button>
         </div>
 
         {/* Step indicators */}
         {!done && (
-          <div className="flex border-b border-line px-6 py-3 gap-1">
+          <div className="flex border-b border-line px-4 py-3 gap-1 sm:px-6">
             {["Modelos", "Destino", "Horários", "Revisar"].map((label, i) => (
               <div key={label} className="flex flex-1 items-center gap-1">
                 <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${step === i + 1 ? "bg-ink text-white" : step > i + 1 ? "bg-emerald-500 text-white" : "bg-wash text-muted"}`}>
@@ -279,7 +279,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
         )}
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">
           {done ? (
             <div className="flex flex-col items-center py-10 text-center">
               <CheckCircle2 size={48} className="text-emerald-500" />
@@ -502,7 +502,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
 
         {/* Footer */}
         {!done && (
-          <div className="flex items-center justify-between border-t border-line px-6 py-4">
+          <div className="app-safe-bottom flex items-center justify-between gap-2 border-t border-line bg-white px-4 py-3 sm:px-6 sm:py-4">
             <button type="button" onClick={() => step === 1 ? handleClose() : setStep((s) => (s - 1) as 1 | 2 | 3 | 4)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-sm font-medium hover:bg-wash">
               <ChevronLeft size={15} />{step === 1 ? "Cancelar" : "Voltar"}
             </button>
@@ -512,7 +512,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                 type="button"
                 disabled={step === 1 ? !step1Valid : step === 2 ? !step2Valid : !step3Valid}
                 onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3 | 4)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 sm:px-5"
               >
                 Próximo <ChevronRight size={15} />
               </button>
@@ -521,7 +521,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                 type="button"
                 disabled={!step4Valid || saving}
                 onClick={confirm}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 sm:px-5"
               >
                 {saving ? <><Loader2 size={15} className="animate-spin" /> Criando…</> : `Confirmar ${scheduled.length} agendamentos`}
               </button>
