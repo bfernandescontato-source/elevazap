@@ -66,6 +66,13 @@ const officialNavSection = { label: "WhatsApp API oficial", items: [
   { href: "/admin/whatsapp-oficial/configuracoes", label: "Configurações da API", icon: Cog }
 ] };
 
+const mobilePrimaryNav = [
+  { href: "/dashboard", label: "Início", icon: BarChart3 },
+  { href: "/campanhas", label: "Campanhas", icon: Megaphone },
+  { href: "/disparos", label: "Disparos", icon: Send },
+  { href: "/catalogo", label: "Catálogo", icon: ShoppingBag }
+];
+
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -110,8 +117,16 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
             </div>
           </div>
         </header>
-        <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] py-5 sm:py-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-28 pt-5 sm:py-6">{children}</main>
       </div>
+      <nav aria-label="Navegação rápida" className="app-safe-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white/95 px-1 pt-1 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+        {mobilePrimaryNav.map((item) => {
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const Icon = item.icon;
+          return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium ${active ? "text-ink" : "text-muted"}`}><Icon size={20} strokeWidth={active ? 2.5 : 2}/><span className="max-w-full truncate">{item.label}</span></Link>;
+        })}
+        <button type="button" aria-label="Abrir todas as funções" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium ${mobileMenuOpen ? "text-ink" : "text-muted"}`}><Menu size={20}/><span>Mais</span></button>
+      </nav>
     </div>
   );
 }
