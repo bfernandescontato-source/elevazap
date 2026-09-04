@@ -73,6 +73,15 @@ const mobilePrimaryNav = [
   { href: "/catalogo", label: "Catálogo", icon: ShoppingBag }
 ];
 
+const mobileTopNav = [
+  { href: "/grupos/numeros", label: "Conectar número", icon: Smartphone },
+  { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
+  { href: "/comunidade", label: "Comunidade", icon: MessageCircle },
+  { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
+  { href: "/integracoes", label: "Integrações", icon: Cable },
+  { href: "/configuracoes", label: "Configurações", icon: Cog }
+];
+
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -99,23 +108,31 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
       </div> : null}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-3 pt-[max(.75rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 sm:flex-nowrap sm:items-center">
-            <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+            <div className="contents sm:flex sm:min-w-0 sm:items-start sm:gap-3">
               <button type="button" aria-label="Abrir menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)} className="touch-target grid shrink-0 place-items-center rounded-lg border border-line bg-white text-ink lg:hidden"><Menu size={20} /></button>
-              <div className="min-w-0">
+              <div className="min-w-0 sm:flex-1">
               <h1 className="break-words text-lg font-semibold leading-tight tracking-normal text-ink sm:text-xl">{title}</h1>
               {subtitle ? <p className="mt-1 break-words text-xs leading-5 text-muted sm:text-sm">{subtitle}</p> : null}
               </div>
             </div>
-            <div className="ml-[3.5rem] flex max-w-full flex-wrap items-center justify-end gap-2 sm:ml-0 sm:shrink-0">
-              {action}
+            <div className="col-start-3 row-start-1 flex items-center justify-end gap-2">
+              <div className="hidden items-center gap-2 sm:flex">{action}</div>
               {!hideLogout ? <form action="/api/auth/logout" method="post">
                 <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
                   <LogOut size={16} /> <span className="hidden sm:inline">Sair</span>
                 </button>
               </form> : null}
             </div>
+            {action ? <div className="col-span-3 flex min-w-0 justify-stretch pl-14 [&>*]:w-full sm:hidden">{action}</div> : null}
           </div>
+          <nav aria-label="Atalhos das funções" className="scrollbar-subtle -mx-[var(--app-gutter)] mt-3 flex gap-2 overflow-x-auto border-t border-line px-[var(--app-gutter)] pt-3 lg:hidden">
+            {mobileTopNav.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = item.icon;
+              return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-medium ${active ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}><Icon size={15}/>{item.label}</Link>;
+            })}
+          </nav>
         </header>
         <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-28 pt-5 sm:py-6">{children}</main>
       </div>
