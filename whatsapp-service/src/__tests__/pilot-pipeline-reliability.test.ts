@@ -75,4 +75,12 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(monitor).toContain('database.from("automation_destinations")');
     expect(monitor).toContain("automationIds.filter((automationId) => !loopRisk.has(automationId))");
   });
+
+  it("registra metadados não sensíveis antes dos filtros de captura", () => {
+    const runtime = read("whatsapp-service/src/senders/runtime.ts");
+    expect(runtime).toContain('event: "pilot_group_messages_observed"');
+    expect(runtime).toContain("upsert_type: upsertType");
+    expect(runtime).toContain("group_ids:");
+    expect(runtime).not.toContain("original_text:");
+  });
 });

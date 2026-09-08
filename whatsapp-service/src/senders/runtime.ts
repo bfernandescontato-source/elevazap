@@ -41,7 +41,22 @@ async function startSender(sender: { id: string; session_name: string; label: st
 
   const session = await createWhatsAppSession(
     sender.session_name,
-    async (messages, upsertType) => upsertType === "notify" ? monitorOfferMessages(supabase, { id: sender.id, accountId: sender.account_id }, messages) : undefined,
+    async (messages, upsertType) => {
+      const groupMessages = messages.filter((message) => String(message?.key?.remoteJid || "").endsWith("@g.us"));
+      if (groupMessages.length) {
+        console.info({
+          event: "pilot_group_messages_observed",
+          component: "offer-autopilot",
+          session_name: sender.session_name,
+          account_id: sender.account_id,
+          upsert_type: upsertType || "unknown",
+          message_count: groupMessages.length,
+          group_ids: Array.from(new Set(groupMessages.map((message) => String(message.key.remoteJid)))),
+          from_me_count: groupMessages.filter((message) => Boolean(message?.key?.fromMe)).length
+        });
+      }
+      if (upsertType === "notify") await monitorOfferMessages(supabase, { id: sender.id, accountId: sender.account_id }, messages);
+    },
     async (update, sock) => scheduleParticipantEventSync(sender.id, update, sock),
     sender.account_id,
     (status, error) => persistRuntimeStatus(sender.id, leaseVersion, status, error)
