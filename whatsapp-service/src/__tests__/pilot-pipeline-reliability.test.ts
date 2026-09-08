@@ -68,4 +68,11 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(recovery).toContain("if (activeRecovery) return activeRecovery");
     expect(recovery).toContain("activeRecovery = runInterruptedPilotRecovery().finally");
   });
+
+  it("aceita oferta enviada pelo próprio número em grupo fonte sem criar ciclo no destino", () => {
+    const monitor = read("whatsapp-service/src/offers/whatsapp-monitor.ts");
+    expect(monitor).not.toContain('groupId.endsWith("@g.us") || incoming?.key?.fromMe');
+    expect(monitor).toContain('database.from("automation_destinations")');
+    expect(monitor).toContain("automationIds.filter((automationId) => !loopRisk.has(automationId))");
+  });
 });

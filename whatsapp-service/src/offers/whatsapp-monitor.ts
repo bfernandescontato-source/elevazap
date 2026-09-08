@@ -59,7 +59,7 @@ export async function monitorOfferMessages(
   const processor = new OfferProcessor(database);
   for (const incoming of messages) {
     const groupId = String(incoming?.key?.remoteJid || "");
-    if (!groupId.endsWith("@g.us") || incoming?.key?.fromMe) continue;
+    if (!groupId.endsWith("@g.us")) continue;
     const { data: sources, error: sourceError } = await database.from("automation_source_groups")
       .select("automation_id").eq("account_id", sender.accountId).eq("whatsapp_group_id", groupId).eq("enabled", true);
     if (sourceError) {
@@ -67,7 +67,19 @@ export async function monitorOfferMessages(
       throw sourceError;
     }
     if (!sources?.length) continue;
-    const automationIds = sources.map((source) => source.automation_id);
+    let automationIds = sources.map((source) => source.automation_id);
+    if (incoming?.key?.fromMe) {
+      // Allow offers posted/forwarded by the connected number in a source-only
+      // group. If the group is also a destination, ignore it to prevent the
+      // Pilot from capturing its own delivery and creating a feedback loop.
+      const { data: destinations, error: destinationError } = await database.from("automation_destinations")
+        .select("automation_id").eq("account_id", sender.accountId).eq("whatsapp_group_id", groupId)
+        .eq("enabled", true).in("automation_id", automationIds);
+      if (destinationError) throw destinationError;
+      const loopRisk = new Set((destinations || []).map((destination) => destination.automation_id));
+      automationIds = automationIds.filter((automationId) => !loopRisk.has(automationId));
+      if (!automationIds.length) continue;
+    }
     const { data: automations, error } = await database.from("offer_automations")
       .select("*,whatsapp_senders(session_name)").eq("account_id", sender.accountId)
       .eq("whatsapp_sender_id", sender.id).eq("enabled", true).in("id", automationIds);
