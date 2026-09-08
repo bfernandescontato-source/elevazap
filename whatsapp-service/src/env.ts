@@ -32,6 +32,7 @@ const schema = z.object({
   WHATSAPP_START_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
   WHATSAPP_STOP_TIMEOUT_MS: z.coerce.number().int().min(1000).default(7_000),
   QUEUE_PROCESSING_TIMEOUT_MS: z.coerce.number().int().min(5000).default(120_000),
+  OFFER_PROCESSING_TIMEOUT_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(900_000),
   MAX_SEND_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1000).default(60_000),
   WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),

@@ -7,6 +7,7 @@ import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
 import { detectDatabaseCapabilities } from "./database-capabilities.js";
 import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
+import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 
 async function main() {
   const queueRef: { current: GlobalSendQueue | null } = { current: null };
@@ -19,6 +20,7 @@ async function main() {
 
     const databaseCapabilities = await detectDatabaseCapabilities();
     await recoverStuckJobsOnBoot(databaseCapabilities);
+    await recoverInterruptedPilotOffers();
     await repairPendingGroupJobsWithoutSession();
     const queue = new GlobalSendQueue(databaseCapabilities);
     const mediaGc = new TemporaryMediaGarbageCollector();
@@ -32,6 +34,9 @@ async function main() {
 
     setInterval(() => periodicReclaim(databaseCapabilities).catch((error) => {
       readiness.lastError = error instanceof Error ? error.message : "Falha na recuperação da fila.";
+    }), 60_000);
+    setInterval(() => recoverInterruptedPilotOffers().catch((error) => {
+      console.error({ event: "offer_recovery_loop_failed", component: "offer-autopilot", error: error instanceof Error ? error.message : "unknown" });
     }), 60_000);
     if (env.TEMPORARY_MEDIA_GC_ENABLED) {
       setInterval(() => mediaGc.runIfDue().catch((error) => {

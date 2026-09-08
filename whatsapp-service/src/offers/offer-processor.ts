@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { isSupportedMarketplaceUrl, parseOffer } from "./offer-parser.js";
-import { nextOfferSlot } from "./offer-scheduler.js";
 import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
 import { OfferAiRewriter, sanitizeSourcePromotion } from "./offer-ai-rewriter.js";
 import { MercadoLivreOfferConverter } from "./mercado-livre-conversion.js";
+import { env } from "../env.js";
+import { sharedMediaCache } from "../utils/media.js";
 
 type Automation = {
   id: string;
@@ -30,15 +31,15 @@ function log(event: string, fields: Record<string, unknown>) {
   console.info({ event, component: "offer-autopilot", ...fields });
 }
 
-export function queueAdmissionRejection(offer: { status?: string; error_code?: string }) {
-  if (offer.status !== "ignored") return null;
-  if (offer.error_code === "PILOT_QUEUE_FULL") return "full" as const;
-  if (offer.error_code === "PILOT_DISABLED") return "disabled" as const;
-  return null;
-}
-
 export class OfferProcessor {
   constructor(private database: SupabaseClient) {}
+
+  private processingLease() {
+    return {
+      processing_worker_id: env.INSTANCE_ID,
+      processing_deadline_at: new Date(Date.now() + env.OFFER_PROCESSING_TIMEOUT_MS).toISOString()
+    };
+  }
 
   private async automationEnabled(automation: Automation) {
     const { data, error } = await this.database.from("offer_automations").select("enabled")
@@ -51,13 +52,59 @@ export class OfferProcessor {
     if (await this.automationEnabled(automation)) return false;
     await this.database.from("captured_offers").update({
       status: "ignored", error_code: "PILOT_DISABLED", error_message: "Piloto Automático desativado.",
-      processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq("id", offerId).eq("account_id", automation.account_id);
+      processed_at: new Date().toISOString(), processing_worker_id: null,
+      processing_deadline_at: null, updated_at: new Date().toISOString()
+    }).eq("id", offerId).eq("account_id", automation.account_id)
+      .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
     log("offer_cancelled_pilot_disabled", { account_id: automation.account_id, automation_id: automation.id, offer_id: offerId });
     return true;
   }
 
-  async process(automation: Automation, message: RawOfferMessage) {
+  async resume(accountId: string, offerId: string) {
+    const { data: offer, error } = await this.database.from("captured_offers").select("*")
+      .eq("id", offerId).eq("account_id", accountId).eq("status", "processing")
+      .eq("processing_worker_id", env.INSTANCE_ID).maybeSingle();
+    if (error) throw error;
+    if (!offer) return null;
+    const { data: automation, error: automationError } = await this.database.from("offer_automations")
+      .select("*,whatsapp_senders(session_name)").eq("id", offer.automation_id).eq("account_id", accountId).maybeSingle();
+    if (automationError) throw automationError;
+    if (!automation) throw new Error("Automação não encontrada para recuperar a oferta.");
+
+    if (!offer.original_text && (!offer.media_bucket || !offer.media_path)) {
+      const message = "A oferta foi preservada, mas a mídia original não estava disponível após o reinício.";
+      await this.database.from("captured_offers").update({
+        status: "processing_failed", error_code: "SOURCE_MEDIA_UNAVAILABLE", error_message: message,
+        processed_at: new Date().toISOString(), processing_worker_id: null,
+        processing_deadline_at: null, updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", accountId).eq("status", "processing")
+        .eq("processing_worker_id", env.INSTANCE_ID);
+      return { ...offer, status: "processing_failed", error_code: "SOURCE_MEDIA_UNAVAILABLE", error_message: message };
+    }
+
+    let media: RawOfferMessage["media"];
+    if (offer.media_bucket && offer.media_path) {
+      const key = `${offer.media_bucket}:${offer.media_path}`;
+      const buffer = await sharedMediaCache.getOrLoad(key, async () => {
+        const { data, error: mediaError } = await this.database.storage.from(offer.media_bucket).download(offer.media_path);
+        if (mediaError) throw mediaError;
+        return Buffer.from(await data.arrayBuffer());
+      });
+      const mimeType = offer.media_mime_type || "image/jpeg";
+      media = { buffer, mimeType, extension: mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg" };
+    }
+    return this.process(automation as Automation, {
+      sourceType: offer.source_type,
+      sourceMessageId: offer.source_message_id,
+      sourceGroupId: offer.source_group_id,
+      senderId: offer.sender_id || undefined,
+      text: offer.original_text || "",
+      media,
+      timestamp: new Date(offer.captured_at)
+    }, offer);
+  }
+
+  async process(automation: Automation, message: RawOfferMessage, existingOffer?: any) {
     if (!(await this.automationEnabled(automation))) return null;
     const parsed = parseOffer(message);
     if (!parsed.text && !parsed.media && !message.hasMedia) return null;
@@ -74,36 +121,37 @@ export class OfferProcessor {
       try { return new URL(value).hostname.toLowerCase() === "meli.la"; } catch { return false; }
     }) && !automation.mercado_livre_conversion_enabled;
     const conversionRequired = shopeeConversionRequired || mercadoLivreConversionRequired;
-    const { data: offer, error: insertError } = await this.database.from("captured_offers").insert({
-      ...common,
-      user_id: automation.created_by,
-      source_type: message.sourceType,
-      source_message_id: parsed.sourceMessageId,
-      sender_id: parsed.senderId || null,
-      original_text: parsed.text || null,
-      processed_text: parsed.text || null,
-      original_link: parsed.shopeeLinks[0] || parsed.links[0] || null,
-      links: parsed.links,
-      shopee_links: parsed.shopeeLinks,
-      mercado_livre_links: parsed.mercadoLivreLinks,
-      affiliate_provider: parsed.affiliateLinks.length > 1 ? "multiple" : parsed.affiliateLinks[0]?.provider || null,
-      content_hash: parsed.contentHash,
-      affiliate_conversion_status: parsed.affiliateLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
-      ai_rewrite_status: automation.ai_rewrite_enabled ? "pending" : "not_enabled",
-      status: "processing",
-      captured_at: parsed.capturedAt.toISOString()
-    }).select("*").single();
-    if (insertError) {
-      if (insertError.code === "23505") return null;
-      throw insertError;
+    let offer = existingOffer;
+    if (!offer) {
+      const { data, error: insertError } = await this.database.from("captured_offers").insert({
+        ...common,
+        user_id: automation.created_by,
+        source_type: message.sourceType,
+        source_message_id: parsed.sourceMessageId,
+        sender_id: parsed.senderId || null,
+        original_text: parsed.text || null,
+        processed_text: parsed.text || null,
+        original_link: parsed.shopeeLinks[0] || parsed.links[0] || null,
+        links: parsed.links,
+        shopee_links: parsed.shopeeLinks,
+        mercado_livre_links: parsed.mercadoLivreLinks,
+        affiliate_provider: parsed.affiliateLinks.length > 1 ? "multiple" : parsed.affiliateLinks[0]?.provider || null,
+        content_hash: parsed.contentHash,
+        affiliate_conversion_status: parsed.affiliateLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
+        ai_rewrite_status: automation.ai_rewrite_enabled ? "pending" : "not_enabled",
+        status: "processing",
+        ...this.processingLease(),
+        captured_at: parsed.capturedAt.toISOString()
+      }).select("*").single();
+      if (insertError) {
+        if (insertError.code === "23505") return null;
+        throw insertError;
+      }
+      offer = data;
+      log("offer_captured", { ...common, offer_id: offer.id });
+    } else {
+      log("offer_processing_resumed", { ...common, offer_id: offer.id, processing_attempts: offer.processing_attempts });
     }
-    log("offer_captured", { ...common, offer_id: offer.id });
-    const admissionRejection = queueAdmissionRejection(offer);
-    if (admissionRejection === "full") {
-      log("offer_ignored_queue_full", { ...common, offer_id: offer.id, queue_limit: 5 });
-      return offer;
-    }
-    if (admissionRejection === "disabled") return offer;
     if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0) {
       const message = parsed.amazonLinks.length > 0
         ? "Amazon ainda não integrado ao Piloto Automático; oferta ignorada."
@@ -112,8 +160,10 @@ export class OfferProcessor {
           : "A oferta contém link não permitido; oferta ignorada.";
       await this.database.from("captured_offers").update({
         status: "ignored", error_code: parsed.amazonLinks.length > 0 ? "AMAZON_NOT_SUPPORTED_YET" : "UNSUPPORTED_MARKETPLACE_LINK", error_message: message,
-        processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
-      }).eq("id", offer.id).eq("account_id", automation.account_id);
+        processed_at: new Date().toISOString(), processing_worker_id: null,
+        processing_deadline_at: null, updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", automation.account_id)
+        .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
       log("offer_ignored_unsupported_marketplace", { ...common, offer_id: offer.id, unsupported_link_count: unsupportedLinks.length });
       return { ...offer, status: "ignored" };
     }
@@ -122,23 +172,28 @@ export class OfferProcessor {
       await this.database.from("captured_offers").update({
         status: "processing_failed", affiliate_conversion_status: "failed",
         affiliate_conversion_error: message, error_code: "MERCADO_LIVRE_CONVERSION_REQUIRED",
-        error_message: message, processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
-      }).eq("id", offer.id).eq("account_id", automation.account_id);
+        error_message: message, processed_at: new Date().toISOString(), processing_worker_id: null,
+        processing_deadline_at: null, updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", automation.account_id)
+        .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
       log("offer_blocked_unconverted_mercado_livre_link", { ...common, offer_id: offer.id });
       return { ...offer, status: "processing_failed" };
     }
 
     try {
       if (!parsed.media && message.mediaLoader) parsed.media = await message.mediaLoader();
-      let mediaFields: Record<string, string | null> = {};
-      if (automation.keep_original_media && parsed.media) {
+      let mediaFields: Record<string, string | null> = offer.media_bucket && offer.media_path
+        ? { media_bucket: offer.media_bucket, media_path: offer.media_path, media_mime_type: offer.media_mime_type }
+        : {};
+      if (automation.keep_original_media && parsed.media && !offer.media_path) {
         const path = `${automation.account_id}/${automation.id}/${offer.id}.${parsed.media.extension}`;
         const { error } = await this.database.storage.from("offer-media").upload(path, parsed.media.buffer, {
           contentType: parsed.media.mimeType, upsert: false
         });
         if (error) throw error;
         mediaFields = { media_bucket: "offer-media", media_path: path, media_mime_type: parsed.media.mimeType };
-        await this.database.from("captured_offers").update(mediaFields).eq("id", offer.id).eq("account_id", automation.account_id);
+        await this.database.from("captured_offers").update(mediaFields).eq("id", offer.id).eq("account_id", automation.account_id)
+          .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
       }
       let processedText = parsed.text;
       let linkUsed = parsed.shopeeLinks[0] || parsed.links[0] || null;
@@ -147,7 +202,8 @@ export class OfferProcessor {
         try {
           if (!offerFeatureFlags.shopeeLinkConversion) throw new Error("Conversão Shopee desativada no ambiente.");
           await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
-            .eq("id", offer.id).eq("account_id", automation.account_id);
+            .eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           const conversion = await new ShopeeOfferConverter(this.database).convert(parsed, {
             accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
           }, processedText);
@@ -159,7 +215,8 @@ export class OfferProcessor {
             resolved_url: conversion.resolvedUrl || null, shop_id: conversion.shopId || null, item_id: conversion.itemId || null,
             affiliate_link: conversion.affiliateLink, affiliate_conversion_status: "converted",
             affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         } catch (conversionError) {
           if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
@@ -167,10 +224,14 @@ export class OfferProcessor {
           await this.database.from("captured_offers").update({
             affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
             error_code: "SHOPEE_CONVERSION_FAILED", error_message: conversionMessage, processed_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           console.error({ event: "shopee_affiliate_failed", component: "shopee-affiliate", ...common, offer_id: offer.id, error_kind: conversionError instanceof Error ? conversionError.name : "unknown" });
           if (automation.conversion_failure_policy !== "send_original") {
-            await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
+            await this.database.from("captured_offers").update({
+              status: "processing_failed", processing_worker_id: null, processing_deadline_at: null, updated_at: new Date().toISOString()
+            }).eq("id", offer.id).eq("account_id", automation.account_id)
+              .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
             return { ...offer, status: "processing_failed" };
           }
         }
@@ -180,7 +241,8 @@ export class OfferProcessor {
         try {
           if (!offerFeatureFlags.mercadoLivreLinkConversion) throw new Error("Conversão Mercado Livre desativada no ambiente.");
           await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
-            .eq("id", offer.id).eq("account_id", automation.account_id);
+            .eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           const conversion = await new MercadoLivreOfferConverter(this.database).convert(parsed, {
             accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
           }, processedText);
@@ -193,7 +255,8 @@ export class OfferProcessor {
             catalog_product_id: conversion.catalogProductId || null, affiliate_link: conversion.affiliateLink,
             affiliate_tag: conversion.affiliateTag || null, affiliate_conversion_status: "converted",
             affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
         } catch (conversionError) {
           if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
@@ -201,10 +264,14 @@ export class OfferProcessor {
           await this.database.from("captured_offers").update({
             affiliate_conversion_status: "failed", affiliate_conversion_error: conversionMessage,
             error_code: "MERCADO_LIVRE_CONVERSION_FAILED", error_message: conversionMessage, processed_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           console.error({ event: "mercado_livre_affiliate_failed", component: "mercado-livre-affiliate", ...common, offer_id: offer.id, error_kind: conversionError instanceof Error ? conversionError.name : "unknown" });
           if (automation.conversion_failure_policy !== "send_original") {
-            await this.database.from("captured_offers").update({ status: "processing_failed" }).eq("id", offer.id).eq("account_id", automation.account_id);
+            await this.database.from("captured_offers").update({
+              status: "processing_failed", processing_worker_id: null, processing_deadline_at: null, updated_at: new Date().toISOString()
+            }).eq("id", offer.id).eq("account_id", automation.account_id)
+              .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
             return { ...offer, status: "processing_failed" };
           }
         }
@@ -228,7 +295,8 @@ export class OfferProcessor {
             ai_rewrite_error: null,
             ai_rewritten_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           log("offer_ai_rewritten", { ...common, offer_id: offer.id, model: rewritten.model });
         } catch (rewriteError) {
           const rewriteMessage = rewriteError instanceof Error ? rewriteError.message : "Falha na reescrita com IA.";
@@ -238,115 +306,42 @@ export class OfferProcessor {
             ai_rewrite_attempts: 1,
             ai_rewrite_error: rewriteMessage,
             updated_at: new Date().toISOString()
-          }).eq("id", offer.id).eq("account_id", automation.account_id);
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
           console.error({ event: "offer_ai_rewrite_fallback", component: "offer-autopilot", ...common, offer_id: offer.id, error_kind: rewriteError instanceof Error ? rewriteError.name : "unknown" });
         }
       }
-      const { data: destinations, error: destinationsError } = await this.database.from("automation_destinations")
-        .select("whatsapp_group_id,grupos(nome)").eq("account_id", automation.account_id)
-        .eq("automation_id", automation.id).eq("enabled", true);
-      if (destinationsError) throw destinationsError;
       if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
-      if (!destinations?.length) {
-        await this.database.from("captured_offers").update({ ...mediaFields, status: "ready", processed_at: new Date().toISOString() })
-          .eq("id", offer.id).eq("account_id", automation.account_id);
-        log("offer_ready", { ...common, offer_id: offer.id, destinations: 0 });
-        return offer;
-      }
+      const { error: persistError } = await this.database.from("captured_offers").update({
+        ...mediaFields, processed_text: processedText, processed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+      }).eq("id", offer.id).eq("account_id", automation.account_id).eq("status", "processing")
+        .eq("processing_worker_id", env.INSTANCE_ID);
+      if (persistError) throw persistError;
 
-      const now = new Date();
-      const { data: reservedSlot, error: reserveError } = await this.database.rpc("reserve_offer_schedule_slot", {
-        p_automation_id: automation.id,
-        p_now: now.toISOString()
+      const { data: scheduling, error: schedulingError } = await this.database.rpc("schedule_pilot_offer", {
+        p_offer_id: offer.id,
+        p_worker_id: env.INSTANCE_ID,
+        p_now: new Date().toISOString()
       });
-      const reserveRpcMissing = reserveError && ["PGRST202", "42883"].includes(reserveError.code || "");
-      if (reserveError && !reserveRpcMissing) throw reserveError;
-      let scheduledAt: Date;
-      if (reservedSlot) {
-        scheduledAt = new Date(reservedSlot);
-      } else {
-        // Compatibility fallback while an environment applies the migration.
-        const { data: latest } = await this.database.from("captured_offers").select("scheduled_at")
-          .eq("account_id", automation.account_id).eq("automation_id", automation.id)
-          .in("status", ["scheduled", "sending", "sent"]).not("scheduled_at", "is", null)
-          .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
-        scheduledAt = nextOfferSlot({
-          intervalMinutes: automation.interval_minutes,
-          operatingStart: automation.operating_start,
-          operatingEnd: automation.operating_end,
-          timezone: automation.timezone
-        }, now, latest?.scheduled_at ? new Date(latest.scheduled_at) : null);
+      if (schedulingError) throw schedulingError;
+      const result = scheduling as { status: string; scheduled_at?: string; destinations?: number } | null;
+      if (!result) throw new Error("O banco não retornou o agendamento da oferta.");
+      if (result.status === "ready") {
+        log("offer_ready", { ...common, offer_id: offer.id, destinations: 0 });
+        return { ...offer, status: "ready" };
       }
-      const senderRelation = Array.isArray(automation.whatsapp_senders) ? automation.whatsapp_senders[0] : automation.whatsapp_senders;
-      if (!senderRelation?.session_name) throw new Error("Número responsável não encontrado.");
-      const type = parsed.media && automation.keep_original_media ? "imagem" : "texto";
-      const text = automation.keep_original_text ? processedText : "";
-
-      if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
-
-      const { data: lote, error: loteError } = await this.database.from("envios_grupo_lotes").insert({
-        account_id: automation.account_id,
-        titulo: `Piloto Automático · ${parsed.text.slice(0, 70) || "Oferta"}`,
-        whatsapp_sender_id: automation.whatsapp_sender_id,
-        whatsapp_session_name: senderRelation.session_name,
-        tipo: type,
-        texto: type === "texto" ? text : null,
-        legenda: type === "imagem" ? text : null,
-        media_bucket: mediaFields.media_bucket || null,
-        media_path: mediaFields.media_path || null,
-        mime_type: mediaFields.media_mime_type || null,
-        file_name: type === "imagem" ? `oferta-${offer.id}.jpg` : null,
-        status: "pendente",
-        total: destinations.length,
-        pendentes: destinations.length,
-        scheduled_at: scheduledAt.toISOString()
-      }).select("id").single();
-      if (loteError) throw loteError;
-      if (await this.stopIfDisabled(automation, offer.id)) {
-        await this.database.from("envios_grupo_lotes").update({ status: "cancelado", pendentes: 0, cancelados: destinations.length, updated_at: new Date().toISOString() })
-          .eq("id", lote.id).eq("account_id", automation.account_id);
-        return { ...offer, status: "ignored" };
-      }
-
-      const dispatchRows = destinations.map((destination) => ({
-        account_id: automation.account_id,
-        lote_id: lote.id,
-        whatsapp_sender_id: automation.whatsapp_sender_id,
-        whatsapp_session_name: senderRelation.session_name,
-        group_jid: destination.whatsapp_group_id,
-        nome_grupo: Array.isArray(destination.grupos) ? destination.grupos[0]?.nome : (destination.grupos as { nome?: string } | null)?.nome,
-        tipo: type,
-        texto: type === "texto" ? text : null,
-        legenda: type === "imagem" ? text : null,
-        media_bucket: mediaFields.media_bucket || null,
-        media_path: mediaFields.media_path || null,
-        mime_type: mediaFields.media_mime_type || null,
-        file_name: type === "imagem" ? `oferta-${offer.id}.jpg` : null,
-        status: "pendente",
-        scheduled_at: scheduledAt.toISOString()
-      }));
-      const { data: dispatches, error: dispatchError } = await this.database.from("envios_grupo").insert(dispatchRows).select("id,group_jid");
-      if (dispatchError) throw dispatchError;
-      const byGroup = new Map((dispatches || []).map((item) => [item.group_jid, item.id]));
-      const { error: deliveryError } = await this.database.from("offer_deliveries").insert(destinations.map((destination) => ({
-        account_id: automation.account_id,
-        offer_id: offer.id,
-        destination_group_id: destination.whatsapp_group_id,
-        group_dispatch_id: byGroup.get(destination.whatsapp_group_id),
-        link_used: linkUsed,
-        status: "scheduled",
-        scheduled_at: scheduledAt.toISOString()
-      })));
-      if (deliveryError) throw deliveryError;
-      const processedAt = new Date().toISOString();
-      await this.database.from("captured_offers").update({ ...mediaFields, processed_text: processedText, status: "scheduled", processed_at: processedAt, scheduled_at: scheduledAt.toISOString() })
-        .eq("id", offer.id).eq("account_id", automation.account_id);
-      log("offer_scheduled", { ...common, offer_id: offer.id, scheduled_at: scheduledAt.toISOString(), destinations: destinations.length });
-      return { ...offer, status: "scheduled", scheduled_at: scheduledAt.toISOString() };
+      if (result.status === "ignored") return { ...offer, status: "ignored" };
+      log("offer_scheduled", { ...common, offer_id: offer.id, scheduled_at: result.scheduled_at, destinations: result.destinations });
+      return { ...offer, status: result.status, scheduled_at: result.scheduled_at };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao processar oferta.";
-      await this.database.from("captured_offers").update({ status: "processing_failed", error_code: "PROCESSING_FAILED", error_message: message, processed_at: new Date().toISOString() })
-        .eq("id", offer.id).eq("account_id", automation.account_id);
+      await this.database.from("captured_offers").update({
+        status: "processing_failed", error_code: "PROCESSING_FAILED", error_message: message,
+        processed_at: new Date().toISOString(), processing_worker_id: null,
+        processing_deadline_at: null, updated_at: new Date().toISOString()
+      })
+        .eq("id", offer.id).eq("account_id", automation.account_id).eq("status", "processing")
+        .eq("processing_worker_id", env.INSTANCE_ID);
       console.error({ event: "offer_processing_failed", component: "offer-autopilot", ...common, offer_id: offer.id, error: message });
       return { ...offer, status: "processing_failed" };
     }
