@@ -12,6 +12,7 @@ const schema = z.object({
   MAX_SESSIONS_PER_WORKER: z.coerce.number().int().min(1).max(1000).default(200),
   SYSTEM_MAX_CONCURRENT_SENDS: z.coerce.number().int().min(1).max(500).default(50),
   ACCOUNT_MAX_CONCURRENT_SENDS: z.coerce.number().int().min(1).max(100).default(10),
+  GROUP_BATCH_MAX_CONCURRENT_SENDS: z.coerce.number().int().min(1).max(5).default(5),
   DISPATCH_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   DISPATCH_POLL_MS: z.coerce.number().int().min(100).max(30_000).default(1000),
   SESSION_LEASE_TTL_SECONDS: z.coerce.number().int().min(15).max(300).default(60),

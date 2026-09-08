@@ -16,7 +16,7 @@ export class GlobalSendQueue {
   private running = false;
   private lastSendAtBySession = new Map<string, number>();
   private lastStaleCleanupAt = 0;
-  private activeSessions = new Set<string>();
+  private activeSessions = new Map<string, { count: number; kind: QueueItem["kind"] }>();
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
 
@@ -27,7 +27,7 @@ export class GlobalSendQueue {
   }
 
   stats() {
-    return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeSessions.size), media_cache: sharedMediaCache.snapshot() };
+    return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeCount()), media_cache: sharedMediaCache.snapshot() };
   }
 
   start() {
@@ -62,7 +62,7 @@ export class GlobalSendQueue {
       try {
         await this.resetStaleItems();
         await this.flushReconciliation();
-        const capacity = Math.max(0, env.SYSTEM_MAX_CONCURRENT_SENDS - this.activeSessions.size - this.buffer.length);
+        const capacity = Math.max(0, env.SYSTEM_MAX_CONCURRENT_SENDS - this.activeCount() - this.buffer.length);
         if (capacity > 0) await this.claimBatch(Math.min(capacity, env.DISPATCH_BATCH_SIZE));
         this.dispatchBuffered();
         await queueSleep(this.buffer.length ? 25 : env.DISPATCH_POLL_MS);
@@ -103,18 +103,28 @@ export class GlobalSendQueue {
   }
 
   private dispatchBuffered() {
-    for (let index = 0; index < this.buffer.length && this.activeSessions.size < env.SYSTEM_MAX_CONCURRENT_SENDS;) {
+    for (let index = 0; index < this.buffer.length && this.activeCount() < env.SYSTEM_MAX_CONCURRENT_SENDS;) {
       const item = this.buffer[index];
-      if (this.activeSessions.has(item.whatsapp_session_id)) { index += 1; continue; }
+      const active = this.activeSessions.get(item.whatsapp_session_id);
+      const sessionLimit = item.kind === "grupo" ? env.GROUP_BATCH_MAX_CONCURRENT_SENDS : 1;
+      if (active && (active.kind !== item.kind || active.count >= sessionLimit)) { index += 1; continue; }
       this.buffer.splice(index, 1);
-      this.activeSessions.add(item.whatsapp_session_id);
+      this.activeSessions.set(item.whatsapp_session_id, { count: (active?.count || 0) + 1, kind: item.kind });
       void this.process(item).catch((error) => {
         this.metrics.loopError(error);
         console.error({ event: "queue.item_unhandled", component: "queue", account_id: item.account_id,
           session_id: item.whatsapp_session_id, message_id: correlationId(item.id), worker_id: env.INSTANCE_ID,
           lease_version: item.lease_version, attempt: item.attempt, ...errorFields(error) });
-      }).finally(() => this.activeSessions.delete(item.whatsapp_session_id));
+      }).finally(() => {
+        const current = this.activeSessions.get(item.whatsapp_session_id);
+        if (!current || current.count <= 1) this.activeSessions.delete(item.whatsapp_session_id);
+        else this.activeSessions.set(item.whatsapp_session_id, { ...current, count: current.count - 1 });
+      });
     }
+  }
+
+  private activeCount() {
+    return Array.from(this.activeSessions.values()).reduce((total, active) => total + active.count, 0);
   }
 
   private async process(item: QueueItem) {
