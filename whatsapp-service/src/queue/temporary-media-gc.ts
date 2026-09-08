@@ -2,7 +2,7 @@ import { env } from "../env.js";
 import { supabase } from "../supabase.js";
 
 const ACTIVE_GROUP_STATUSES = ["pendente", "enfileirado", "processando", "pausado", "incerto"];
-const ACTIVE_OFFER_STATUSES = ["captured", "processing", "ready", "scheduled", "sending", "processing_failed", "send_failed"];
+const ACTIVE_OFFER_STATUSES = ["captured", "processing", "ready", "waiting", "scheduled", "sending", "processing_failed", "send_failed"];
 const TEMPORARY_BUCKETS = ["whatsapp-media", "offer-media"] as const;
 
 type ObjectRow = { name: string; created_at?: string; metadata?: { size?: number | string } };

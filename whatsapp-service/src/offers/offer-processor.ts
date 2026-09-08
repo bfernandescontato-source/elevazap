@@ -331,6 +331,10 @@ export class OfferProcessor {
         return { ...offer, status: "ready" };
       }
       if (result.status === "ignored") return { ...offer, status: "ignored" };
+      if (result.status === "waiting") {
+        log("offer_waiting", { ...common, offer_id: offer.id });
+        return { ...offer, status: "waiting", scheduled_at: undefined };
+      }
       log("offer_scheduled", { ...common, offer_id: offer.id, scheduled_at: result.scheduled_at, destinations: result.destinations });
       return { ...offer, status: result.status, scheduled_at: result.scheduled_at };
     } catch (error) {
@@ -341,7 +345,8 @@ export class OfferProcessor {
         processing_deadline_at: null, updated_at: new Date().toISOString()
       })
         .eq("id", offer.id).eq("account_id", automation.account_id).eq("status", "processing")
-        .eq("processing_worker_id", env.INSTANCE_ID);
+        .eq("processing_worker_id", env.INSTANCE_ID)
+        .gt("processing_deadline_at", new Date().toISOString());
       console.error({ event: "offer_processing_failed", component: "offer-autopilot", ...common, offer_id: offer.id, error: message });
       return { ...offer, status: "processing_failed" };
     }

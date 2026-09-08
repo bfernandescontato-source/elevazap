@@ -27,26 +27,28 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(queueMigration).toContain("return changed=1");
   });
 
-  it("cancela backlog ao desligar e só monitora automações ligadas", () => {
-    const stopMigration = read("supabase/migrations/026_stop_disabled_offer_automation.sql");
+  it("cancela scheduled e waiting ao desligar e só monitora automações ligadas", () => {
+    const stopMigration = read("supabase/migrations/20260908165112_definitive_pilot_waiting_queue.sql");
     const monitor = read("whatsapp-service/src/offers/whatsapp-monitor.ts");
-    expect(stopMigration).toContain("when (new.enabled is false)");
-    expect(stopMigration).toContain("status in ('captured', 'processing', 'ready', 'scheduled', 'sending', 'processing_failed')");
+    expect(stopMigration).toContain("old.enabled is distinct from new.enabled");
+    expect(stopMigration).toContain("'captured','processing','ready','waiting','scheduled'");
+    expect(stopMigration).toContain("pilot_next_slot_at=null");
     expect(monitor).toContain('.eq("whatsapp_sender_id", sender.id).eq("enabled", true)');
   });
 
-  it("mantém backlog persistente sem qualquer admissão limitada a cinco", () => {
-    const migration = read("supabase/migrations/20260908154038_preserve_pilot_backlog.sql");
+  it("mantém backlog persistente com cinco agendamentos físicos", () => {
+    const migration = read("supabase/migrations/20260908165112_definitive_pilot_waiting_queue.sql");
     const processor = read("whatsapp-service/src/offers/offer-processor.ts");
-    expect(migration).not.toContain("active_queue_count < 5");
+    expect(migration).toContain("status = 'waiting'");
     expect(processor).not.toContain("queue_limit: 5");
     expect(processor).not.toContain("offer_ignored_queue_full");
   });
 
   it("impede worker com lease vencido e adota agendamento parcial anterior", () => {
-    const migration = read("supabase/migrations/20260908154038_preserve_pilot_backlog.sql");
+    const migration = read("supabase/migrations/20260908165112_definitive_pilot_waiting_queue.sql");
     const processor = read("whatsapp-service/src/offers/offer-processor.ts");
     expect(migration).toContain("v_offer.processing_worker_id is distinct from p_worker_id");
+    expect(migration).toContain("v_offer.processing_deadline_at <= now()");
     expect(migration).toContain("if v_existing_delivery_count > 0 then");
     expect(processor).toContain('p_worker_id: env.INSTANCE_ID');
     expect(processor).toContain('.eq("processing_worker_id", env.INSTANCE_ID)');

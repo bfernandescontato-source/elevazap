@@ -21,7 +21,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
       .eq("account_id", accountId).order("captured_at", { ascending: false }).limit(50),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("captured_at", today.toISOString()),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("affiliate_conversion_status", "converted"),
-    database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).in("status", ["captured", "processing", "ready", "scheduled", "sending"]),
+    database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).in("status", ["captured", "processing", "ready", "waiting", "scheduled", "sending"]),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("status", "sent").gte("sent_at", today.toISOString()),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).in("status", ["ignored", "duplicate"]),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("affiliate_conversion_status", "failed")
@@ -40,8 +40,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
     metrics: {
       captured_today: capturedCount.count || 0,
       converted: convertedCount.count || 0,
-      queued: automation?.active_queue_count ?? queuedCount.count ?? 0,
-      queue_limit: 5,
+      queued: queuedCount.count ?? 0,
       sent_today: sentCount.count || 0,
       ignored: ignoredCount.count || 0,
       conversion_failed: conversionFailedCount.count || 0
