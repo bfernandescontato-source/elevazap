@@ -4,7 +4,9 @@ import { errorFields } from "../utils/log.js";
 import { isMissingRpc } from "../queue/policy.js";
 import { OfferProcessor } from "./offer-processor.js";
 
-export async function recoverInterruptedPilotOffers() {
+let activeRecovery: Promise<number> | null = null;
+
+async function runInterruptedPilotRecovery() {
   const processor = new OfferProcessor(supabase);
   let recovered = 0;
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -36,4 +38,12 @@ export async function recoverInterruptedPilotOffers() {
   }
   if (recovered > 0) console.info({ event: "offer_recovery_completed", component: "offer-autopilot", recovered });
   return recovered;
+}
+
+export function recoverInterruptedPilotOffers() {
+  if (activeRecovery) return activeRecovery;
+  activeRecovery = runInterruptedPilotRecovery().finally(() => {
+    activeRecovery = null;
+  });
+  return activeRecovery;
 }

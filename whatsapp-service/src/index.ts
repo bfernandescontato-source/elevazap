@@ -20,13 +20,18 @@ async function main() {
 
     const databaseCapabilities = await detectDatabaseCapabilities();
     await recoverStuckJobsOnBoot(databaseCapabilities);
-    await recoverInterruptedPilotOffers();
     await repairPendingGroupJobsWithoutSession();
     const queue = new GlobalSendQueue(databaseCapabilities);
     const mediaGc = new TemporaryMediaGarbageCollector();
     queueRef.current = queue;
     queue.start();
     readiness.queue = true;
+
+    // Affiliate conversion may be slow or temporarily unavailable. Recovery
+    // must never hold the dispatcher and WhatsApp sessions behind it on boot.
+    void recoverInterruptedPilotOffers().catch((error) => {
+      console.error({ event: "offer_recovery_initial_failed", component: "offer-autopilot", error: error instanceof Error ? error.message : "unknown" });
+    });
 
     setInterval(() => repairPendingGroupJobsWithoutSession().catch((error) => {
       console.error("[queue] pending group session repair failed", error);

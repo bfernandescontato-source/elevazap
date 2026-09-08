@@ -53,4 +53,19 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(processor).toContain('p_worker_id: env.INSTANCE_ID');
     expect(processor).toContain('.eq("processing_worker_id", env.INSTANCE_ID)');
   });
+
+  it("não bloqueia o boot da fila durante recuperação lenta do Piloto", () => {
+    const index = read("whatsapp-service/src/index.ts");
+    const queueStarted = index.indexOf("queue.start()");
+    const recoveryStarted = index.indexOf("void recoverInterruptedPilotOffers()");
+    expect(queueStarted).toBeGreaterThan(-1);
+    expect(recoveryStarted).toBeGreaterThan(queueStarted);
+    expect(index).not.toContain("await recoverInterruptedPilotOffers()");
+  });
+
+  it("impede duas recuperações do Piloto de rodarem simultaneamente", () => {
+    const recovery = read("whatsapp-service/src/offers/offer-recovery.ts");
+    expect(recovery).toContain("if (activeRecovery) return activeRecovery");
+    expect(recovery).toContain("activeRecovery = runInterruptedPilotRecovery().finally");
+  });
 });
