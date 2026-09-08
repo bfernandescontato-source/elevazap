@@ -62,7 +62,8 @@ describe("fila e configuração do Piloto Automático", () => {
   it("mantém os textos do painel simples", () => {
     const page = read("web/app/piloto-automatico/page.tsx");
     expect(page).not.toContain("A fila está cheia. Novas ofertas não serão adicionadas.");
-    expect(page).toContain("Aguardando uma vaga");
+    expect(page).not.toContain("Aguardando uma vaga");
+    expect(page).toContain('["scheduled", "sent"]');
     expect(page).not.toContain("PILOT_QUEUE_FULL");
   });
 });

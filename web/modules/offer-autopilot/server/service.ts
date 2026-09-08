@@ -18,7 +18,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
     automation ? database.from("automation_source_groups").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
     automation ? database.from("automation_destinations").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
     database.from("captured_offers").select("id,original_text,processed_text,original_media_url,media_bucket,media_path,original_link,affiliate_link,affiliate_conversion_status,affiliate_conversion_error,status,error_code,error_message,captured_at,scheduled_at,sent_at,source_group_id,grupos!captured_offers_account_id_source_group_id_fkey(nome)")
-      .eq("account_id", accountId).order("captured_at", { ascending: false }).limit(50),
+      .eq("account_id", accountId).in("status", ["scheduled", "sent"]).order("captured_at", { ascending: false }).limit(50),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("captured_at", today.toISOString()),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("affiliate_conversion_status", "converted"),
     database.from("captured_offers").select("id", { count: "exact", head: true }).eq("account_id", accountId).in("status", ["captured", "processing", "ready", "waiting", "scheduled", "sending"]),
