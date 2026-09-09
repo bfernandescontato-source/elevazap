@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  background: #f7f7f7;
+  background: #f8fafc;
   --app-gutter: 1rem;
 }
 
@@ -18,7 +18,7 @@ body {
   margin: 0;
   min-width: 320px;
   color: #111111;
-  background: #f7f7f7;
+  background: #f8fafc;
   overflow-x: clip;
   -webkit-font-smoothing: antialiased;
 }
@@ -68,5 +68,5 @@ img, video, canvas, svg {
 }
 
 .focus-ring {
-  @apply focus:border-accent focus:outline-none focus:ring-2 focus:ring-black/15;
+  @apply focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20;
 }
