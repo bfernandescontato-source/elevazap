@@ -47,6 +47,9 @@ const navSections = [
     { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
     { href: "/comunidade", label: "Comunidade", icon: MessageCircle }
   ] },
+  { label: "Analytics", items: [
+    { href: "/analytics/shopee", label: "Shopee Analytics", icon: BarChart3 }
+  ] },
   { label: "Conta", items: [
     { href: "/configuracoes", label: "Configurações", icon: Cog }
   ] }
