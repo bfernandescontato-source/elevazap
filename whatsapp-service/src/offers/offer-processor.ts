@@ -117,6 +117,24 @@ export class OfferProcessor {
     // Isso também deixa a Amazon bloqueada até a integração ser disponibilizada.
     const unsupportedLinks = parsed.links.filter((value) => !isSupportedMarketplaceUrl(value));
     const hasSupportedMarketplaceLink = parsed.shopeeLinks.length > 0 || parsed.mercadoLivreLinks.length > 0;
+    // "Trocar link automaticamente" é só uma preferência de conversão — a fonte da
+    // verdade sobre a loja estar liberada pra disparo é a integração conectada
+    // (affiliate_integrations.status). Sem essa checagem, uma conta sem Shopee/ML
+    // conectado ainda despachava o link original normalmente.
+    const requiredProviders: Array<"shopee" | "mercado_livre"> = [];
+    if (parsed.shopeeLinks.length > 0) requiredProviders.push("shopee");
+    if (parsed.mercadoLivreLinks.length > 0) requiredProviders.push("mercado_livre");
+    let disconnectedProvider: "shopee" | "mercado_livre" | null = null;
+    if (requiredProviders.length > 0) {
+      const { data: integrations, error: integrationsError } = await this.database
+        .from("affiliate_integrations").select("provider,status")
+        .eq("account_id", automation.account_id).in("provider", requiredProviders);
+      if (integrationsError) throw integrationsError;
+      const connectedProviders = new Set((integrations || [])
+        .filter((row) => row.status === "connected")
+        .map((row) => row.provider));
+      disconnectedProvider = requiredProviders.find((provider) => !connectedProviders.has(provider)) ?? null;
+    }
     const unsafeUnconvertedMercadoLivreLink = parsed.mercadoLivreLinks.some((value) => {
       try { return new URL(value).hostname.toLowerCase() === "meli.la"; } catch { return false; }
     }) && !automation.mercado_livre_conversion_enabled;
@@ -152,19 +170,29 @@ export class OfferProcessor {
     } else {
       log("offer_processing_resumed", { ...common, offer_id: offer.id, processing_attempts: offer.processing_attempts });
     }
-    if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0) {
+    if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0 || disconnectedProvider) {
+      const providerLabel = disconnectedProvider === "shopee" ? "Shopee" : "Mercado Livre";
       const message = parsed.amazonLinks.length > 0
         ? "Amazon ainda não integrado ao Piloto Automático; oferta ignorada."
         : !hasSupportedMarketplaceLink
           ? "A oferta não possui link Shopee ou Mercado Livre; oferta ignorada."
-          : "A oferta contém link não permitido; oferta ignorada.";
+          : disconnectedProvider
+            ? `${providerLabel} não está conectado nesta conta; oferta ignorada.`
+            : "A oferta contém link não permitido; oferta ignorada.";
+      const errorCode = parsed.amazonLinks.length > 0
+        ? "AMAZON_NOT_SUPPORTED_YET"
+        : disconnectedProvider === "shopee"
+          ? "SHOPEE_NOT_CONNECTED"
+          : disconnectedProvider === "mercado_livre"
+            ? "MERCADO_LIVRE_NOT_CONNECTED"
+            : "UNSUPPORTED_MARKETPLACE_LINK";
       await this.database.from("captured_offers").update({
-        status: "ignored", error_code: parsed.amazonLinks.length > 0 ? "AMAZON_NOT_SUPPORTED_YET" : "UNSUPPORTED_MARKETPLACE_LINK", error_message: message,
+        status: "ignored", error_code: errorCode, error_message: message,
         processed_at: new Date().toISOString(), processing_worker_id: null,
         processing_deadline_at: null, updated_at: new Date().toISOString()
       }).eq("id", offer.id).eq("account_id", automation.account_id)
         .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
-      log("offer_ignored_unsupported_marketplace", { ...common, offer_id: offer.id, unsupported_link_count: unsupportedLinks.length });
+      log("offer_ignored_unsupported_marketplace", { ...common, offer_id: offer.id, unsupported_link_count: unsupportedLinks.length, disconnected_provider: disconnectedProvider });
       return { ...offer, status: "ignored" };
     }
     if (unsafeUnconvertedMercadoLivreLink) {
