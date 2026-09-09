@@ -10,6 +10,7 @@ import {
   syncSenderGroups,
   listSenderGroupContacts,
   startSenderSessionByName,
+  restartSenderSessionByName,
   getSenderRuntimeStats
 } from "../senders/runtime.js";
 import { waitForSessionReady } from "../utils/session-ready.js";
@@ -90,6 +91,16 @@ export function createHttpServer(
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/restart", async (req, res) => {
+    try {
+      const sender = await restartSenderSessionByName(req.params.sessionName);
+      const result = await waitForSessionReady(() => getSenderStatus(sender.sessionName));
+      return res.status(result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
+    } catch (e: any) {
+      return res.status(503).json({ error: e.message });
     }
   });
 

@@ -151,6 +151,26 @@ export async function startSenderSessionByName(sessionName: string) {
   return startSender(sender, lease.lease_version);
 }
 
+export async function restartSenderSessionByName(sessionName: string) {
+  const { data: sender } = await supabase.from("whatsapp_senders").select("*").eq("session_name", sessionName).maybeSingle();
+  if (!sender) throw new Error("Número não encontrado.");
+  const { data: leases, error: leaseError } = await supabase.rpc("acquire_whatsapp_session_lease", {
+    p_worker_id: env.INSTANCE_ID,
+    p_session_id: sender.id,
+    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+  });
+  if (leaseError) throw leaseError;
+  const lease = (leases || [])[0] as OwnedSenderLease | undefined;
+  if (!lease) throw new Error("Este número está sendo gerenciado por outra instância. Tente novamente em alguns segundos.");
+  const current = senders.get(sessionName);
+  if (current) {
+    current.session.stop();
+    senders.delete(sessionName);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return startSender(sender, lease.lease_version);
+}
+
 export async function disconnectSenderSession(sessionName: string) {
   const managed = senders.get(sessionName);
   if (!managed) return;

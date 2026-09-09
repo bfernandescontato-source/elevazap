@@ -98,4 +98,13 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(converter).toContain("Credencial Shopee incompatível com o ambiente atual");
     expect(converter).not.toContain("console.error(appSecret");
   });
+
+  it("permite reiniciar somente uma sessão preservando o vínculo do WhatsApp", () => {
+    const runtime = read("whatsapp-service/src/senders/runtime.ts");
+    const routes = read("whatsapp-service/src/routes/http.ts");
+    expect(runtime).toContain("restartSenderSessionByName");
+    expect(runtime).toContain("current.session.stop()");
+    expect(runtime).not.toContain("restartSenderSessionByName(sessionName: string, fresh");
+    expect(routes).toContain('/senders/:sessionName/restart');
+  });
 });
