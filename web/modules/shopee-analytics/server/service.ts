@@ -33,7 +33,7 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
   let pages = 0;
   try {
     do {
-      const query = `query Analytics($start:Int64!,$end:Int64!,$scroll:String!){ conversionReport(purchaseTimeStart:$start,purchaseTimeEnd:$end,limit:500,scrollId:$scroll){ nodes { ${FIELDS} } pageInfo { hasNextPage scrollId } } }`;
+      const query = `query Analytics($start:Int64!,$end:Int64!,$scroll:String!){ conversionReport(purchaseTimeStart:$start,purchaseTimeEnd:$end,limit:20,scrollId:$scroll){ nodes { ${FIELDS} } pageInfo { hasNextPage scrollId } } }`;
       const result = await shopeeGraphQl<Report>(integration.app_id, secret, query, { start, end, scroll: scrollId });
       const report = result.conversionReport;
       const orders = report.nodes.flatMap(conversion => (conversion.orders || []).map(order => ({
