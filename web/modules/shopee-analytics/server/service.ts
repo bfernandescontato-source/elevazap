@@ -10,7 +10,7 @@ type Report = { conversionReport: { nodes: Conversion[]; pageInfo: { hasNextPage
 
 const FIELDS = `purchaseTime conversionId conversionStatus estimatedTotalCommission totalCommission netCommission orders { orderId orderStatus items { itemId itemName shopId shopName itemPrice actualAmount refundAmount qty itemTotalCommission itemSellerCommission itemShopeeCommissionCapped itemSellerCommissionRate itemShopeeCommissionRate displayItemStatus completeTime } }`;
 const iso = (seconds?: number) => seconds ? new Date(seconds * 1000).toISOString() : null;
-const number = (value?: number) => Number(value || 0);
+const number = (value?: number | string) => Number(String(value ?? 0).replace("%", "")) || 0;
 const rate = (value?: number | string) => value == null ? null : Number(String(value).replace("%", "")) || 0;
 
 export async function connectedShopee(accountId: string) {
