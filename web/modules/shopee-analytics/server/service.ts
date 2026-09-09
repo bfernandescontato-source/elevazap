@@ -57,9 +57,9 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
     await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, coverage_start: coverageStart, coverage_end: coverageEnd, last_success_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() });
     return { connected: true, synced: true, pages };
   } catch (error) {
-    const code = error instanceof Error ? error.message : "SHOPEE_UNAVAILABLE";
+    const code = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String(error.message) : "SHOPEE_UNAVAILABLE";
     await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, last_error: code, updated_at: new Date().toISOString() });
-    throw error;
+    throw new Error(code);
   }
 }
 
