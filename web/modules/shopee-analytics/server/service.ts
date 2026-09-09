@@ -8,7 +8,7 @@ type Order = { orderId: string; orderStatus: string; items?: Item[] };
 type Conversion = { purchaseTime: number; conversionId?: string; checkoutId?: string; conversionStatus: string; estimatedTotalCommission?: number; totalCommission?: number; netCommission?: number; orders?: Order[] };
 type Report = { conversionReport: { nodes: Conversion[]; pageInfo: { hasNextPage: boolean; scrollId?: string } } };
 
-const FIELDS = `purchaseTime conversionId checkoutId conversionStatus estimatedTotalCommission totalCommission netCommission orders { orderId orderStatus items { itemId modelId itemName shopId shopName itemPrice actualAmount refundAmount qty itemTotalCommission itemSellerCommission itemShopeeCommissionCapped itemSellerCommissionRate itemShopeeCommissionRate displayItemStatus completeTime imageUrl } }`;
+const FIELDS = `purchaseTime conversionId conversionStatus estimatedTotalCommission totalCommission netCommission orders { orderId orderStatus items { itemId itemName shopId shopName itemPrice actualAmount refundAmount qty itemTotalCommission itemSellerCommission itemShopeeCommissionCapped itemSellerCommissionRate itemShopeeCommissionRate displayItemStatus completeTime } }`;
 const iso = (seconds?: number) => seconds ? new Date(seconds * 1000).toISOString() : null;
 const number = (value?: number) => Number(value || 0);
 
@@ -33,8 +33,8 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
   let pages = 0;
   try {
     do {
-      const query = `query Analytics($start:Int64!,$end:Int64!,$scroll:String!){ conversionReport(purchaseTimeStart:$start,purchaseTimeEnd:$end,limit:20,scrollId:$scroll){ nodes { ${FIELDS} } pageInfo { hasNextPage scrollId } } }`;
-      const result = await shopeeGraphQl<Report>(integration.app_id, secret, query, { start, end, scroll: scrollId });
+      const query = `query Analytics { conversionReport(purchaseTimeStart:${start},purchaseTimeEnd:${end},limit:20,scrollId:${JSON.stringify(scrollId)}){ nodes { ${FIELDS} } pageInfo { hasNextPage scrollId } } }`;
+      const result = await shopeeGraphQl<Report>(integration.app_id, secret, query);
       const report = result.conversionReport;
       const orders = report.nodes.flatMap(conversion => (conversion.orders || []).map(order => ({
         account_id: accountId, integration_id: integration.id, order_id: String(order.orderId), conversion_id: conversion.conversionId ? String(conversion.conversionId) : null, checkout_id: conversion.checkoutId ? String(conversion.checkoutId) : null,
