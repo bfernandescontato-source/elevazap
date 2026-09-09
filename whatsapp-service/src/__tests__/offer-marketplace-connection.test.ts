@@ -112,6 +112,17 @@ describe("gate de marketplace conectado/não conectado no Piloto Automático", (
     expect(updates.some((u) => u.payload.status === "ignored")).toBe(false);
   });
 
+  it("mantém a oferta de texto quando a mídia do WhatsApp não pode ser descriptografada", async () => {
+    const { database, updates } = makeDatabase({ integrations: [{ provider: "shopee", status: "connected" }] });
+    const processor = new OfferProcessor(database as any);
+    const message = buildMessage(`Corre\n${SHOPEE_LINK}`);
+    message.hasMedia = true;
+    message.mediaLoader = async () => { throw new Error("bad decrypt"); };
+    const result = await processor.process(baseAutomation, message);
+    expect(result?.status).toBe("scheduled");
+    expect(updates.some((u) => u.payload.status === "processing_failed")).toBe(false);
+  });
+
   it("Shopee desconectada + link Shopee → não envia", async () => {
     const { database, updates } = makeDatabase({ integrations: [] });
     const processor = new OfferProcessor(database as any);

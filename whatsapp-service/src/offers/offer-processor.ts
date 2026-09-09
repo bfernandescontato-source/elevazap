@@ -209,7 +209,22 @@ export class OfferProcessor {
     }
 
     try {
-      if (!parsed.media && message.mediaLoader) parsed.media = await message.mediaLoader();
+      if (!parsed.media && message.mediaLoader) {
+        try {
+          parsed.media = await message.mediaLoader();
+        } catch (mediaError) {
+          // A sessão do WhatsApp pode entregar a legenda corretamente mesmo
+          // quando a chave da mídia expirou ou chegou fora de sincronia. Nesse
+          // caso, preserve a oferta de texto em vez de bloquear todo o Piloto.
+          console.warn({
+            event: "offer_media_download_fallback",
+            component: "offer-autopilot",
+            ...common,
+            offer_id: offer.id,
+            error_kind: mediaError instanceof Error ? mediaError.name : "unknown"
+          });
+        }
+      }
       let mediaFields: Record<string, string | null> = offer.media_bucket && offer.media_path
         ? { media_bucket: offer.media_bucket, media_path: offer.media_path, media_mime_type: offer.media_mime_type }
         : {};
