@@ -39,9 +39,21 @@ export class ShopeeOfferConverter {
         await this.database.from("captured_offers").update({ affiliate_conversion_status: "generating", updated_at: new Date().toISOString() })
           .eq("id", context.offerId).eq("account_id", context.accountId);
         log("shopee_affiliate_generation_started", context, { item_id: identifiers.itemId });
+        let appSecret: string;
+        try {
+          appSecret = decryptIntegrationSecret(integration.encrypted_app_secret);
+        } catch {
+          const credentialError = "Credencial Shopee incompatível com o ambiente atual. Reconecte a integração.";
+          await this.database.from("affiliate_integrations").update({
+            status: "error",
+            last_error: credentialError,
+            updated_at: new Date().toISOString()
+          }).eq("account_id", context.accountId).eq("provider", "shopee");
+          throw new Error(credentialError);
+        }
         affiliateLink = await this.shopee.generateAffiliateLink(resolvedUrl, {
           appId: integration.app_id,
-          appSecret: decryptIntegrationSecret(integration.encrypted_app_secret)
+          appSecret
         }, {
           acc: token("a", context.accountId), auto: token("u", context.automationId),
           src: token("s", context.sourceGroupId), offer: token("o", context.offerId), channel: "whatsapp"

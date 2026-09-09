@@ -44,6 +44,14 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(processor).not.toContain("offer_ignored_queue_full");
   });
 
+  it("compacta os horários restantes quando uma oferta ocupa e libera um slot", () => {
+    const migration = read("supabase/migrations/20260909150545_compact_pilot_schedule_after_terminal_offer.sql");
+    expect(migration).toContain("referencing old table as old_pilot_offers new table as new_pilot_offers");
+    expect(migration).toContain("compact_pilot_schedule_locked");
+    expect(migration).toContain("offer.status = 'scheduled'");
+    expect(migration).toContain("pilot_next_slot_at = case when v_scheduled = 0 then null else v_candidate end");
+  });
+
   it("impede worker com lease vencido e adota agendamento parcial anterior", () => {
     const migration = read("supabase/migrations/20260908165112_definitive_pilot_waiting_queue.sql");
     const processor = read("whatsapp-service/src/offers/offer-processor.ts");
@@ -82,5 +90,12 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(runtime).toContain("upsert_type: upsertType");
     expect(runtime).toContain("group_ids:");
     expect(runtime).not.toContain("original_text:");
+  });
+
+  it("expõe credencial Shopee incompatível como erro de integração sem registrar o segredo", () => {
+    const converter = read("whatsapp-service/src/offers/shopee-conversion.ts");
+    expect(converter).toContain('status: "error"');
+    expect(converter).toContain("Credencial Shopee incompatível com o ambiente atual");
+    expect(converter).not.toContain("console.error(appSecret");
   });
 });
