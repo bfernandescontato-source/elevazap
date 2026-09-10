@@ -46,10 +46,13 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
 
   it("compacta os horários restantes quando uma oferta ocupa e libera um slot", () => {
     const migration = read("supabase/migrations/20260909150545_compact_pilot_schedule_after_terminal_offer.sql");
+    const intervalFix = read("supabase/migrations/20260909171419_preserve_pilot_interval_after_terminal_offer.sql");
     expect(migration).toContain("referencing old table as old_pilot_offers new table as new_pilot_offers");
     expect(migration).toContain("compact_pilot_schedule_locked");
     expect(migration).toContain("offer.status = 'scheduled'");
     expect(migration).toContain("pilot_next_slot_at = case when v_scheduled = 0 then null else v_candidate end");
+    expect(intervalFix).toContain("v_last_sent_at + make_interval(mins => v_automation.interval_minutes)");
+    expect(intervalFix).toContain("enable trigger compact_pilot_schedule_after_terminal_statement");
   });
 
   it("impede worker com lease vencido e adota agendamento parcial anterior", () => {
