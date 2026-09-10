@@ -15,7 +15,7 @@ export type WhatsAppSession = {
   getQr: () => string;
   getLastError: () => string | null;
   logout: () => Promise<void>;
-  stop: () => void;
+  stop: () => Promise<void>;
 };
 
 type MessageHandler = (messages: any[], upsertType?: string) => Promise<void>;
@@ -122,6 +122,13 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       lastError = null;
       void reportStatus();
     },
-    stop: () => { stopped = true; sock?.end(undefined); status = "idle"; void reportStatus(); }
+    stop: async () => {
+      stopped = true;
+      sock?.end(undefined);
+      sock = null;
+      await auth.waitForIdle();
+      status = "idle";
+      void reportStatus();
+    }
   };
 }

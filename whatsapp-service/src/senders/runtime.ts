@@ -35,7 +35,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
   const current = senders.get(sender.session_name);
   if (current?.leaseVersion === leaseVersion) return current;
   if (current) {
-    current.session.stop();
+    await current.session.stop();
     senders.delete(sender.session_name);
   }
 
@@ -78,7 +78,7 @@ export async function syncSenderSessionOwnership() {
   const ownedIds = new Set(owned.map((lease) => lease.whatsapp_session_id));
   for (const managed of Array.from(senders.values())) {
     if (!ownedIds.has(managed.id)) {
-      managed.session.stop();
+      await managed.session.stop();
       senders.delete(managed.sessionName);
     }
   }
@@ -111,7 +111,7 @@ export async function renewOwnedSenderLeases() {
   const renewedIds = new Set(renewed.map((lease) => lease.whatsapp_session_id));
   for (const managed of Array.from(senders.values())) {
     if (!renewedIds.has(managed.id)) {
-      managed.session.stop();
+      await managed.session.stop();
       senders.delete(managed.sessionName);
       continue;
     }
@@ -164,7 +164,7 @@ export async function restartSenderSessionByName(sessionName: string) {
   if (!lease) throw new Error("Este número está sendo gerenciado por outra instância. Tente novamente em alguns segundos.");
   const current = senders.get(sessionName);
   if (current) {
-    current.session.stop();
+    await current.session.stop();
     senders.delete(sessionName);
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
