@@ -29,10 +29,14 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
 
   it("cancela scheduled e waiting ao desligar e só monitora automações ligadas", () => {
     const stopMigration = read("supabase/migrations/20260908165112_definitive_pilot_waiting_queue.sql");
+    const toggleFix = read("supabase/migrations/20260910105300_fix_pilot_toggle_affiliate_job_lookup.sql");
     const monitor = read("whatsapp-service/src/offers/whatsapp-monitor.ts");
     expect(stopMigration).toContain("old.enabled is distinct from new.enabled");
     expect(stopMigration).toContain("'captured','processing','ready','waiting','scheduled'");
     expect(stopMigration).toContain("pilot_next_slot_at=null");
+    expect(toggleFix).toContain("job.offer_link_id");
+    expect(toggleFix).toContain("conversion_error='Piloto Automático desativado.'");
+    expect(toggleFix).not.toContain("job.automation_id");
     expect(monitor).toContain('.eq("whatsapp_sender_id", sender.id).eq("enabled", true)');
   });
 
