@@ -140,6 +140,19 @@ describe("isolamento multi-tenant", () => {
     expect(dashboard).toContain("queueCounts");
   });
 
+  it("evita reavaliar current_account_id()/current_account_is_active() por linha nas políticas RLS", () => {
+    const tenantFix = read("supabase/migrations/20260910124500_fix_tenant_isolation_rls_initplan.sql");
+    const communityFix = read("supabase/migrations/20260910123000_fix_community_rls_initplan.sql");
+    expect(tenantFix).toContain("policyname = 'tenant_isolation'");
+    expect(tenantFix).toContain("(select public.current_account_id())");
+    expect(tenantFix).toContain("(select public.current_account_is_active())");
+    expect(tenantFix).toContain("(select public.current_user_is_app_admin())");
+    expect(tenantFix).toContain("(select auth.uid())");
+    expect(communityFix).toContain("(select auth.uid())");
+    expect(communityFix).toContain("(select public.current_account_id())");
+    expect(communityFix).toContain("(select public.current_account_is_active())");
+  });
+
   it("mantém rotas finas e regras de domínio fora da camada HTTP", () => {
     const route = read("web/app/api/campanhas/route.ts");
     const service = read("web/modules/campaigns/server/campaign-service.ts");
