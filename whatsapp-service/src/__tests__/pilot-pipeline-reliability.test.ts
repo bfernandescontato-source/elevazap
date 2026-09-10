@@ -114,4 +114,12 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(runtime).not.toContain("restartSenderSessionByName(sessionName: string, fresh");
     expect(routes).toContain('/senders/:sessionName/restart');
   });
+
+  it("indexa offer_deliveries e envios_grupo por (account_id, status) para o gatilho de desligar não varrer a tabela inteira", () => {
+    const migration = read("supabase/migrations/20260910120000_index_pilot_toggle_lookups.sql");
+    expect(migration).toContain("offer_deliveries_account_status_idx");
+    expect(migration).toContain("on public.offer_deliveries(account_id, status)");
+    expect(migration).toContain("envios_grupo_account_status_idx");
+    expect(migration).toContain("on public.envios_grupo(account_id, status)");
+  });
 });
