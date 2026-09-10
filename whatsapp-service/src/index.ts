@@ -9,6 +9,32 @@ import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-gro
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 
+async function prepareDatabaseRuntime(readiness: ServiceReadiness) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      const databaseCapabilities = await detectDatabaseCapabilities();
+      await recoverStuckJobsOnBoot(databaseCapabilities);
+      await repairPendingGroupJobsWithoutSession();
+      readiness.supabase = true;
+      readiness.lastError = null;
+      return databaseCapabilities;
+    } catch (error) {
+      attempt += 1;
+      readiness.supabase = false;
+      readiness.lastError = error instanceof Error ? error.message : "Falha ao conectar ao banco.";
+      const retryInMs = Math.min(30_000, 2_000 * attempt);
+      console.error({
+        event: "service.database_initialization_retry",
+        attempt,
+        retry_in_ms: retryInMs,
+        error: readiness.lastError
+      });
+      await new Promise((resolve) => setTimeout(resolve, retryInMs));
+    }
+  }
+}
+
 async function main() {
   const queueRef: { current: GlobalSendQueue | null } = { current: null };
   const readiness: ServiceReadiness = { processStarted: true, supabase: false, queue: false, lastError: null };
@@ -16,11 +42,7 @@ async function main() {
   app.listen(env.PORT, () => console.log(`whatsapp-service listening on ${env.PORT}`));
 
   try {
-    readiness.supabase = true;
-
-    const databaseCapabilities = await detectDatabaseCapabilities();
-    await recoverStuckJobsOnBoot(databaseCapabilities);
-    await repairPendingGroupJobsWithoutSession();
+    const databaseCapabilities = await prepareDatabaseRuntime(readiness);
     const queue = new GlobalSendQueue(databaseCapabilities);
     const mediaGc = new TemporaryMediaGarbageCollector();
     queueRef.current = queue;
