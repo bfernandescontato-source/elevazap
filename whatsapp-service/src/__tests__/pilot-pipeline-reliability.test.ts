@@ -94,6 +94,14 @@ describe("confiabilidade do fluxo completo do Piloto", () => {
     expect(monitor).toContain("automationIds.filter((automationId) => !loopRisk.has(automationId))");
   });
 
+  it("descarta o backlog de um grupo fonte quando ele é removido", () => {
+    const migration = read("supabase/migrations/20260911143000_discard_backlog_from_removed_pilot_source.sql");
+    expect(migration).toContain("discard_pilot_source_backlog");
+    expect(migration).toContain("PILOT_SOURCE_REMOVED");
+    expect(migration).toContain("after delete on public.automation_source_groups");
+    expect(migration).toContain("promote_waiting_pilot_offers(p_automation_id,now())");
+  });
+
   it("registra metadados não sensíveis antes dos filtros de captura", () => {
     const runtime = read("whatsapp-service/src/senders/runtime.ts");
     expect(runtime).toContain('event: "pilot_group_messages_observed"');
