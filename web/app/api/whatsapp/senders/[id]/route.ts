@@ -67,9 +67,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const references = [
     await sb.from("campanhas").update({ whatsapp_sender_id: null, updated_at: now }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId),
-    await sb.from("envios").update({ whatsapp_sender_id: null }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId),
-    await sb.from("envios_grupo").update({ whatsapp_sender_id: null }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId),
-    await sb.from("envios_grupo_lotes").update({ whatsapp_sender_id: null }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId),
+    await sb.from("envios").update({ whatsapp_sender_id: null, whatsapp_session_id: null }).eq("account_id", context.accountId).or(senderReferenceFilter),
+    await sb.from("envios_grupo").update({ whatsapp_sender_id: null, whatsapp_session_id: null }).eq("account_id", context.accountId).or(senderReferenceFilter),
+    await sb.from("envios_grupo_lotes").update({ whatsapp_sender_id: null, whatsapp_session_id: null }).eq("account_id", context.accountId).or(senderReferenceFilter),
     await sb.from("whatsapp_sender_grupos").delete().eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId)
   ];
   const referenceError = references.find((result) => result.error)?.error;
