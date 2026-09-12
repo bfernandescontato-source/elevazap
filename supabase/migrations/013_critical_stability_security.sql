@@ -483,7 +483,8 @@ end;
 $$;
 
 drop function if exists public.resolve_campaign_redirect(text, jsonb, text, text);
-create function public.resolve_campaign_redirect(
+drop function if exists public.resolve_campaign_redirect(text, jsonb, text, text, text);
+create or replace function public.resolve_campaign_redirect(
   p_slug text,
   p_utm jsonb default '{}'::jsonb,
   p_user_agent text default null,
