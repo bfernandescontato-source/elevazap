@@ -9,7 +9,7 @@ type Sender = { id: string; label: string; session_name: string };
 type Group = { group_jid: string; nome?: string; foto_url?: string };
 type Offer = { id: string; original_text?: string; processed_text?: string; original_link?: string; affiliate_link?: string; affiliate_conversion_status?: string; affiliate_conversion_error?: string; status: string; error_code?: string; error_message?: string; captured_at: string; scheduled_at?: string; source_group_id?: string; grupos?: { nome?: string } | { nome?: string }[] };
 type Data = {
-  automation?: { id: string; whatsapp_sender_id: string; enabled: boolean; interval_minutes: number; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; mercado_livre_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
+  automation?: { id: string; whatsapp_sender_id: string | null; enabled: boolean; interval_minutes: number; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; mercado_livre_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
   shopee_integration?: { app_id: string; status: string; last_tested_at?: string; last_error?: string } | null;
   mercado_livre_integration?: { status: string; affiliate_tag?: string; last_tested_at?: string; last_error?: string } | null;
   senders: Sender[]; groups: Group[]; source_group_ids: string[]; destination_group_ids: string[]; offers: Offer[];

@@ -21,10 +21,22 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (senderError) return NextResponse.json({ error: senderError.message }, { status: 500 });
   if (!sender) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
 
-  await callWhatsappService(`/senders/${sender.session_name}/disconnect`, { method: "POST" }).catch(() => undefined);
-
   const now = new Date().toISOString();
   const cancellation = "Envio cancelado porque o número responsável foi excluído.";
+
+  // Disabling first invokes the database reset that expires the pilot's
+  // generation jobs and cancels its unsent deliveries. The automation and its
+  // sent history remain available so another sender can be selected later.
+  const automationReset = await sb.from("offer_automations").update({
+    enabled: false,
+    pilot_next_slot_at: null,
+    updated_at: now
+  }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId);
+  if (automationReset.error) return failure(automationReset.error, "Falha ao desativar o Piloto Automático deste número.");
+
+  await callWhatsappService(`/senders/${sender.session_name}/disconnect`, { method: "POST" }).catch(() => undefined);
+
+  const senderReferenceFilter = `whatsapp_sender_id.eq.${sender.id},whatsapp_session_id.eq.${sender.id}`;
 
   const directCancellation = await sb.from("envios").update({
     status: "erro",
@@ -33,7 +45,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     resolved_at: now,
     claim_token: null,
     updated_at: now
-  }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId).in("status", activeStatuses);
+  }).eq("account_id", context.accountId).or(senderReferenceFilter).in("status", activeStatuses);
   if (directCancellation.error) return failure(directCancellation.error, "Falha ao cancelar os envios pendentes deste número.");
 
   const groupCancellation = await sb.from("envios_grupo").update({
@@ -43,14 +55,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     resolved_at: now,
     claim_token: null,
     updated_at: now
-  }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId).in("status", activeStatuses);
+  }).eq("account_id", context.accountId).or(senderReferenceFilter).in("status", activeStatuses);
   if (groupCancellation.error) return failure(groupCancellation.error, "Falha ao cancelar os envios para grupos deste número.");
 
   const batchCancellation = await sb.from("envios_grupo_lotes").update({
     status: "cancelado",
     finished_at: now,
     updated_at: now
-  }).eq("whatsapp_sender_id", sender.id).eq("account_id", context.accountId).in("status", activeStatuses);
+  }).eq("account_id", context.accountId).or(senderReferenceFilter).in("status", activeStatuses);
   if (batchCancellation.error) return failure(batchCancellation.error, "Falha ao cancelar os lotes deste número.");
 
   const references = [
