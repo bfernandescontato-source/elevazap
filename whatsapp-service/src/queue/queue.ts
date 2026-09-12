@@ -10,6 +10,7 @@ import { compatibleQueueUpdate, type DatabaseCapabilities } from "../database-ca
 import { QueueMetrics } from "./metrics.js";
 import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
+import { amazonMessageIsSafe } from "./amazon-safety.js";
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
@@ -140,6 +141,7 @@ export class GlobalSendQueue {
     if (!row) return;
 
     if (table === "envios_grupo" && await this.cancelIfPilotDisabled(row)) return;
+    if (table === "envios_grupo" && await this.cancelIfAmazonUnavailable(row)) return;
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "sending");
 
     try {
@@ -183,6 +185,40 @@ export class GlobalSendQueue {
       erro: "Piloto Automático desativado.", updated_at: new Date().toISOString()
     })).eq("id", row.id));
     await this.syncOfferDelivery(row.id, "cancelled", "Piloto Automático desativado.");
+    await this.recalc(row.lote_id);
+    return true;
+  }
+
+  private async cancelIfAmazonUnavailable(row: any) {
+    const { data: delivery, error } = await supabase.from("offer_deliveries").select("offer_id")
+      .eq("group_dispatch_id", row.id).maybeSingle();
+    if (error) {
+      if (["42P01", "PGRST205"].includes(error.code || "")) return false;
+      throw error;
+    }
+    if (!delivery) return false;
+    const { data: offer, error: offerError } = await supabase.from("captured_offers").select("amazon_links")
+      .eq("id", delivery.offer_id).eq("account_id", row.account_id).maybeSingle();
+    if (offerError) throw offerError;
+    if (!Array.isArray(offer?.amazon_links) || offer.amazon_links.length === 0) return false;
+
+    const { data: integration, error: integrationError } = await supabase.from("affiliate_integrations")
+      .select("status,affiliate_tag").eq("account_id", row.account_id).eq("provider", "amazon").maybeSingle();
+    if (integrationError) throw integrationError;
+    const message = String(row.texto || row.legenda || "");
+    const connected = integration?.status === "connected" && Boolean(integration.affiliate_tag);
+    const safe = connected && amazonMessageIsSafe(message, integration.affiliate_tag);
+    if (safe) return false;
+
+    const reason = connected
+      ? "Link Amazon não corresponde ao Partner Tag configurado; envio cancelado."
+      : "Integração Amazon removida ou desativada; envio cancelado.";
+    await dbResult("queue.cancel-unsafe-amazon", supabase.from("envios_grupo").update(this.updateFields("envios_grupo", {
+      status: "cancelado", claim_token: null, processing_deadline_at: null,
+      erro: reason, last_error_code: connected ? "AMAZON_LINK_CONVERSION_FAILED" : "AMAZON_NOT_CONNECTED",
+      updated_at: new Date().toISOString()
+    })).eq("id", row.id));
+    await this.syncOfferDelivery(row.id, "cancelled", reason);
     await this.recalc(row.lote_id);
     return true;
   }

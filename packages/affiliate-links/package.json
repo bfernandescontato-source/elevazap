@@ -1,0 +1,16 @@
+{
+  "name": "@disparei/affiliate-links",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./amazon": {
+      "types": "./amazon.d.mts",
+      "import": "./amazon.mjs"
+    }
+  },
+  "scripts": {
+    "build": "node --check amazon.mjs",
+    "test": "node --test"
+  }
+}

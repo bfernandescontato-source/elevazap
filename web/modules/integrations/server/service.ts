@@ -4,12 +4,11 @@ import { testShopeeCredentials } from "@/modules/offer-autopilot/server/shopee-c
 import { secretToken, tokenHash } from "@/modules/offer-autopilot/server/mercado-livre-extension";
 
 export type IntegrationProvider = "shopee" | "mercado_livre" | "amazon";
-type StoredProvider = Exclude<IntegrationProvider, "amazon">;
+type StoredProvider = IntegrationProvider;
 
 const visibleColumns = "provider,app_id,status,affiliate_tag,external_account_id,external_account_label,last_tested_at,last_error,auth_expires_at,updated_at";
 
 export async function getIntegration(database: SupabaseClient, accountId: string, provider: IntegrationProvider) {
-  if (provider === "amazon") return null;
   const { data, error } = await database.from("affiliate_integrations").select(visibleColumns).eq("account_id", accountId).eq("provider", provider).maybeSingle();
   if (error) throw error;
   if (provider === "mercado_livre" && data?.status === "connecting" && data.updated_at) {
@@ -21,7 +20,7 @@ export async function getIntegration(database: SupabaseClient, accountId: string
 
 export const getShopeeIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "shopee");
 export const getMercadoLivreIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "mercado_livre");
-export const getAmazonIntegration = (_database: SupabaseClient, _accountId: string) => Promise.resolve(null);
+export const getAmazonIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "amazon");
 
 export async function hasConnectedIntegration(database: SupabaseClient, accountId: string, provider: IntegrationProvider) {
   return (await getIntegration(database, accountId, provider))?.status === "connected";
@@ -34,8 +33,24 @@ export async function getShopeeIntegrationCredentials(database: SupabaseClient, 
 }
 
 export async function listIntegrations(database: SupabaseClient, accountId: string) {
-  const [shopee, mercadoLivre] = await Promise.all([getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId)]);
-  return { shopee, mercado_livre: mercadoLivre, amazon: null };
+  const [shopee, mercadoLivre, amazon] = await Promise.all([getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId), getAmazonIntegration(database, accountId)]);
+  return { shopee: shopee, mercado_livre: mercadoLivre, amazon };
+}
+
+export async function saveAmazonIntegration(database: SupabaseClient, accountId: string, userId: string, partnerTag: string) {
+  const now = new Date().toISOString();
+  const { error } = await database.from("affiliate_integrations").upsert({
+    account_id: accountId,
+    user_id: userId,
+    provider: "amazon",
+    affiliate_tag: partnerTag,
+    status: "connected",
+    last_error: null,
+    last_tested_at: now,
+    updated_at: now
+  }, { onConflict: "account_id,provider" });
+  if (error) throw error;
+  return { status: "connected", affiliate_tag: partnerTag };
 }
 
 export async function connectShopeeIntegration(database: SupabaseClient, accountId: string, userId: string, input: { app_id: string; app_secret: string }) {
@@ -65,6 +80,11 @@ export async function startMercadoLivreIntegration(database: SupabaseClient, acc
 }
 
 export async function disconnectIntegration(database: SupabaseClient, accountId: string, provider: StoredProvider) {
+  if (provider === "amazon") {
+    const { error } = await database.from("affiliate_integrations").update({ status: "disconnected", affiliate_tag: null, last_error: null, updated_at: new Date().toISOString() }).eq("account_id", accountId).eq("provider", provider);
+    if (error) throw error;
+    return { status: "disconnected" };
+  }
   if (provider === "shopee") {
     const { error } = await database.from("affiliate_integrations").update({ status: "disconnected", encrypted_app_secret: null, credential_fingerprint: null, last_error: null, updated_at: new Date().toISOString() }).eq("account_id", accountId).eq("provider", provider);
     if (error) throw error;

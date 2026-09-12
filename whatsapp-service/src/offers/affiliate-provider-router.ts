@@ -5,7 +5,9 @@ import type { AffiliateProviderName } from "./types.js";
 const HOST_PROVIDER = new Map<string, AffiliateProviderName>([
   ["shopee.com.br", "shopee"], ["www.shopee.com.br", "shopee"], ["s.shopee.com.br", "shopee"],
   ["mercadolivre.com.br", "mercado_livre"], ["www.mercadolivre.com.br", "mercado_livre"],
-  ["produto.mercadolivre.com.br", "mercado_livre"], ["meli.la", "mercado_livre"]
+  ["produto.mercadolivre.com.br", "mercado_livre"], ["meli.la", "mercado_livre"],
+  ["amazon.com.br", "amazon"], ["www.amazon.com.br", "amazon"], ["amzn.to", "amazon"],
+  ["a.co", "amazon"], ["link.amazon", "amazon"]
 ]);
 
 export function getAffiliateProviderName(value: string): AffiliateProviderName | "unsupported" {

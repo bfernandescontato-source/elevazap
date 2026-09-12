@@ -6,6 +6,7 @@ import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
 import { OfferAiRewriter, sanitizeSourcePromotion } from "./offer-ai-rewriter.js";
 import { MercadoLivreOfferConverter } from "./mercado-livre-conversion.js";
+import { AmazonOfferConverter } from "./amazon-conversion.js";
 import { env } from "../env.js";
 import { sharedMediaCache } from "../utils/media.js";
 
@@ -32,7 +33,7 @@ function log(event: string, fields: Record<string, unknown>) {
 }
 
 export class OfferProcessor {
-  constructor(private database: SupabaseClient) {}
+  constructor(private database: SupabaseClient, private amazonConverter = new AmazonOfferConverter(database)) {}
 
   private processingLease() {
     return {
@@ -113,32 +114,33 @@ export class OfferProcessor {
 
     const shopeeConversionRequired = parsed.shopeeLinks.length > 0 && automation.shopee_conversion_enabled;
     const mercadoLivreConversionRequired = parsed.mercadoLivreLinks.length > 0 && automation.mercado_livre_conversion_enabled;
+    const amazonConversionRequired = parsed.amazonLinks.length > 0;
     // Nunca repasse links de lojas ainda não integradas, nem mensagens sem link de marketplace.
-    // Isso também deixa a Amazon bloqueada até a integração ser disponibilizada.
     const unsupportedLinks = parsed.links.filter((value) => !isSupportedMarketplaceUrl(value));
-    const hasSupportedMarketplaceLink = parsed.shopeeLinks.length > 0 || parsed.mercadoLivreLinks.length > 0;
+    const hasSupportedMarketplaceLink = parsed.shopeeLinks.length > 0 || parsed.mercadoLivreLinks.length > 0 || parsed.amazonLinks.length > 0;
     // "Trocar link automaticamente" é só uma preferência de conversão — a fonte da
     // verdade sobre a loja estar liberada pra disparo é a integração conectada
     // (affiliate_integrations.status). Sem essa checagem, uma conta sem Shopee/ML
     // conectado ainda despachava o link original normalmente.
-    const requiredProviders: Array<"shopee" | "mercado_livre"> = [];
+    const requiredProviders: Array<"shopee" | "mercado_livre" | "amazon"> = [];
     if (parsed.shopeeLinks.length > 0) requiredProviders.push("shopee");
     if (parsed.mercadoLivreLinks.length > 0) requiredProviders.push("mercado_livre");
-    let disconnectedProvider: "shopee" | "mercado_livre" | null = null;
+    if (parsed.amazonLinks.length > 0) requiredProviders.push("amazon");
+    let disconnectedProvider: "shopee" | "mercado_livre" | "amazon" | null = null;
     if (requiredProviders.length > 0) {
       const { data: integrations, error: integrationsError } = await this.database
-        .from("affiliate_integrations").select("provider,status")
+        .from("affiliate_integrations").select("provider,status,affiliate_tag")
         .eq("account_id", automation.account_id).in("provider", requiredProviders);
       if (integrationsError) throw integrationsError;
       const connectedProviders = new Set((integrations || [])
-        .filter((row) => row.status === "connected")
+        .filter((row) => row.status === "connected" && (row.provider !== "amazon" || Boolean(row.affiliate_tag)))
         .map((row) => row.provider));
       disconnectedProvider = requiredProviders.find((provider) => !connectedProviders.has(provider)) ?? null;
     }
     const unsafeUnconvertedMercadoLivreLink = parsed.mercadoLivreLinks.some((value) => {
       try { return new URL(value).hostname.toLowerCase() === "meli.la"; } catch { return false; }
     }) && !automation.mercado_livre_conversion_enabled;
-    const conversionRequired = shopeeConversionRequired || mercadoLivreConversionRequired;
+    const conversionRequired = shopeeConversionRequired || mercadoLivreConversionRequired || amazonConversionRequired;
     let offer = existingOffer;
     if (!offer) {
       const { data, error: insertError } = await this.database.from("captured_offers").insert({
@@ -153,6 +155,7 @@ export class OfferProcessor {
         links: parsed.links,
         shopee_links: parsed.shopeeLinks,
         mercado_livre_links: parsed.mercadoLivreLinks,
+        amazon_links: parsed.amazonLinks,
         affiliate_provider: parsed.affiliateLinks.length > 1 ? "multiple" : parsed.affiliateLinks[0]?.provider || null,
         content_hash: parsed.contentHash,
         affiliate_conversion_status: parsed.affiliateLinks.length === 0 ? "not_required" : conversionRequired ? "pending" : "not_enabled",
@@ -171,20 +174,18 @@ export class OfferProcessor {
       log("offer_processing_resumed", { ...common, offer_id: offer.id, processing_attempts: offer.processing_attempts });
     }
     if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0 || disconnectedProvider) {
-      const providerLabel = disconnectedProvider === "shopee" ? "Shopee" : "Mercado Livre";
-      const message = parsed.amazonLinks.length > 0
-        ? "Amazon ainda não integrado ao Piloto Automático; oferta ignorada."
-        : !hasSupportedMarketplaceLink
-          ? "A oferta não possui link Shopee ou Mercado Livre; oferta ignorada."
+      const providerLabel = disconnectedProvider === "shopee" ? "Shopee" : disconnectedProvider === "mercado_livre" ? "Mercado Livre" : "Amazon";
+      const message = !hasSupportedMarketplaceLink
+          ? "A oferta não possui link de marketplace suportado; oferta ignorada."
           : disconnectedProvider
             ? `${providerLabel} não está conectado nesta conta; oferta ignorada.`
             : "A oferta contém link não permitido; oferta ignorada.";
-      const errorCode = parsed.amazonLinks.length > 0
-        ? "AMAZON_NOT_SUPPORTED_YET"
-        : disconnectedProvider === "shopee"
+      const errorCode = disconnectedProvider === "shopee"
           ? "SHOPEE_NOT_CONNECTED"
           : disconnectedProvider === "mercado_livre"
             ? "MERCADO_LIVRE_NOT_CONNECTED"
+            : disconnectedProvider === "amazon"
+              ? "AMAZON_NOT_CONNECTED"
             : "UNSUPPORTED_MARKETPLACE_LINK";
       await this.database.from("captured_offers").update({
         status: "ignored", error_code: errorCode, error_message: message,
@@ -317,6 +318,38 @@ export class OfferProcessor {
               .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
             return { ...offer, status: "processing_failed" };
           }
+        }
+      }
+      if (amazonConversionRequired) {
+        if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
+        try {
+          await this.database.from("captured_offers").update({ affiliate_conversion_status: "resolving", affiliate_conversion_attempts: 1 })
+            .eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
+          const conversion = await this.amazonConverter.convert(parsed, {
+            accountId: automation.account_id, automationId: automation.id, offerId: offer.id, sourceGroupId: parsed.sourceGroupId
+          }, processedText);
+          if (!conversion.converted || !conversion.affiliateLink) throw new Error("Todos os links Amazon devem ser convertidos antes do envio.");
+          processedText = conversion.processedText;
+          linkUsed = conversion.affiliateLink;
+          await this.database.from("captured_offers").update({
+            processed_text: processedText, original_link: conversion.originalLink || linkUsed,
+            resolved_url: conversion.resolvedUrl || null, affiliate_link: conversion.affiliateLink,
+            affiliate_tag: conversion.affiliateTag || null, affiliate_conversion_status: "converted",
+            affiliate_conversion_error: null, affiliate_converted_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
+          if (await this.stopIfDisabled(automation, offer.id)) return { ...offer, status: "ignored" };
+        } catch (conversionError) {
+          const conversionMessage = conversionError instanceof Error ? conversionError.message : "Falha na conversão Amazon.";
+          await this.database.from("captured_offers").update({
+            status: "processing_failed", affiliate_conversion_status: "failed",
+            affiliate_conversion_error: conversionMessage, error_code: "AMAZON_LINK_CONVERSION_FAILED",
+            error_message: conversionMessage, processed_at: new Date().toISOString(),
+            processing_worker_id: null, processing_deadline_at: null, updated_at: new Date().toISOString()
+          }).eq("id", offer.id).eq("account_id", automation.account_id)
+            .eq("status", "processing").eq("processing_worker_id", env.INSTANCE_ID);
+          return { ...offer, status: "processing_failed", error_code: "AMAZON_LINK_CONVERSION_FAILED" };
         }
       }
       if (automation.ai_rewrite_enabled) {

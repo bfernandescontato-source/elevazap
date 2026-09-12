@@ -9,6 +9,7 @@ import type { RawOfferMessage } from "../offers/types.js";
 function makeDatabase(options: {
   automationEnabled?: boolean;
   integrations?: Array<{ provider: string; status: string }>;
+  scheduleStatus?: "scheduled" | "waiting";
 }) {
   const automationEnabled = options.automationEnabled ?? true;
   const integrations = options.integrations ?? [];
@@ -28,7 +29,7 @@ function makeDatabase(options: {
         if (table) updates.push({ table, payload });
         return chain({ data: null, error: null });
       },
-      maybeSingle: async () => result,
+      maybeSingle: async () => Array.isArray(result.data) ? { data: result.data[0] || null, error: result.error } : result,
       single: async () => result,
       then: (onFulfilled: any, onRejected: any) => Promise.resolve(result).then(onFulfilled, onRejected)
     };
@@ -44,7 +45,7 @@ function makeDatabase(options: {
     },
     rpc: async (name: string) => {
       if (name === "schedule_pilot_offer") {
-        return { data: { status: "scheduled", scheduled_at: new Date().toISOString(), destinations: 1 }, error: null };
+        return { data: { status: options.scheduleStatus || "scheduled", scheduled_at: options.scheduleStatus === "waiting" ? undefined : new Date().toISOString(), destinations: 1 }, error: null };
       }
       return { data: null, error: null };
     },
@@ -132,18 +133,44 @@ describe("gate de marketplace conectado/não conectado no Piloto Automático", (
     expect(ignoreUpdate?.payload.error_code).toBe("SHOPEE_NOT_CONNECTED");
   });
 
-  it("Amazon (sem integração no sistema) + link Amazon → não envia", async () => {
-    // Não existe modelo de integração/credenciais Amazon nesta base — portanto
-    // "Amazon conectada" não é um estado alcançável hoje. O bloqueio atual
-    // (AMAZON_NOT_SUPPORTED_YET) já satisfaz "não conectada → não dispara" de
-    // forma trivial, mas o caminho "conectada → dispara" não pode ser exercitado
-    // sem primeiro construir essa integração (fora do escopo desta correção).
+  it("Amazon sem Partner Tag → não envia", async () => {
     const { database, updates } = makeDatabase({ integrations: [] });
     const processor = new OfferProcessor(database as any);
     const result = await processor.process(baseAutomation, buildMessage(`Promo\n${AMAZON_LINK}`));
     expect(result?.status).toBe("ignored");
     const ignoreUpdate = updates.find((u) => u.payload.status === "ignored");
-    expect(ignoreUpdate?.payload.error_code).toBe("AMAZON_NOT_SUPPORTED_YET");
+    expect(ignoreUpdate?.payload.error_code).toBe("AMAZON_NOT_CONNECTED");
+  });
+
+  it("Amazon conectada converte com o Partner Tag da conta e segue para agendamento", async () => {
+    const { database, updates } = makeDatabase({ integrations: [{ provider: "amazon", status: "connected", affiliate_tag: "conta-certa-20" }] as any });
+    const processor = new OfferProcessor(database as any);
+    const result = await processor.process(baseAutomation, buildMessage(`Promo\n${AMAZON_LINK}?ref_=grupo&tag=outra-conta-20&TAG=duplicada-20`));
+    expect(result?.status).toBe("scheduled");
+    const converted = updates.find((u) => typeof u.payload.processed_text === "string" && u.payload.affiliate_conversion_status === "converted");
+    const link = new URL(converted?.payload.affiliate_link);
+    expect(link.searchParams.get("ref_")).toBe("grupo");
+    expect(Array.from(link.searchParams.entries()).filter(([key]) => key.toLowerCase() === "tag")).toEqual([["tag", "conta-certa-20"]]);
+  });
+
+  it("Amazon excedente usa o mesmo resultado waiting da fila existente", async () => {
+    const { database } = makeDatabase({ integrations: [{ provider: "amazon", status: "connected", affiliate_tag: "conta-certa-20" }] as any, scheduleStatus: "waiting" });
+    const processor = new OfferProcessor(database as any);
+    const result = await processor.process(baseAutomation, buildMessage(`Promo\n${AMAZON_LINK}`));
+    expect(result?.status).toBe("waiting");
+    expect(result?.scheduled_at).toBeUndefined();
+  });
+
+  it("falha de conversão Amazon nunca usa send_original nem agenda a oferta", async () => {
+    const { database, updates } = makeDatabase({ integrations: [{ provider: "amazon", status: "connected", affiliate_tag: "conta-certa-20" }] as any });
+    const automation = { ...baseAutomation, conversion_failure_policy: "send_original" as const };
+    const failedConverter = { convert: async () => { throw new Error("Link curto inválido"); } };
+    const processor = new OfferProcessor(database as any, failedConverter as any);
+    const result = await processor.process(automation, buildMessage(`Promo\n${AMAZON_LINK}`));
+    expect(result?.status).toBe("processing_failed");
+    expect(result?.error_code).toBe("AMAZON_LINK_CONVERSION_FAILED");
+    expect(updates.some((update) => update.payload.status === "processing_failed")).toBe(true);
+    expect(updates.some((update) => update.payload.status === "scheduled")).toBe(false);
   });
 
   it("só cupom, sem link válido → não envia", async () => {

@@ -33,7 +33,7 @@ export type ParsedOffer = {
   contentHash: string;
 };
 
-export type AffiliateProviderName = "shopee" | "mercado_livre";
+export type AffiliateProviderName = "shopee" | "mercado_livre" | "amazon";
 
 export type ResolvedAffiliateProduct = {
   provider: AffiliateProviderName;

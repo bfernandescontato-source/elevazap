@@ -15,19 +15,13 @@ export function isMercadoLivreUrl(value: string) {
   return getAffiliateProviderName(value) === "mercado_livre";
 }
 
-/** O Piloto só pode distribuir ofertas dos marketplaces já integrados. */
-export function isSupportedMarketplaceUrl(value: string) {
-  return isShopeeUrl(value) || isMercadoLivreUrl(value);
+export function isAmazonUrl(value: string) {
+  return getAffiliateProviderName(value) === "amazon";
 }
 
-const AMAZON_HOSTS = new Set(["amazon.com.br", "www.amazon.com.br", "amazon.com", "www.amazon.com", "amzn.to", "a.co"]);
-export function isAmazonUrl(value: string) {
-  try {
-    // A Amazon é dona do gTLD ".amazon" e usa domínios como link.amazon
-    // (share links do app) além dos clássicos amazon.com.br / amzn.to.
-    const hostname = new URL(value).hostname.toLowerCase();
-    return AMAZON_HOSTS.has(hostname) || hostname === "amazon" || hostname.endsWith(".amazon");
-  } catch { return false; }
+/** O Piloto só pode distribuir ofertas dos marketplaces já integrados. */
+export function isSupportedMarketplaceUrl(value: string) {
+  return isShopeeUrl(value) || isMercadoLivreUrl(value) || isAmazonUrl(value);
 }
 
 export function parseOffer(message: RawOfferMessage): ParsedOffer {

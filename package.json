@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "web",
-    "whatsapp-service"
+    "whatsapp-service",
+    "packages/*"
   ],
   "scripts": {
     "dev:web": "npm --workspace web run dev",

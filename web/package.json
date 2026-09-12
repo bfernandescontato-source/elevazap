@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@disparei/affiliate-links": "*",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
     "@types/papaparse": "^5.5.2",

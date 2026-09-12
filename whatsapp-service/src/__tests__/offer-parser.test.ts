@@ -29,13 +29,13 @@ describe("OfferParser", () => {
     ]);
   });
 
-  it("identifica link da Amazon sem tratá-lo como afiliado suportado", () => {
+  it("identifica link da Amazon como afiliado suportado", () => {
     const result = parseOffer({
       sourceType: "whatsapp", sourceMessageId: "message-3", sourceGroupId: "120363000000@g.us",
       text: "Fone bom https://www.amazon.com.br/dp/B0ABCDEFG", timestamp: new Date()
     });
     expect(result.amazonLinks).toEqual(["https://www.amazon.com.br/dp/B0ABCDEFG"]);
-    expect(result.affiliateLinks).toEqual([]);
+    expect(result.affiliateLinks).toEqual([{ provider: "amazon", url: "https://www.amazon.com.br/dp/B0ABCDEFG" }]);
   });
 
   it("identifica link curto amzn.to", () => {
@@ -54,10 +54,10 @@ describe("OfferParser", () => {
     expect(result.amazonLinks).toEqual(["https://link.amazon/B00jBYJv8"]);
   });
 
-  it("aceita somente URLs da Shopee e do Mercado Livre para o Piloto", () => {
+  it("aceita somente URLs dos três marketplaces integrados no Piloto", () => {
     expect(isSupportedMarketplaceUrl("https://s.shopee.com.br/abc")).toBe(true);
     expect(isSupportedMarketplaceUrl("https://meli.la/xyz")).toBe(true);
-    expect(isSupportedMarketplaceUrl("https://www.amazon.com.br/dp/B0ABCDEFG")).toBe(false);
+    expect(isSupportedMarketplaceUrl("https://www.amazon.com.br/dp/B0ABCDEFG")).toBe(true);
     expect(isSupportedMarketplaceUrl("https://loja-exemplo.com/produto")).toBe(false);
   });
 });
