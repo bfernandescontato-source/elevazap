@@ -69,6 +69,10 @@ export default function NumerosPage() {
   }, []);
 
   async function createSender() {
+    if (!label.trim()) {
+      setToast("Informe uma identificação para o novo número.");
+      return;
+    }
     setActionId("new");
     try {
       const response = await fetch("/api/whatsapp/senders", { method: "POST", body: JSON.stringify({ label }) });
@@ -120,11 +124,15 @@ export default function NumerosPage() {
   const fail = (error: any) => setToast(error?.message || "Algo deu errado.");
   const formatDate = (value?: string) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Não disponível";
 
-  const atLimit = usage !== null && !usage.unlimitedSenders && (usage.senders >= usage.maxSenders);
+  // The sender listing is the authoritative live count on this screen. Using
+  // the separately loaded account usage could briefly keep the button locked
+  // after a successful deletion.
+  const currentSenderCount = senders.length;
+  const atLimit = usage !== null && !usage.unlimitedSenders && (currentSenderCount >= usage.maxSenders);
   const usageLabel = usage
     ? usage.unlimitedSenders
-      ? `${usage.senders} número(s) conectado(s)`
-      : `${usage.senders} de ${usage.maxSenders} número(s) do plano`
+      ? `${currentSenderCount} número(s) conectado(s)`
+      : `${currentSenderCount} de ${usage.maxSenders} número(s) do plano`
     : null;
 
   return <AppShell title="Números conectados" subtitle="Gerencie os telefones usados nos disparos do Disparei">
@@ -156,7 +164,7 @@ export default function NumerosPage() {
         </div>
         <ActionButton
           icon={<Plus size={16} />}
-          disabled={!label.trim() || actionId === "new" || atLimit}
+          disabled={actionId === "new" || atLimit}
           onClick={() => createSender().catch(fail)}
         >
           {actionId === "new" ? "Criando..." : "Conectar novo número"}
