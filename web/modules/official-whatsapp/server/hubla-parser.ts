@@ -36,6 +36,15 @@ export function parseHublaEvent(body: unknown): ParsedHublaEvent {
   const user = asObject(event.user);
   const payer = asObject(invoice.payer);
   const amount = asObject(invoice.amount);
+  const invoiceId = str(invoice.id) ?? str(invoice.orderId);
+  const invoiceCreatedAt = str(invoice.createdAt);
+
+  // O sandbox da Hubla reutiliza o mesmo invoice.id terminado em "-tester" em
+  // execucoes diferentes. O createdAt muda a cada novo teste, mas permanece igual
+  // nos retries do mesmo webhook, preservando a idempotencia nos dois casos.
+  const providerEventId = invoiceId?.endsWith("-tester") && invoiceCreatedAt
+    ? `${invoiceId}:${invoiceCreatedAt}`
+    : invoiceId;
 
   const firstName = str(user.firstName) ?? str(payer.firstName);
   const lastName = str(user.lastName) ?? str(payer.lastName);
@@ -43,7 +52,7 @@ export function parseHublaEvent(body: unknown): ParsedHublaEvent {
 
   return {
     eventType: str(root.type),
-    providerEventId: str(invoice.id) ?? str(invoice.orderId),
+    providerEventId,
     productId: str(product.id),
     productName: str(product.name),
     customerName,

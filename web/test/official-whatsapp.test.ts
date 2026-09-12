@@ -154,13 +154,24 @@ describe("captura de webhook da Hubla (modo captura, sem assumir formato)", () =
   it("interpreta o payload real de invoice.payment_succeeded observado em produção", () => {
     const parsed = parseHublaEvent(hublaInvoicePaymentSucceeded);
     expect(parsed.eventType).toBe("invoice.payment_succeeded");
-    expect(parsed.providerEventId).toBe("53a0a7ba-d2f8-4285-addd-6cdf0a937568-tester");
+    expect(parsed.providerEventId).toBe("53a0a7ba-d2f8-4285-addd-6cdf0a937568-tester:2026-08-15T22:21:33.253Z");
     expect(parsed.productId).toBe("8Qndp0ld0K9vFW0hkDos");
     expect(parsed.productName).toBe("ACHADINHOS ADS E AUTOMAÇÕES");
     expect(parsed.customerName).toBe("BWB User Name");
     expect(parsed.customerEmail).toBe("test-payer-email@example.com");
     expect(parsed.customerPhone).toBe("B4TBBT");
     expect(parsed.amountCents).toBe(990);
+  });
+
+  it("permite novos testes da Hubla sem reenviar retries do mesmo teste", () => {
+    const first = parseHublaEvent(hublaInvoicePaymentSucceeded);
+    const retry = parseHublaEvent(hublaInvoicePaymentSucceeded);
+    const nextPayload = structuredClone(hublaInvoicePaymentSucceeded);
+    nextPayload.event.invoice.createdAt = "2026-09-12T16:32:40.094Z";
+    const next = parseHublaEvent(nextPayload);
+
+    expect(retry.providerEventId).toBe(first.providerEventId);
+    expect(next.providerEventId).not.toBe(first.providerEventId);
   });
 
   it("não quebra e devolve tudo null para um payload em formato desconhecido", () => {
