@@ -17,7 +17,9 @@ function tokenMatches(provided: string | null, expected: string) {
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (body === null) return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
-  if (!tokenMatches(extractElevaPayCredential(request.headers, body), env().ELEVAPAY_WEBHOOK_TOKEN)) {
+  const config = env();
+  const expectedToken = config.ELEVAPAY_OFFICIAL_WEBHOOK_TOKEN ?? config.ELEVAPAY_WEBHOOK_TOKEN;
+  if (!tokenMatches(extractElevaPayCredential(request.headers, body), expectedToken)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
 

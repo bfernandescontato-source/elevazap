@@ -138,6 +138,10 @@ configure a API Key na aba de autenticação como Header. O receptor aceita o
 header emitido pela ElevaPay, `x-elevapay-token`, `x-api-key`, Bearer e também
 o campo `apiKey` do payload.
 
+Para o módulo WhatsApp Oficial, prefira configurar um token separado em
+`ELEVAPAY_OFFICIAL_WEBHOOK_TOKEN`. Se ele não existir, o receptor mantém
+compatibilidade usando `ELEVAPAY_WEBHOOK_TOKEN` sem alterar integrações antigas.
+
 Payload mínimo:
 
 ```json
