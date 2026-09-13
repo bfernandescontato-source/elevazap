@@ -78,6 +78,35 @@ export async function captureHublaEvent(input: {
   return { duplicate: false as const, id: data.id as string };
 }
 
+export async function captureElevaPayEvent(input: {
+  payload: unknown;
+  headers: Record<string, string>;
+  providerEventId: string;
+  productId: string | null;
+  productName: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+}) {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("official_events").insert({
+    provider: "elevapay",
+    provider_event_id: input.providerEventId,
+    event_type: "order.paid",
+    product_id: input.productId,
+    product_name: input.productName,
+    customer_name: input.customerName,
+    customer_phone: input.customerPhone,
+    payload: input.payload,
+    headers: input.headers,
+    status: "received"
+  }).select("id").single();
+  if (error) {
+    if (/duplicate|unique/i.test(error.message)) return { duplicate: true as const, id: null };
+    throw error;
+  }
+  return { duplicate: false as const, id: data.id as string };
+}
+
 // Captura de clique de botão vindo do webhook da Meta (provider "meta") — mesma tabela
 // official_events, mesma garantia de idempotência por (provider, provider_event_id).
 export async function captureMetaButtonClick(input: { payload: unknown; providerEventId: string; buttonPayload: string; fromPhone: string; connectionId?: string | null }) {

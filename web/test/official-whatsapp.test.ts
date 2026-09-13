@@ -4,6 +4,7 @@ import { isInternalAdmin } from "../lib/internal-admin";
 import { buildTestComponents, summarizeTemplateVariables, type WhatsAppTemplate } from "../modules/official-whatsapp/server/templates";
 import { extractEventType, extractProviderEventId, extractRelevantHeaders } from "../modules/official-whatsapp/server/hubla-events";
 import { parseHublaEvent } from "../modules/official-whatsapp/server/hubla-parser";
+import { parseElevaPayOrderPaid } from "../modules/official-whatsapp/server/elevapay-parser";
 import hublaInvoicePaymentSucceeded from "./fixtures/hubla-invoice-payment-succeeded.json";
 import { buildTemplateComponents, missingRequiredVariables, renderTemplateBodyPreview, renderTemplateText, type EventContext } from "../modules/official-whatsapp/server/variable-resolver";
 import { classifyContacts } from "../modules/official-whatsapp/server/broadcast-contacts";
@@ -198,6 +199,24 @@ describe("captura de webhook da Hubla (modo captura, sem assumir formato)", () =
     expect(captured["x-hubla-signature"]).toBe("abc");
     expect(captured.authorization).toBeUndefined();
     expect(captured.cookie).toBeUndefined();
+  });
+});
+
+describe("payload de venda aprovada da ElevaPay", () => {
+  it("mapeia os campos configuráveis da regra order.paid", () => {
+    expect(parseElevaPayOrderPaid({ transactionId: "txn_123", phoneNumber: "+55 19 99999-9999", name: "Maria Silva", email: "maria@example.com", productId: "prod_1", productName: "Achadinhos" })).toMatchObject({
+      eventType: "order.paid", providerEventId: "txn_123", customerPhone: "+55 19 99999-9999", customerName: "Maria Silva", customerEmail: "maria@example.com", productId: "prod_1", productName: "Achadinhos"
+    });
+  });
+
+  it("aceita order_id em snake case como chave de idempotência", () => {
+    expect(parseElevaPayOrderPaid({ order_id: "ord_123" }).providerEventId).toBe("ord_123");
+  });
+
+  it("aceita o formato SendFlow sem identificador de pedido", () => {
+    const payload = { phoneNumber: "5519999999999", name: "Maria", email: "maria@example.com", productId: "prod_1", productName: "Achadinhos" };
+    expect(parseElevaPayOrderPaid(payload).providerEventId).toMatch(/^payload:/);
+    expect(parseElevaPayOrderPaid(payload).providerEventId).toBe(parseElevaPayOrderPaid(payload).providerEventId);
   });
 });
 

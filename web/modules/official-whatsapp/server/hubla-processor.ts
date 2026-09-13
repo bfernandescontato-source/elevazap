@@ -1,7 +1,7 @@
 import { normalizeBrazilianPhone } from "@/lib/phone";
 import { findActiveAutomation } from "./automations";
 import { markEventStatus } from "./hubla-events";
-import type { ParsedHublaEvent } from "./hubla-parser";
+import type { ParsedPurchaseEvent } from "./hubla-parser";
 import { findTemplate } from "./templates";
 import { sendWhatsAppTemplate, type TemplateComponent } from "./send-template";
 import { logMessageAttempt } from "./messages-store";
@@ -12,7 +12,7 @@ import type { AutomationSnapshot } from "./automation-followup";
 
 // Chamado via after() pelo webhook — a resposta HTTP já foi enviada à Hubla antes disso rodar.
 // Fluxo: procura automação ativa -> normaliza telefone -> resolve variáveis -> envia via Meta -> loga.
-export async function processHublaEvent(eventId: string, parsed: ParsedHublaEvent) {
+export async function processHublaEvent(eventId: string, parsed: ParsedPurchaseEvent) {
   const automation = await findActiveAutomation(parsed.eventType, parsed.productId);
   if (!automation) {
     await markEventStatus(eventId, "ignored", null, { automationId: null });

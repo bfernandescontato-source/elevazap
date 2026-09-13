@@ -1,4 +1,4 @@
-export type ParsedHublaEvent = {
+export type ParsedPurchaseEvent = {
   eventType: string | null;
   providerEventId: string | null;
   productId: string | null;
@@ -10,6 +10,8 @@ export type ParsedHublaEvent = {
   paymentUrl: string | null;
   accessUrl: string | null;
 };
+
+export type ParsedHublaEvent = ParsedPurchaseEvent;
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};

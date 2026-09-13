@@ -124,7 +124,7 @@ WELCOME_UNCERTAIN_POLICY=manual
 URL:
 
 ```text
-https://seu-dominio.com/api/webhook/elevapay
+https://seu-dominio.com/api/webhooks/elevapay
 ```
 
 Header:
@@ -133,19 +133,27 @@ Header:
 x-elevapay-token: valor_configurado_em_ELEVAPAY_WEBHOOK_TOKEN
 ```
 
-Payload:
+Na ElevaPay, crie uma regra com o evento **Venda aprovada** (`order.paid`) e
+configure a API Key na aba de autenticação como header `x-elevapay-token`.
+
+Payload mínimo:
 
 ```json
 {
-  "event": "compra.aprovada",
-  "order_id": "ord_123",
-  "transaction_id": "txn_456",
-  "nome": "Fulano de Tal",
-  "telefone": "5511999999999",
-  "produto": "Shop Lab",
-  "email": "fulano@email.com"
+  "transactionId": "txn_456",
+  "phoneNumber": "5511999999999",
+  "name": "Fulano de Tal",
+  "email": "fulano@email.com",
+  "productId": "prod_123",
+  "productName": "Shop Lab"
 }
 ```
+
+O formato SendFlow também funciona sem `transactionId`/`orderId`: nesse caso,
+o sistema assina os dados recebidos para ignorar um reenvio idêntico. Quando
+disponível, envie `transactionId` ou `orderId`, pois ele diferencia compras
+repetidas do mesmo cliente. A automação deve usar o evento `order.paid` e o
+mesmo `productId` configurado na regra da ElevaPay.
 
 Respostas:
 
@@ -157,7 +165,8 @@ Respostas:
 { "ok": true, "duplicado": true }
 ```
 
-O endpoint valida token, payload, telefone, rate limit persistente e grava job idempotente com `transaction_id`. Ele responde rápido e nunca depende de processamento assíncrono da Vercel depois da resposta.
+O endpoint valida o token, registra o evento de forma idempotente e responde
+rapidamente. O processamento da automação ocorre depois da confirmação HTTP.
 
 ## Webhook Hubla — criação de conta Shop Lab
 
