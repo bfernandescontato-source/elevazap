@@ -6,7 +6,7 @@ import { ZodError } from "zod";
 import { ActionButton, AppShell, ConfirmModal, EmptyState, ErrorState, FileDropzone, LoadingState } from "@/components/ui";
 import { Plus, Pencil, Zap, MessageSquare, MousePointerClick, Clock, ArrowUp, ArrowDown, Trash2, Check, ArrowRight } from "lucide-react";
 import { ConnectionSelect } from "../connection-select";
-import { automationInputSchema, type AutomationInput, type ClickStep, type DelayStep, type DelayUnit, type FollowupConfig, type FollowupStep } from "@/modules/official-whatsapp/automation-config";
+import { automationInputSchema, type AutomationInput, type DelayUnit, type FollowupConfig, type FollowupStep } from "@/modules/official-whatsapp/automation-config";
 import type { OfficialAutomation } from "@/modules/official-whatsapp/server/automations";
 import type { WhatsAppTemplate } from "@/modules/official-whatsapp/server/templates";
 import type { QuickReplyAction } from "@/modules/official-whatsapp/server/quick-reply-actions";
@@ -18,10 +18,13 @@ const eventLabels: Record<string, string> = { "invoice.payment_succeeded": "Comp
 const sample = { customerName: "Maria Silva", productName: "Seu produto", customerEmail: "cliente@exemplo.com", customerPhone: "5511999999999", amountCents: 9900, paymentUrl: "https://exemplo.com/pagamento", accessUrl: "https://exemplo.com/acesso" };
 const unitLabels: Record<DelayUnit, string> = { minutes: "minuto(s)", hours: "hora(s)", days: "dia(s)" };
 
-function newClickStep(): ClickStep { return { id: crypto.randomUUID(), triggerType: "click", triggerButtonIndex: "", responseType: "text", responseText: "", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null }; }
-function newDelayStep(): DelayStep { return { id: crypto.randomUUID(), triggerType: "delay", delayAmount: 10, delayUnit: "minutes", templateName: "", templateLanguage: "pt_BR", variableMapping: {} }; }
-function stepFromLegacyConfig(config: FollowupConfig): ClickStep { return { id: crypto.randomUUID(), triggerType: "click", triggerButtonIndex: config.triggerButtonIndex, responseType: config.responseType, responseText: config.responseText, caption: config.caption, mediaBucket: config.mediaBucket, mediaPath: config.mediaPath, mimeType: config.mimeType, fileName: config.fileName, buttonConfig: config.buttonConfig }; }
-function resetTriggerIndexes(steps: FollowupStep[]): FollowupStep[] { return steps.map(step => step.triggerType === "click" ? { ...step, triggerButtonIndex: "" } : step); }
+function newStep(triggerType: "click" | "delay"): FollowupStep {
+  return { id: crypto.randomUUID(), trigger: triggerType === "click" ? { type: "click", triggerButtonIndex: "" } : { type: "delay", delayAmount: 10, delayUnit: "minutes" }, responseType: "text", responseText: "", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
+}
+function stepFromLegacyConfig(config: FollowupConfig): FollowupStep {
+  return { id: crypto.randomUUID(), trigger: { type: "click", triggerButtonIndex: config.triggerButtonIndex }, responseType: config.responseType, responseText: config.responseText, caption: config.caption, mediaBucket: config.mediaBucket, mediaPath: config.mediaPath, mimeType: config.mimeType, fileName: config.fileName, buttonConfig: config.buttonConfig };
+}
+function resetTriggerIndexes(steps: FollowupStep[]): FollowupStep[] { return steps.map(step => step.trigger.type === "click" ? { ...step, trigger: { ...step.trigger, triggerButtonIndex: "" } } : step); }
 function buildVariableMapping(selected?: WhatsAppTemplate): AutomationInput["variableMapping"] {
   const mapping: AutomationInput["variableMapping"] = {};
   if (selected) for (const section of ["header", "body", "buttons"] as const) {
@@ -98,11 +101,11 @@ export default function AutomationsPage() {
   }
   function handleModeChange(mode: AutomationInput["followupMode"]) {
     setDraft(current => mode === "sequence"
-      ? { ...current, followupMode: "sequence", followupConfig: null, followupSteps: current.followupSteps.length ? current.followupSteps : [newClickStep()] }
+      ? { ...current, followupMode: "sequence", followupConfig: null, followupSteps: current.followupSteps.length ? current.followupSteps : [newStep("click")] }
       : { ...current, followupMode: mode, followupConfig: null, followupSteps: [] });
   }
   function addStep(triggerType: "click" | "delay") {
-    setDraft(current => ({ ...current, followupMode: "sequence", followupSteps: resetTriggerIndexes([...current.followupSteps, triggerType === "click" ? newClickStep() : newDelayStep()]) }));
+    setDraft(current => ({ ...current, followupMode: "sequence", followupSteps: resetTriggerIndexes([...current.followupSteps, newStep(triggerType)]) }));
   }
   function removeStep(id: string) {
     setDraft(current => ({ ...current, followupSteps: resetTriggerIndexes(current.followupSteps.filter(step => step.id !== id)) }));
@@ -119,23 +122,21 @@ export default function AutomationsPage() {
     });
   }
   function setStepTriggerType(id: string, triggerType: "click" | "delay") {
-    setDraft(current => ({ ...current, followupSteps: resetTriggerIndexes(current.followupSteps.map(step => step.id === id ? (triggerType === "click" ? { ...newClickStep(), id } : { ...newDelayStep(), id }) : step)) }));
+    // Troca só o gatilho — o conteúdo já escrito (texto/mídia/botão) é mantido.
+    setDraft(current => ({ ...current, followupSteps: resetTriggerIndexes(current.followupSteps.map(step => step.id === id ? { ...step, trigger: triggerType === "click" ? { type: "click", triggerButtonIndex: "" } : { type: "delay", delayAmount: 10, delayUnit: "minutes" } } : step)) }));
   }
-  function patchStep(id: string, changes: Partial<ClickStep> & Partial<DelayStep>) {
+  function patchStep(id: string, changes: Partial<FollowupStep>) {
     setDraft(current => ({ ...current, followupSteps: current.followupSteps.map(step => step.id === id ? ({ ...step, ...changes } as FollowupStep) : step) }));
   }
-  function selectStepTemplate(stepId: string, key: string) {
-    const selected = templates.find(item => `${item.name}|${item.language}` === key);
-    setDraft(current => ({ ...current, followupSteps: resetTriggerIndexes(current.followupSteps.map(step => step.id === stepId && step.triggerType === "delay" ? { ...step, templateName: selected?.name || "", templateLanguage: selected?.language || "pt_BR", variableMapping: buildVariableMapping(selected) } : step)) }));
+  function patchStepDelay(id: string, changes: { delayAmount?: number; delayUnit?: DelayUnit }) {
+    setDraft(current => ({ ...current, followupSteps: current.followupSteps.map(step => step.id === id && step.trigger.type === "delay" ? { ...step, trigger: { ...step.trigger, ...changes } } : step) }));
   }
   function previousButtonOptions(index: number): { index: string; text: string }[] {
     if (index === 0) return quickReplyOptions(template);
     const previous = draft.followupSteps[index - 1];
-    if (!previous) return [];
-    if (previous.triggerType === "delay") return quickReplyOptions(templates.find(item => item.name === previous.templateName && item.language === previous.templateLanguage));
-    return previous.buttonConfig?.type === "quick_reply" ? [{ index: "0", text: previous.buttonConfig.text || "Continuar" }] : [];
+    return previous?.buttonConfig?.type === "quick_reply" ? [{ index: "0", text: previous.buttonConfig.text || "Continuar" }] : [];
   }
-  async function uploadStepFile(selected: File, responseType: ClickStep["responseType"]) {
+  async function uploadStepFile(selected: File, responseType: FollowupStep["responseType"]) {
     const signedRes = await fetch("/api/admin/official/upload/signed-url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ responseType, file_name: selected.name, mime_type: selected.type, file_size_bytes: selected.size }) });
     const signed = await signedRes.json(); if (!signedRes.ok) throw new Error(signed.error || "Falha ao preparar arquivo.");
     const uploaded = await fetch(signed.signedUrl, { method: "PUT", headers: { "content-type": selected.type }, body: selected });
@@ -148,7 +149,7 @@ export default function AutomationsPage() {
     event.preventDefault(); if (saveLock.current) return; saveLock.current = true; setSaving(true); setError("");
     try {
       const steps = await Promise.all(draft.followupSteps.map(async (step) => {
-        if (step.triggerType === "click" && step.responseType !== "text" && stepFiles[step.id]) return { ...step, ...(await uploadStepFile(stepFiles[step.id], step.responseType)) };
+        if (step.responseType !== "text" && stepFiles[step.id]) return { ...step, ...(await uploadStepFile(stepFiles[step.id], step.responseType)) };
         return step;
       }));
       const input = automationInputSchema.parse({ ...draft, followupConfig: null, followupSteps: steps });
@@ -169,10 +170,7 @@ export default function AutomationsPage() {
   }
   const bodyPreview = template ? renderTemplateBodyPreview(template.components.find(item => item.type === "BODY")?.text || "", draft.variableMapping.body, { ...sample, productName: draft.productName || sample.productName }, template.parameterFormat) : "Escolha um modelo aprovado para visualizar a mensagem inicial.";
   function stepPreviewBubble(step: FollowupStep) {
-    if (step.triggerType === "click") return <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm"><p className="whitespace-pre-wrap">{step.responseType === "text" ? step.responseText || "Escreva a mensagem…" : `${stepFiles[step.id]?.name || step.fileName || step.responseType}\n${step.caption || ""}`}</p>{step.buttonConfig ? <div className="mt-3 rounded-lg bg-white p-2 text-center font-medium text-emerald-800">{step.buttonConfig.text || "Botão"}</div> : null}</div>;
-    const stepTemplate = templates.find(item => item.name === step.templateName && item.language === step.templateLanguage);
-    const preview = stepTemplate ? renderTemplateBodyPreview(stepTemplate.components.find(item => item.type === "BODY")?.text || "", step.variableMapping.body, { ...sample, productName: draft.productName || sample.productName }, stepTemplate.parameterFormat) : "Escolha um modelo aprovado.";
-    return <div className="rounded-xl bg-white p-4 text-sm"><p className="whitespace-pre-wrap">{preview}</p></div>;
+    return <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm"><p className="whitespace-pre-wrap">{step.responseType === "text" ? step.responseText || "Escreva a mensagem…" : `${stepFiles[step.id]?.name || step.fileName || step.responseType}\n${step.caption || ""}`}</p>{step.buttonConfig ? <div className="mt-3 rounded-lg bg-white p-2 text-center font-medium text-emerald-800">{step.buttonConfig.text || "Botão"}</div> : null}</div>;
   }
 
   return <AppShell title="Automações" subtitle="Compra aprovada e outros eventos: configure a conversa inteira aqui.">
@@ -212,32 +210,30 @@ export default function AutomationsPage() {
                       <button type="button" onClick={() => removeStep(step.id)} className="rounded-lg p-1.5 text-red-600" aria-label="Remover etapa"><Trash2 size={16} /></button>
                     </div>
                   </div>
-                  <label className="block text-sm font-medium">Como esta etapa é enviada?<select className={field} value={step.triggerType} onChange={e => setStepTriggerType(step.id, e.target.value as "click" | "delay")}><option value="click">Quando o cliente clicar num botão da mensagem anterior</option><option value="delay">Depois de um tempo, sem esperar clique</option></select></label>
-                  {step.triggerType === "click" ? <>
-                    <label className="block text-sm font-medium">Qual botão da mensagem anterior?<select required className={field} value={step.triggerButtonIndex} onChange={e => patchStep(step.id, { triggerButtonIndex: e.target.value })}><option value="">Selecione o botão</option>{options.map(option => <option key={option.index} value={option.index}>{option.text}</option>)}</select></label>
+                  <label className="block text-sm font-medium">Como esta etapa é enviada?<select className={field} value={step.trigger.type} onChange={e => setStepTriggerType(step.id, e.target.value as "click" | "delay")}><option value="click">Quando o cliente clicar num botão da mensagem anterior</option><option value="delay">Depois de um tempo, sem esperar clique</option></select></label>
+                  {step.trigger.type === "click" ? <>
+                    <label className="block text-sm font-medium">Qual botão da mensagem anterior?<select required className={field} value={step.trigger.triggerButtonIndex} onChange={e => patchStep(step.id, { trigger: { type: "click", triggerButtonIndex: e.target.value } })}><option value="">Selecione o botão</option>{options.map(option => <option key={option.index} value={option.index}>{option.text}</option>)}</select></label>
                     {!options.length ? <p className="text-sm text-amber-800">A mensagem anterior não tem botão de resposta rápida disponível. Ajuste-a ou remova esta etapa.</p> : null}
-                    {index === 0 && editing && legacyActions.length ? <label className="block text-sm text-muted">Copiar uma resposta antiga (opcional)<select className={field} defaultValue="" onChange={e => { const action = legacyActions.find(a => a.id === e.target.value); if (action) patchStep(step.id, { responseType: action.response_type, responseText: action.response_text, caption: action.caption, mediaBucket: action.media_bucket as "whatsapp-media" | null, mediaPath: action.media_path, mimeType: action.mime_type, fileName: action.file_name, buttonConfig: action.button_config?.type === "url" ? action.button_config : null }); }}><option value="">Não copiar</option>{legacyActions.map(action => <option key={action.id} value={action.id}>{action.button_label || action.payload} · {action.response_type}</option>)}</select><span className="text-xs">Cria uma cópia independente; não altera a resposta antiga.</span></label> : null}
-                    <label className="block text-sm font-medium">Conteúdo<select value={step.responseType} className={field} onChange={e => { setStepFiles(current => { const next = { ...current }; delete next[step.id]; return next; }); patchStep(step.id, { responseType: e.target.value as ClickStep["responseType"], mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null }); }}>{Object.entries({ text: "Texto", image: "Imagem", video: "Vídeo", audio: "Áudio", document: "Documento" }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-                    {step.responseType === "text" ? <label className="block text-sm font-medium">Mensagem<textarea required rows={5} value={step.responseText || ""} onChange={e => patchStep(step.id, { responseText: e.target.value })} placeholder="Seu acesso está pronto, {{first_name}}!" className="mt-2 w-full rounded-xl border border-line p-3 text-sm" /></label> : <div><FileDropzone onFile={(selectedFile) => setStepFiles(current => ({ ...current, [step.id]: selectedFile }))} /><p className="mt-2 text-xs text-muted">{stepFiles[step.id]?.name || step.fileName || "Selecione o arquivo"}</p>{step.responseType !== "audio" ? <label className="mt-3 block text-sm font-medium">Legenda<textarea rows={3} value={step.caption || ""} onChange={e => patchStep(step.id, { caption: e.target.value })} className="mt-2 w-full rounded-xl border border-line p-3 text-sm" /></label> : null}</div>}
-                    <p className="text-xs text-muted">Personalize com {"{{first_name}}"}, {"{{product_name}}"} ou {"{{access_url}}"}. Os dados são os da compra original.</p>
-                    {step.responseType !== "audio" ? <div className="rounded-xl bg-white p-4"><span className="mb-2 block text-sm font-medium">Botão</span>
-                      <div className="flex flex-wrap gap-4 text-sm">
-                        <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={!step.buttonConfig} onChange={() => patchStep(step.id, { buttonConfig: null })} /> Nenhum</label>
-                        <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={step.buttonConfig?.type === "url"} onChange={() => patchStep(step.id, { buttonConfig: { type: "url", text: "ACESSAR", url: "" } })} /> Abrir link</label>
-                        <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={step.buttonConfig?.type === "quick_reply"} onChange={() => patchStep(step.id, { buttonConfig: { type: "quick_reply", text: "CONTINUAR" } })} /> Continuar a sequência</label>
-                      </div>
-                      {step.buttonConfig?.type === "quick_reply" && isLastStep ? <p className="mt-2 text-sm text-amber-800">Adicione uma próxima etapa por clique para usar este botão.</p> : null}
-                      {step.buttonConfig ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <label className="text-sm">Texto do botão<input required maxLength={20} value={step.buttonConfig.text} onChange={e => patchStep(step.id, { buttonConfig: { ...step.buttonConfig!, text: e.target.value } })} className={field} /></label>
-                        {step.buttonConfig.type === "url" ? <label className="text-sm">Link de destino<input required type="url" value={step.buttonConfig.url} onChange={e => patchStep(step.id, { buttonConfig: { type: "url", text: step.buttonConfig!.text, url: e.target.value } })} placeholder="https://..." className={field} /></label> : null}
-                      </div> : null}
-                    </div> : null}
                   </> : <>
-                    <label className="block text-sm font-medium">Esperar<div className="mt-1.5 grid grid-cols-[100px_1fr] gap-3"><input required type="number" min={1} max={999} value={step.delayAmount} onChange={e => patchStep(step.id, { delayAmount: Number(e.target.value) })} className={field} /><select className={field} value={step.delayUnit} onChange={e => patchStep(step.id, { delayUnit: e.target.value as DelayUnit })}><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></div></label>
-                    <label className="block text-sm font-medium">Modelo aprovado<select required className={field} value={step.templateName ? `${step.templateName}|${step.templateLanguage}` : ""} onChange={e => selectStepTemplate(step.id, e.target.value)}><option value="">{templatesLoading ? "Carregando modelos…" : "Escolha um modelo"}</option>{templates.filter(t => t.status === "APPROVED").map(t => <option key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`}>{t.name} · {t.language}</option>)}</select></label>
-                    <VariableMappingRows mapping={step.variableMapping} onChange={(next) => patchStep(step.id, { variableMapping: next })} />
-                    <p className="text-xs text-muted">Uma etapa por tempo precisa de um modelo aprovado: sem clique do cliente não há garantia de janela de atendimento aberta para mensagem livre. Links (pagamento/acesso) ficam congelados da compra original — evite atrasos muito longos com links que expiram.</p>
+                    <label className="block text-sm font-medium">Esperar<div className="mt-1.5 grid grid-cols-[100px_1fr] gap-3"><input required type="number" min={1} max={999} value={step.trigger.delayAmount} onChange={e => patchStepDelay(step.id, { delayAmount: Number(e.target.value) })} className={field} /><select className={field} value={step.trigger.delayUnit} onChange={e => patchStepDelay(step.id, { delayUnit: e.target.value as DelayUnit })}><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></div></label>
+                    <p className="text-sm text-amber-800">Sem clique do cliente antes, a Meta pode recusar o envio por falta de janela de atendimento aberta.</p>
                   </>}
+                  {index === 0 && editing && legacyActions.length ? <label className="block text-sm text-muted">Copiar uma resposta antiga (opcional)<select className={field} defaultValue="" onChange={e => { const action = legacyActions.find(a => a.id === e.target.value); if (action) patchStep(step.id, { responseType: action.response_type, responseText: action.response_text, caption: action.caption, mediaBucket: action.media_bucket as "whatsapp-media" | null, mediaPath: action.media_path, mimeType: action.mime_type, fileName: action.file_name, buttonConfig: action.button_config?.type === "url" ? action.button_config : null }); }}><option value="">Não copiar</option>{legacyActions.map(action => <option key={action.id} value={action.id}>{action.button_label || action.payload} · {action.response_type}</option>)}</select><span className="text-xs">Cria uma cópia independente; não altera a resposta antiga.</span></label> : null}
+                  <label className="block text-sm font-medium">Conteúdo<select value={step.responseType} className={field} onChange={e => { setStepFiles(current => { const next = { ...current }; delete next[step.id]; return next; }); patchStep(step.id, { responseType: e.target.value as FollowupStep["responseType"], mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null }); }}>{Object.entries({ text: "Texto", image: "Imagem", video: "Vídeo", audio: "Áudio", document: "Documento" }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+                  {step.responseType === "text" ? <label className="block text-sm font-medium">Mensagem<textarea required rows={5} value={step.responseText || ""} onChange={e => patchStep(step.id, { responseText: e.target.value })} placeholder="Seu acesso está pronto, {{first_name}}!" className="mt-2 w-full rounded-xl border border-line p-3 text-sm" /></label> : <div><FileDropzone onFile={(selectedFile) => setStepFiles(current => ({ ...current, [step.id]: selectedFile }))} /><p className="mt-2 text-xs text-muted">{stepFiles[step.id]?.name || step.fileName || "Selecione o arquivo"}</p>{step.responseType !== "audio" ? <label className="mt-3 block text-sm font-medium">Legenda<textarea rows={3} value={step.caption || ""} onChange={e => patchStep(step.id, { caption: e.target.value })} className="mt-2 w-full rounded-xl border border-line p-3 text-sm" /></label> : null}</div>}
+                  <p className="text-xs text-muted">Personalize com {"{{first_name}}"}, {"{{product_name}}"} ou {"{{access_url}}"}. Os dados são os da compra original.</p>
+                  {step.responseType !== "audio" ? <div className="rounded-xl bg-white p-4"><span className="mb-2 block text-sm font-medium">Botão</span>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={!step.buttonConfig} onChange={() => patchStep(step.id, { buttonConfig: null })} /> Nenhum</label>
+                      <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={step.buttonConfig?.type === "url"} onChange={() => patchStep(step.id, { buttonConfig: { type: "url", text: "ACESSAR", url: "" } })} /> Abrir link</label>
+                      <label className="flex items-center gap-2"><input type="radio" name={`button-${step.id}`} checked={step.buttonConfig?.type === "quick_reply"} onChange={() => patchStep(step.id, { buttonConfig: { type: "quick_reply", text: "CONTINUAR" } })} /> Continuar a sequência</label>
+                    </div>
+                    {step.buttonConfig?.type === "quick_reply" && isLastStep ? <p className="mt-2 text-sm text-amber-800">Adicione uma próxima etapa por clique para usar este botão.</p> : null}
+                    {step.buttonConfig ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="text-sm">Texto do botão<input required maxLength={20} value={step.buttonConfig.text} onChange={e => patchStep(step.id, { buttonConfig: { ...step.buttonConfig!, text: e.target.value } })} className={field} /></label>
+                      {step.buttonConfig.type === "url" ? <label className="text-sm">Link de destino<input required type="url" value={step.buttonConfig.url} onChange={e => patchStep(step.id, { buttonConfig: { type: "url", text: step.buttonConfig!.text, url: e.target.value } })} placeholder="https://..." className={field} /></label> : null}
+                    </div> : null}
+                  </div> : null}
                 </div>;
               })}
               <div className="flex flex-wrap gap-3">
@@ -248,9 +244,9 @@ export default function AutomationsPage() {
           </section>
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-white p-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} /> Ativa para novos eventos</label><div className="flex gap-3"><button type="button" onClick={close} className="px-3 text-sm">Cancelar</button><ActionButton type="submit" disabled={templatesLoading || !template} icon={<Check size={16} />}>{saving ? "Salvando…" : "Salvar automação"}</ActionButton></div></div>
         </fieldset>
-        <aside className="space-y-4 rounded-2xl border border-line bg-wash p-5 xl:sticky xl:top-28"><h3 className="font-semibold">Prévia da conversa</h3><p className="text-xs text-muted">Exemplo ilustrativo. Nenhuma mensagem será enviada ao salvar.</p><div className="rounded-xl bg-white p-4 text-sm"><span className="text-xs text-muted">{eventLabels[draft.eventType] || draft.eventType || "Evento"} · {draft.productName || "Seu produto"}</span><p className="mt-3 whitespace-pre-wrap">{bodyPreview}</p>{draft.followupSteps[0]?.triggerType === "click" && draft.followupSteps[0].triggerButtonIndex !== "" ? <div className="mt-3 border-t border-line pt-3 text-center font-medium text-emerald-700">{buttons[Number(draft.followupSteps[0].triggerButtonIndex)]?.text}</div> : null}</div>
+        <aside className="space-y-4 rounded-2xl border border-line bg-wash p-5 xl:sticky xl:top-28"><h3 className="font-semibold">Prévia da conversa</h3><p className="text-xs text-muted">Exemplo ilustrativo. Nenhuma mensagem será enviada ao salvar.</p><div className="rounded-xl bg-white p-4 text-sm"><span className="text-xs text-muted">{eventLabels[draft.eventType] || draft.eventType || "Evento"} · {draft.productName || "Seu produto"}</span><p className="mt-3 whitespace-pre-wrap">{bodyPreview}</p>{draft.followupSteps[0]?.trigger.type === "click" && draft.followupSteps[0].trigger.triggerButtonIndex !== "" ? <div className="mt-3 border-t border-line pt-3 text-center font-medium text-emerald-700">{buttons[Number(draft.followupSteps[0].trigger.triggerButtonIndex)]?.text}</div> : null}</div>
           {draft.followupSteps.length ? draft.followupSteps.map(step => <div key={step.id} className="space-y-2">
-            <div className="flex items-center justify-center gap-2 text-xs text-muted">{step.triggerType === "click" ? <MousePointerClick size={14} /> : <Clock size={14} />} {step.triggerType === "click" ? "Aguarda o clique do cliente" : `Aguarda ${step.delayAmount} ${unitLabels[step.delayUnit]}`}</div>
+            <div className="flex items-center justify-center gap-2 text-xs text-muted">{step.trigger.type === "click" ? <MousePointerClick size={14} /> : <Clock size={14} />} {step.trigger.type === "click" ? "Aguarda o clique do cliente" : `Aguarda ${step.trigger.delayAmount} ${unitLabels[step.trigger.delayUnit]}`}</div>
             {stepPreviewBubble(step)}
           </div>) : <p className="text-sm text-muted">{draft.followupMode === "legacy" ? "Resposta antiga preservada até você revisar." : "A conversa automática termina na primeira mensagem."}</p>}
         </aside>

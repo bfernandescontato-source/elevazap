@@ -1,14 +1,16 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { findTemplate } from "./templates";
-import { sendWhatsAppTemplate, type TemplateComponent } from "./send-template";
 import { sendQuickReplyMessage } from "./send-interactive";
 import { uploadMediaFromStorage } from "./meta-media";
-import { buildTemplateComponents, renderTemplateText, type EventContext } from "./variable-resolver";
+import { renderTemplateText, type EventContext } from "./variable-resolver";
 import type { QuickReplyAction } from "./quick-reply-actions";
-import { automationStepButtonPayload, type ClickStep, type DelayStep, type DelayUnit, type FollowupStep } from "../automation-config";
+import type { TemplateComponent } from "./send-template";
+import { automationStepButtonPayload, type DelayUnit, type FollowupStep } from "../automation-config";
 
 const DELAY_UNIT_MS: Record<DelayUnit, number> = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
-export function delayToMs(step: DelayStep): number { return step.delayAmount * DELAY_UNIT_MS[step.delayUnit]; }
+export function delayToMs(step: FollowupStep): number {
+  if (step.trigger.type !== "delay") throw new Error("Etapa não é por atraso.");
+  return step.trigger.delayAmount * DELAY_UNIT_MS[step.trigger.delayUnit];
+}
 
 // A etapa que vem depois de "afterStepId" (ou a primeira etapa, se afterStepId for null) precisa
 // ser buscada ao vivo — não pode vir só do snapshot congelado, que só conhece a etapa atual.
@@ -24,37 +26,21 @@ export async function resolveNextStep(automationId: string, afterStepId: string 
   return index === -1 ? null : (steps[index + 1] || null);
 }
 
-// O botão embutido na mensagem ATUAL sempre aponta para a PRÓXIMA etapa da cadeia — só existe
-// quando essa próxima etapa é disparada por clique (uma etapa por atraso não precisa de botão).
+// O botão embutido na mensagem inicial (sempre um template) só existe quando a PRÓXIMA etapa é
+// disparada por clique — uma etapa por atraso não precisa de botão pra ser encontrada depois.
 export function buildNextStepButtonComponent(automationId: string, nextStep: FollowupStep | null): TemplateComponent | null {
-  if (!nextStep || nextStep.triggerType !== "click") return null;
-  return { type: "button", sub_type: "quick_reply", index: nextStep.triggerButtonIndex, parameters: [{ type: "payload", payload: automationStepButtonPayload(automationId, nextStep.id) }] };
+  if (!nextStep || nextStep.trigger.type !== "click") return null;
+  return { type: "button", sub_type: "quick_reply", index: nextStep.trigger.triggerButtonIndex, parameters: [{ type: "payload", payload: automationStepButtonPayload(automationId, nextStep.id) }] };
 }
 
-// Etapa disparada por atraso: sem garantia de janela de atendimento aberta, então precisa ser
-// um template aprovado — mesmo mecanismo da mensagem inicial (findTemplate + buildTemplateComponents).
-export async function sendDelayTriggeredStep(input: {
+// Toda etapa de acompanhamento (por clique ou por atraso) é mensagem livre — decisão explícita do
+// usuário, ciente de que uma etapa por atraso pode ser recusada pela Meta se não houver janela de
+// atendimento aberta (nenhuma interação do cliente desde a mensagem anterior).
+export async function sendFollowupStep(input: {
   automationId: string;
   connectionId: string | null;
   phone: string;
-  step: DelayStep;
-  context: EventContext;
-  nextStep: FollowupStep | null;
-}) {
-  const template = await findTemplate(input.step.templateName, input.step.templateLanguage, input.connectionId);
-  const components: TemplateComponent[] = buildTemplateComponents(input.step.variableMapping, input.context, template.parameterFormat);
-  const buttonComponent = buildNextStepButtonComponent(input.automationId, input.nextStep);
-  if (buttonComponent) components.push(buttonComponent);
-  return sendWhatsAppTemplate({ phone: input.phone, templateName: input.step.templateName, language: input.step.templateLanguage, components, connectionId: input.connectionId });
-}
-
-// Etapa disparada por clique: o clique reabre a janela de 24h, então pode ser mensagem livre —
-// mesmo mecanismo que processAutomationButtonClick já usa hoje para a única segunda mensagem.
-export async function sendClickTriggeredStep(input: {
-  automationId: string;
-  connectionId: string | null;
-  phone: string;
-  step: ClickStep;
+  step: FollowupStep;
   context: EventContext;
   nextStep: FollowupStep | null;
 }) {

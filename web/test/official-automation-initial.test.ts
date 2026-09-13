@@ -34,8 +34,8 @@ it("não envia se o botão escolhido deixou de existir", async () => {
   expect(mocks.event).toHaveBeenCalledWith("event-1", "failed", expect.any(String), { automationId: "automation-1" });
 });
 
-const clickStep = { id: "11111111-1111-1111-1111-111111111111", triggerType: "click" as const, triggerButtonIndex: "0", responseType: "text" as const, responseText: "Próxima etapa", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
-const delayStep = { id: "22222222-2222-2222-2222-222222222222", triggerType: "delay" as const, delayAmount: 30, delayUnit: "minutes" as const, templateName: "followup-template", templateLanguage: "pt_BR", variableMapping: {} };
+const clickStep = { id: "11111111-1111-1111-1111-111111111111", trigger: { type: "click" as const, triggerButtonIndex: "0" }, responseType: "text" as const, responseText: "Próxima etapa", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
+const delayStep = { id: "22222222-2222-2222-2222-222222222222", trigger: { type: "delay" as const, delayAmount: 30, delayUnit: "minutes" as const }, responseType: "text" as const, responseText: "Segue a próxima etapa!", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
 
 it("sequência: primeira etapa por clique embute o botão e congela a etapa no snapshot v2", async () => {
   mocks.find.mockResolvedValue({ ...automation, followup_mode: "sequence", followup_config: null, followup_steps: [clickStep] });

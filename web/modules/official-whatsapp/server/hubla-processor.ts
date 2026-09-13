@@ -74,8 +74,8 @@ export async function processHublaEvent(eventId: string, parsed: ParsedPurchaseE
       // etapas depois nunca afeta um elo já aguardando (ver automation-chain.ts:resolveNextStep).
       const steps = followupStepsSchema.parse(automation.followup_steps || []);
       const nextStep = steps[0] || null;
-      if (nextStep?.triggerType === "click") {
-        const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(nextStep.triggerButtonIndex)];
+      if (nextStep?.trigger.type === "click") {
+        const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(nextStep.trigger.triggerButtonIndex)];
         if (button?.type !== "QUICK_REPLY") { await markEventStatus(eventId, "failed", "O botão configurado não existe mais no modelo.", { automationId: automation.id }); return; }
       }
       const buttonComponent = buildNextStepButtonComponent(automation.id, nextStep);

@@ -70,7 +70,7 @@ function deriveAutomationScheduling(snapshot: AutomationSnapshot | null | undefi
   if (!snapshot) return { replyState: null, dueAt: null };
   if (snapshot.version === 2) {
     if (!snapshot.nextStep) return { replyState: null, dueAt: null };
-    if (snapshot.nextStep.triggerType === "delay") return { replyState: "waiting", dueAt: new Date(Date.now() + delayToMs(snapshot.nextStep)).toISOString() };
+    if (snapshot.nextStep.trigger.type === "delay") return { replyState: "waiting", dueAt: new Date(Date.now() + delayToMs(snapshot.nextStep)).toISOString() };
     return { replyState: "waiting", dueAt: null };
   }
   return { replyState: snapshot.mode === "button" ? "waiting" : null, dueAt: null };

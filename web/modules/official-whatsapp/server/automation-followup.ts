@@ -8,7 +8,7 @@ import { sendQuickReplyMessage } from "./send-interactive";
 import { uploadMediaFromStorage } from "./meta-media";
 import { renderTemplateText, type EventContext } from "./variable-resolver";
 import { officialErrorMessage } from "./errors";
-import { resolveNextStep, sendClickTriggeredStep } from "./automation-chain";
+import { resolveNextStep, sendFollowupStep } from "./automation-chain";
 
 export type AutomationSnapshotV1 = { version: 1; mode: "none" | "button"; context: EventContext; triggerPayload: string | null; config: FollowupConfig | null };
 // Sequência de N etapas: carrega o conteúdo já congelado da PRÓXIMA etapa da cadeia (ou null se a
@@ -18,7 +18,7 @@ export type AutomationSnapshotV2 = { version: 2; automationId: string; context: 
 export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
 
 function expectedClickPayload(snapshot: AutomationSnapshot): string | null {
-  if (snapshot.version === 2) return snapshot.nextStep?.triggerType === "click" ? automationStepButtonPayload(snapshot.automationId, snapshot.nextStep.id) : null;
+  if (snapshot.version === 2) return snapshot.nextStep?.trigger.type === "click" ? automationStepButtonPayload(snapshot.automationId, snapshot.nextStep.id) : null;
   return snapshot.mode === "button" ? snapshot.triggerPayload : null;
 }
 
@@ -59,9 +59,9 @@ export async function processAutomationButtonClick(eventId: string, click: { fro
   try {
     if (snapshot.version === 2) {
       const step = snapshot.nextStep;
-      if (!step || step.triggerType !== "click") throw new Error("Etapa inválida para clique.");
+      if (!step || step.trigger.type !== "click") throw new Error("Etapa inválida para clique.");
       const nextStep = await resolveNextStep(snapshot.automationId, step.id);
-      const result = await sendClickTriggeredStep({ automationId: snapshot.automationId, connectionId, phone, step, context: snapshot.context, nextStep });
+      const result = await sendFollowupStep({ automationId: snapshot.automationId, connectionId, phone, step, context: snapshot.context, nextStep });
       accepted = true;
       await admin.from("official_messages").update({ automation_reply_state: "sent" }).eq("id", original.id);
       await logMessageAttempt({

@@ -25,19 +25,25 @@ export type DelayUnit = "minutes" | "hours" | "days";
 
 const variableMappingSchema = z.object({ header: z.record(z.string().max(2048)).optional(), body: z.record(z.string().max(2048)).optional(), buttons: z.record(z.string().max(2048)).optional() }).default({});
 
-// Uma etapa da sequência de follow-up. O gatilho decide o tipo de conteúdo válido — não é uma
-// escolha livre: um clique reabre a janela de atendimento de 24h (mensagem livre permitida);
-// um atraso de tempo não tem essa garantia, então a etapa precisa ser um template aprovado,
-// no mesmo mecanismo da mensagem inicial.
+// Uma etapa da sequência de follow-up: sempre mensagem livre (texto/mídia/legenda/botão), com um
+// gatilho independente do conteúdo — por clique (reabre a janela de atendimento de 24h) ou por
+// atraso de tempo. Decisão explícita do usuário: uma etapa por atraso pode ser recusada pela Meta
+// se não houver interação do cliente desde a mensagem anterior (sem janela de atendimento aberta);
+// aceito esse risco em troca de não exigir um template aprovado para cada etapa da cadeia.
 const stepButtonSchema = z.union([
   linkButton,
   z.object({ type: z.literal("quick_reply"), text: z.string().trim().min(1).max(20) })
 ]).nullable().default(null);
 
-const clickStepSchema = z.object({
+const stepTriggerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("click"), triggerButtonIndex: z.string().regex(/^\d$/) }),
+  z.object({ type: z.literal("delay"), delayAmount: z.number().int().min(1).max(999), delayUnit: z.enum(["minutes", "hours", "days"]) })
+]);
+export type StepTrigger = z.infer<typeof stepTriggerSchema>;
+
+export const followupStepSchema = z.object({
   id: z.string().uuid(),
-  triggerType: z.literal("click"),
-  triggerButtonIndex: z.string().regex(/^\d$/),
+  trigger: stepTriggerSchema,
   responseType: z.enum(["text", "image", "video", "audio", "document"]),
   responseText: z.string().max(4096).nullable().default(null),
   caption: z.string().max(1024).nullable().default(null),
@@ -46,20 +52,7 @@ const clickStepSchema = z.object({
   mimeType: z.string().max(120).nullable().default(null),
   fileName: z.string().max(255).nullable().default(null),
   buttonConfig: stepButtonSchema
-});
-
-const delayStepSchema = z.object({
-  id: z.string().uuid(),
-  triggerType: z.literal("delay"),
-  delayAmount: z.number().int().min(1).max(999),
-  delayUnit: z.enum(["minutes", "hours", "days"]),
-  templateName: z.string().trim().min(1).max(512),
-  templateLanguage: z.string().trim().min(2).max(30),
-  variableMapping: variableMappingSchema
-});
-
-export const followupStepSchema = z.discriminatedUnion("triggerType", [clickStepSchema, delayStepSchema]).superRefine((step, context) => {
-  if (step.triggerType !== "click") return;
+}).superRefine((step, context) => {
   const issue = (message: string) => context.addIssue({ code: z.ZodIssueCode.custom, message });
   if (step.responseType === "text" && !step.responseText?.trim()) issue("Escreva a mensagem desta etapa.");
   if (step.responseType !== "text" && (!step.mediaBucket || !step.mediaPath || !step.mimeType)) issue("Envie o arquivo desta etapa.");
@@ -68,8 +61,6 @@ export const followupStepSchema = z.discriminatedUnion("triggerType", [clickStep
   if (step.buttonConfig && ((step.responseType === "text" ? step.responseText : step.caption) || "").length > 1024) issue("Mensagem com botão aceita até 1.024 caracteres.");
 });
 export type FollowupStep = z.infer<typeof followupStepSchema>;
-export type ClickStep = Extract<FollowupStep, { triggerType: "click" }>;
-export type DelayStep = Extract<FollowupStep, { triggerType: "delay" }>;
 
 export const followupStepsSchema = z.array(followupStepSchema).max(10, "Limite de 10 etapas por automação.").superRefine((steps, context) => {
   const ids = new Set<string>();

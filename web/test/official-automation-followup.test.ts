@@ -79,8 +79,8 @@ describe("segunda mensagem isolada e idempotente", () => {
 });
 
 describe("sequência de N etapas (snapshot version 2)", () => {
-  const stepA = { id: "11111111-1111-1111-1111-111111111111", triggerType: "click" as const, triggerButtonIndex: "0", responseType: "text" as const, responseText: "Olá {{first_name}}, seu {{product_name}} está pronto!", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: { type: "quick_reply" as const, text: "PRÓXIMO" } };
-  const stepB = { id: "22222222-2222-2222-2222-222222222222", triggerType: "click" as const, triggerButtonIndex: "0", responseType: "text" as const, responseText: "Última etapa!", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
+  const stepA = { id: "11111111-1111-1111-1111-111111111111", trigger: { type: "click" as const, triggerButtonIndex: "0" }, responseType: "text" as const, responseText: "Olá {{first_name}}, seu {{product_name}} está pronto!", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: { type: "quick_reply" as const, text: "PRÓXIMO" } };
+  const stepB = { id: "22222222-2222-2222-2222-222222222222", trigger: { type: "click" as const, triggerButtonIndex: "0" }, responseType: "text" as const, responseText: "Última etapa!", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
   const snapshotV2: AutomationSnapshotV2 = { version: 2, automationId: "automation-a", context, nextStep: stepA };
   const clickV2 = { from: "5511999999999", button: { payload: automationStepButtonPayload("automation-a", stepA.id) }, context: { id: "wamid.original" } };
   beforeEach(() => {

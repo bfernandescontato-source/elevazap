@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { officialErrorMessage } from "./errors";
 import { logMessageAttempt } from "./messages-store";
-import { resolveNextStep, sendDelayTriggeredStep } from "./automation-chain";
+import { resolveNextStep, sendFollowupStep } from "./automation-chain";
 import type { AutomationSnapshotV2 } from "./automation-followup";
 
 type DueRow = { id: string; phone: string; connection_id: string | null; automation_id: string | null; automation_snapshot: AutomationSnapshotV2 | null };
@@ -10,7 +10,7 @@ async function processDueRow(row: DueRow) {
   const admin = supabaseAdmin();
   const snapshot = row.automation_snapshot;
   const step = snapshot?.nextStep;
-  if (!snapshot || snapshot.version !== 2 || !step || step.triggerType !== "delay" || !row.automation_id) {
+  if (!snapshot || snapshot.version !== 2 || !step || step.trigger.type !== "delay" || !row.automation_id) {
     await admin.from("official_messages").update({ automation_reply_state: "failed", error: "Etapa por atraso inválida ou automação não encontrada." }).eq("id", row.id);
     return;
   }
@@ -27,14 +27,14 @@ async function processDueRow(row: DueRow) {
   let accepted = false;
   try {
     const nextStep = await resolveNextStep(automationId, step.id);
-    const result = await sendDelayTriggeredStep({ automationId, connectionId: row.connection_id, phone: row.phone, step, context: snapshot.context, nextStep });
+    const result = await sendFollowupStep({ automationId, connectionId: row.connection_id, phone: row.phone, step, context: snapshot.context, nextStep });
     accepted = true;
     await admin.from("official_messages").update({ automation_reply_state: "sent" }).eq("id", row.id);
     await logMessageAttempt({
-      eventId: null, phone: result.phone, templateName: step.templateName, templateLanguage: step.templateLanguage,
-      status: "accepted", metaMessageId: result.messageId || null, requestPayload: result.requestPayload, responsePayload: result.response, connectionId: result.connectionId,
+      eventId: null, phone: result.phone,
+      status: "accepted", metaMessageId: result.messageId, requestPayload: result.requestPayload, responsePayload: result.response, connectionId: result.connectionId,
       automationId, automationSnapshot: { version: 2, automationId, context: snapshot.context, nextStep },
-      attribution: { sourceType: "automation", sourceId: automationId, messageKey: `step:${step.id}`, templateId: step.templateName, phoneNumberId: result.phoneNumberId }
+      attribution: { sourceType: "automation", sourceId: automationId, messageKey: `step:${step.id}`, phoneNumberId: result.phoneNumberId }
     });
   } catch (error) {
     // Não reenviar em falha: uma tentativa que já chamou a Meta é uma entrega ambígua, não um erro certo.

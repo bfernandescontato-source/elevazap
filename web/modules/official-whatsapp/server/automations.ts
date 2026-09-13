@@ -115,25 +115,17 @@ export async function validateAutomationInput(input: AutomationInput) {
     if (button?.type !== "QUICK_REPLY") throw new Error("Escolha um botão de resposta rápida existente no modelo inicial.");
   }
   if (input.followupMode === "sequence") {
-    // Valida cada etapa contra o estado real do template anterior na cadeia — isso não dá pra
-    // checar só com zod, exige buscar o template ao vivo (igual já acontece pra mensagem inicial).
+    // Toda etapa é mensagem livre (zod já valida texto/mídia/botão) — só o índice do botão da
+    // etapa "por clique" depende do estado real da mensagem anterior, o que exige olhar a cadeia.
     let previousQuickReplyIndexes = quickReplyButtonIndexes(template);
     const steps = input.followupSteps;
-    for (const [index, step] of steps.entries()) {
+    steps.forEach((step, index) => {
       const stepLabel = `Etapa ${index + 1}`;
       const isLastStep = index === steps.length - 1;
-      if (step.triggerType === "click") {
-        if (!previousQuickReplyIndexes.has(step.triggerButtonIndex)) throw new Error(`${stepLabel}: escolha um botão de resposta rápida existente na mensagem anterior.`);
-        if (step.buttonConfig?.type === "quick_reply" && isLastStep) throw new Error(`${stepLabel}: um botão "continuar sequência" precisa de uma próxima etapa.`);
-        previousQuickReplyIndexes = step.buttonConfig?.type === "quick_reply" ? new Set(["0"]) : new Set();
-      } else {
-        const stepTemplate = await findTemplate(step.templateName, step.templateLanguage, input.connectionId);
-        if (stepTemplate.components.some((item) => item.type === "HEADER" && item.format && item.format !== "TEXT")) throw new Error(`${stepLabel}: escolha um modelo com cabeçalho de texto.`);
-        const stepMissing = missingTemplateMappings({ mapping: step.variableMapping, parameterFormat: stepTemplate.parameterFormat, header: stepTemplate.variables.header, body: stepTemplate.variables.body, namedHeader: stepTemplate.namedVariables.header, namedBody: stepTemplate.namedVariables.body, dynamicButtons: stepTemplate.dynamicUrlButtonIndexes });
-        if (stepMissing.length) throw new Error(`${stepLabel}: preencha as variáveis do modelo (${stepMissing.join(", ")}).`);
-        previousQuickReplyIndexes = quickReplyButtonIndexes(stepTemplate);
-      }
-    }
+      if (step.trigger.type === "click" && !previousQuickReplyIndexes.has(step.trigger.triggerButtonIndex)) throw new Error(`${stepLabel}: escolha um botão de resposta rápida existente na mensagem anterior.`);
+      if (step.buttonConfig?.type === "quick_reply" && isLastStep) throw new Error(`${stepLabel}: um botão "continuar sequência" precisa de uma próxima etapa.`);
+      previousQuickReplyIndexes = step.buttonConfig?.type === "quick_reply" ? new Set(["0"]) : new Set();
+    });
   }
 }
 
