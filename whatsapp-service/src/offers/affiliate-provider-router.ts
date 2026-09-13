@@ -7,7 +7,7 @@ const HOST_PROVIDER = new Map<string, AffiliateProviderName>([
   ["mercadolivre.com.br", "mercado_livre"], ["www.mercadolivre.com.br", "mercado_livre"],
   ["produto.mercadolivre.com.br", "mercado_livre"], ["meli.la", "mercado_livre"],
   ["amazon.com.br", "amazon"], ["www.amazon.com.br", "amazon"], ["amzn.to", "amazon"],
-  ["a.co", "amazon"], ["link.amazon", "amazon"], ["amzlink.me", "amazon"]
+  ["a.co", "amazon"], ["link.amazon", "amazon"], ["amzlink.me", "amazon"], ["amzlinks.in", "amazon"]
 ]);
 
 export function getAffiliateProviderName(value: string): AffiliateProviderName | "unsupported" {

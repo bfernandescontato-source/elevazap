@@ -55,8 +55,21 @@ describe("conversão manual de links Amazon", () => {
     expect(new URL(result.affiliate_url).searchParams.getAll("tag")).toEqual([TAG]);
   });
 
-  it("ainda bloqueia encurtadores de terceiro não aprovados explicitamente", () => {
-    expect(isAmazonUrl("https://amzlinks.in/B09iZUsu8")).toBe(false);
+  it("segue a cadeia real link.amazon -> amzlinks.in -> amazon.com.br em dois saltos", async () => {
+    expect(isAmazonUrl("https://amzlinks.in/B09iZUsu8")).toBe(true);
+    const request = vi.fn(async (url: string) => {
+      if (url === "https://link.amazon/B09iZUsu8") {
+        return new Response(null, { status: 302, headers: { location: "https://amzlinks.in/B09iZUsu8" } });
+      }
+      if (url === "https://amzlinks.in/B09iZUsu8") {
+        return new Response(null, { status: 302, headers: { location: "https://www.amazon.com.br/dp/B0GHZDQ7F3?tag=irmasdaspro02-20" } });
+      }
+      throw new Error(`unexpected url in test: ${url}`);
+    });
+    const result = await convertAmazonLink("https://link.amazon/B09iZUsu8", TAG, request as typeof fetch);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(result.resolved_url).toBe("https://www.amazon.com.br/dp/B0GHZDQ7F3?tag=irmasdaspro02-20");
+    expect(new URL(result.affiliate_url).searchParams.getAll("tag")).toEqual([TAG]);
   });
 
   it("exige Partner Tag e valida seu formato", async () => {
