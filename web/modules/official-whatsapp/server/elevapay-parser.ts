@@ -13,10 +13,13 @@ export function extractElevaPayCredential(headers: Headers, body: unknown): stri
   const root = asObject(body);
   const authorization = str(headers.get("authorization"));
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || null;
+  // A ElevaPay envia "Authorization: <token>" puro, sem prefixo Bearer.
+  const rawAuthorization = bearer ? null : authorization;
   return str(headers.get("x-elevapay-token"))
     ?? str(headers.get("x-api-key"))
     ?? str(headers.get("api-key"))
     ?? bearer
+    ?? rawAuthorization
     ?? str(root.apiKey)
     ?? str(root.api_key);
 }

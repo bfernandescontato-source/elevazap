@@ -207,6 +207,7 @@ describe("payload de venda aprovada da ElevaPay", () => {
     expect(extractElevaPayCredential(new Headers({ "x-elevapay-token": "secret" }), {})).toBe("secret");
     expect(extractElevaPayCredential(new Headers({ "x-api-key": "secret" }), {})).toBe("secret");
     expect(extractElevaPayCredential(new Headers({ authorization: "Bearer secret" }), {})).toBe("secret");
+    expect(extractElevaPayCredential(new Headers({ authorization: "secret" }), {})).toBe("secret");
     expect(extractElevaPayCredential(new Headers(), { apiKey: "secret" })).toBe("secret");
   });
 
