@@ -134,7 +134,9 @@ x-elevapay-token: valor_configurado_em_ELEVAPAY_WEBHOOK_TOKEN
 ```
 
 Na ElevaPay, crie uma regra com o evento **Venda aprovada** (`order.paid`) e
-configure a API Key na aba de autenticação como header `x-elevapay-token`.
+configure a API Key na aba de autenticação como Header. O receptor aceita o
+header emitido pela ElevaPay, `x-elevapay-token`, `x-api-key`, Bearer e também
+o campo `apiKey` do payload.
 
 Payload mínimo:
 

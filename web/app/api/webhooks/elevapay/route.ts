@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { captureElevaPayEvent, extractRelevantHeaders } from "@/modules/official-whatsapp/server/hubla-events";
-import { parseElevaPayOrderPaid } from "@/modules/official-whatsapp/server/elevapay-parser";
+import { extractElevaPayCredential, parseElevaPayOrderPaid } from "@/modules/official-whatsapp/server/elevapay-parser";
 import { processHublaEvent } from "@/modules/official-whatsapp/server/hubla-processor";
 
 function tokenMatches(provided: string | null, expected: string) {
@@ -15,12 +15,11 @@ function tokenMatches(provided: string | null, expected: string) {
 // Configurar na ElevaPay: evento "Venda aprovada" (order.paid) e header
 // x-elevapay-token. A regra já limita este endpoint a compras aprovadas.
 export async function POST(request: NextRequest) {
-  if (!tokenMatches(request.headers.get("x-elevapay-token"), env().ELEVAPAY_WEBHOOK_TOKEN)) {
-    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
-  }
-
   const body = await request.json().catch(() => null);
   if (body === null) return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
+  if (!tokenMatches(extractElevaPayCredential(request.headers, body), env().ELEVAPAY_WEBHOOK_TOKEN)) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
 
   const parsed = parseElevaPayOrderPaid(body);
   try {

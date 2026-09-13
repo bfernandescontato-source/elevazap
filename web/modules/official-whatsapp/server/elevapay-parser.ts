@@ -9,6 +9,18 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+export function extractElevaPayCredential(headers: Headers, body: unknown): string | null {
+  const root = asObject(body);
+  const authorization = str(headers.get("authorization"));
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || null;
+  return str(headers.get("x-elevapay-token"))
+    ?? str(headers.get("x-api-key"))
+    ?? str(headers.get("api-key"))
+    ?? bearer
+    ?? str(root.apiKey)
+    ?? str(root.api_key);
+}
+
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
