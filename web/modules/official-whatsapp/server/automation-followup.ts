@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { normalizeBrazilianPhone } from "@/lib/phone";
-import { followupConfigSchema, type FollowupConfig } from "../automation-config";
+import { automationStepButtonPayload, followupConfigSchema, type FollowupConfig, type FollowupStep } from "../automation-config";
 import { markEventStatus } from "./hubla-events";
 import { logMessageAttempt } from "./messages-store";
 import type { QuickReplyAction } from "./quick-reply-actions";
@@ -8,11 +8,23 @@ import { sendQuickReplyMessage } from "./send-interactive";
 import { uploadMediaFromStorage } from "./meta-media";
 import { renderTemplateText, type EventContext } from "./variable-resolver";
 import { officialErrorMessage } from "./errors";
+import { resolveNextStep, sendClickTriggeredStep } from "./automation-chain";
 
-export type AutomationSnapshot = { version: 1; mode: "none" | "button"; context: EventContext; triggerPayload: string | null; config: FollowupConfig | null };
+export type AutomationSnapshotV1 = { version: 1; mode: "none" | "button"; context: EventContext; triggerPayload: string | null; config: FollowupConfig | null };
+// Sequência de N etapas: carrega o conteúdo já congelado da PRÓXIMA etapa da cadeia (ou null se a
+// cadeia terminou). O payload de clique esperado é sempre derivado de (automationId, nextStep.id) —
+// nunca armazenado separadamente, pra não haver duas fontes de verdade.
+export type AutomationSnapshotV2 = { version: 2; automationId: string; context: EventContext; nextStep: FollowupStep | null };
+export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
+
+function expectedClickPayload(snapshot: AutomationSnapshot): string | null {
+  if (snapshot.version === 2) return snapshot.nextStep?.triggerType === "click" ? automationStepButtonPayload(snapshot.automationId, snapshot.nextStep.id) : null;
+  return snapshot.mode === "button" ? snapshot.triggerPayload : null;
+}
 
 export function isAutomationReplyMatch(snapshot: AutomationSnapshot, phone: string, connectionId: string | null, original: { phone: string; connection_id: string | null }, payload: string) {
-  return snapshot.mode === "button" && snapshot.triggerPayload === payload && original.phone === phone && (original.connection_id || null) === connectionId;
+  const expected = expectedClickPayload(snapshot);
+  return expected !== null && expected === payload && original.phone === phone && (original.connection_id || null) === connectionId;
 }
 
 // Snapshot belongs to the original send, not the current editor or a shared button label.
@@ -45,6 +57,22 @@ export async function processAutomationButtonClick(eventId: string, click: { fro
   if (!claimed) { await markEventStatus(eventId, "ignored", "Segunda mensagem já processada ou em processamento."); return true; }
   let accepted = false;
   try {
+    if (snapshot.version === 2) {
+      const step = snapshot.nextStep;
+      if (!step || step.triggerType !== "click") throw new Error("Etapa inválida para clique.");
+      const nextStep = await resolveNextStep(snapshot.automationId, step.id);
+      const result = await sendClickTriggeredStep({ automationId: snapshot.automationId, connectionId, phone, step, context: snapshot.context, nextStep });
+      accepted = true;
+      await admin.from("official_messages").update({ automation_reply_state: "sent" }).eq("id", original.id);
+      await logMessageAttempt({
+        eventId, phone, connectionId, automationId: snapshot.automationId, status: "accepted", metaMessageId: result.messageId,
+        requestPayload: result.requestPayload, responsePayload: result.response,
+        automationSnapshot: { version: 2, automationId: snapshot.automationId, context: snapshot.context, nextStep },
+        attribution: { sourceType: "automation", sourceId: snapshot.automationId, messageKey: `step:${step.id}`, phoneNumberId: result.phoneNumberId }
+      });
+      await markEventStatus(eventId, "processed", null, { automationId: snapshot.automationId });
+      return true;
+    }
     const config = followupConfigSchema.parse(snapshot.config);
     const text = renderTemplateText(config.responseText || "", snapshot.context);
     const caption = renderTemplateText(config.caption || "", snapshot.context);

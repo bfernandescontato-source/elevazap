@@ -1,15 +1,16 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import type { VariableMapping } from "./variable-resolver";
 import { missingTemplateMappings } from "./variable-resolver";
-import { findTemplate } from "./templates";
+import { findTemplate, type WhatsAppTemplate } from "./templates";
 import { resolveOfficialConnection } from "./official-connections";
-import type { AutomationInput, FollowupConfig, FollowupMode } from "../automation-config";
+import type { AutomationInput, FollowupConfig, FollowupMode, FollowupStep } from "../automation-config";
 
 export type OfficialAutomation = {
   id: string;
   name: string;
   followup_mode: FollowupMode;
   followup_config: FollowupConfig | null;
+  followup_steps: FollowupStep[];
   connection_id: string | null;
   event_type: string;
   product_id: string | null;
@@ -33,6 +34,7 @@ export async function createAutomation(input: {
   name: string;
   followupMode: FollowupMode;
   followupConfig: FollowupConfig | null;
+  followupSteps: FollowupStep[];
   connectionId?: string | null;
   eventType: string;
   productId: string | null;
@@ -47,6 +49,7 @@ export async function createAutomation(input: {
     name: input.name,
     followup_mode: input.followupMode,
     followup_config: input.followupConfig,
+    followup_steps: input.followupSteps,
     event_type: input.eventType,
     connection_id: input.connectionId || null,
     product_id: input.productId,
@@ -65,6 +68,7 @@ export async function updateAutomation(id: string, changes: {
   product_name?: string | null;
   followup_mode?: FollowupMode;
   followup_config?: FollowupConfig | null;
+  followup_steps?: FollowupStep[];
   connection_id?: string | null;
   event_type?: string;
   product_id?: string | null;
@@ -93,6 +97,13 @@ export async function findActiveAutomation(eventType: string | null, productId: 
   return matches[0] || null;
 }
 
+function quickReplyButtonIndexes(template: WhatsAppTemplate): Set<string> {
+  const buttons = template.components.find((item) => item.type === "BUTTONS")?.buttons || [];
+  const indexes: string[] = [];
+  buttons.forEach((button, index) => { if (button.type === "QUICK_REPLY") indexes.push(String(index)); });
+  return new Set(indexes);
+}
+
 export async function validateAutomationInput(input: AutomationInput) {
   await resolveOfficialConnection(input.connectionId);
   const template = await findTemplate(input.templateName, input.templateLanguage, input.connectionId);
@@ -102,6 +113,27 @@ export async function validateAutomationInput(input: AutomationInput) {
   if (input.followupMode === "button") {
     const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(input.followupConfig!.triggerButtonIndex)];
     if (button?.type !== "QUICK_REPLY") throw new Error("Escolha um botão de resposta rápida existente no modelo inicial.");
+  }
+  if (input.followupMode === "sequence") {
+    // Valida cada etapa contra o estado real do template anterior na cadeia — isso não dá pra
+    // checar só com zod, exige buscar o template ao vivo (igual já acontece pra mensagem inicial).
+    let previousQuickReplyIndexes = quickReplyButtonIndexes(template);
+    const steps = input.followupSteps;
+    for (const [index, step] of steps.entries()) {
+      const stepLabel = `Etapa ${index + 1}`;
+      const isLastStep = index === steps.length - 1;
+      if (step.triggerType === "click") {
+        if (!previousQuickReplyIndexes.has(step.triggerButtonIndex)) throw new Error(`${stepLabel}: escolha um botão de resposta rápida existente na mensagem anterior.`);
+        if (step.buttonConfig?.type === "quick_reply" && isLastStep) throw new Error(`${stepLabel}: um botão "continuar sequência" precisa de uma próxima etapa.`);
+        previousQuickReplyIndexes = step.buttonConfig?.type === "quick_reply" ? new Set(["0"]) : new Set();
+      } else {
+        const stepTemplate = await findTemplate(step.templateName, step.templateLanguage, input.connectionId);
+        if (stepTemplate.components.some((item) => item.type === "HEADER" && item.format && item.format !== "TEXT")) throw new Error(`${stepLabel}: escolha um modelo com cabeçalho de texto.`);
+        const stepMissing = missingTemplateMappings({ mapping: step.variableMapping, parameterFormat: stepTemplate.parameterFormat, header: stepTemplate.variables.header, body: stepTemplate.variables.body, namedHeader: stepTemplate.namedVariables.header, namedBody: stepTemplate.namedVariables.body, dynamicButtons: stepTemplate.dynamicUrlButtonIndexes });
+        if (stepMissing.length) throw new Error(`${stepLabel}: preencha as variáveis do modelo (${stepMissing.join(", ")}).`);
+        previousQuickReplyIndexes = quickReplyButtonIndexes(stepTemplate);
+      }
+    }
   }
 }
 

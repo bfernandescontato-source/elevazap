@@ -7,8 +7,9 @@ import { sendWhatsAppTemplate, type TemplateComponent } from "./send-template";
 import { logMessageAttempt } from "./messages-store";
 import { buildTemplateComponents, missingRequiredVariables, type EventContext, type VariableMapping } from "./variable-resolver";
 import { officialErrorCode, officialErrorMessage } from "./errors";
-import { automationButtonPayload, followupConfigSchema } from "../automation-config";
+import { automationButtonPayload, followupConfigSchema, followupStepsSchema } from "../automation-config";
 import type { AutomationSnapshot } from "./automation-followup";
+import { buildNextStepButtonComponent } from "./automation-chain";
 
 // Chamado via after() pelo webhook — a resposta HTTP já foi enviada à Hubla antes disso rodar.
 // Fluxo: procura automação ativa -> normaliza telefone -> resolve variáveis -> envia via Meta -> loga.
@@ -58,17 +59,30 @@ export async function processHublaEvent(eventId: string, parsed: ParsedPurchaseE
   const components: TemplateComponent[] = buildTemplateComponents(mapping, context, template.parameterFormat);
   let snapshot: AutomationSnapshot | null = null;
   try {
-    if (automation.followup_mode && automation.followup_mode !== "legacy") {
-    snapshot = { version: 1, mode: automation.followup_mode, context, config: null, triggerPayload: null };
     if (automation.followup_mode === "button") {
+      snapshot = { version: 1, mode: "button", context, config: null, triggerPayload: null };
       const config = followupConfigSchema.parse(automation.followup_config);
       const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(config.triggerButtonIndex)];
       if (button?.type !== "QUICK_REPLY") { await markEventStatus(eventId, "failed", "O botão configurado não existe mais no modelo.", { automationId: automation.id }); return; }
       snapshot.config = config;
       snapshot.triggerPayload = automationButtonPayload(automation.id);
       components.push({ type: "button", sub_type: "quick_reply", index: config.triggerButtonIndex, parameters: [{ type: "payload", payload: snapshot.triggerPayload }] });
+    } else if (automation.followup_mode === "none") {
+      snapshot = { version: 1, mode: "none", context, config: null, triggerPayload: null };
+    } else if (automation.followup_mode === "sequence") {
+      // Cada elo da cadeia só é congelado quando a mensagem que o precede é enviada — editar as
+      // etapas depois nunca afeta um elo já aguardando (ver automation-chain.ts:resolveNextStep).
+      const steps = followupStepsSchema.parse(automation.followup_steps || []);
+      const nextStep = steps[0] || null;
+      if (nextStep?.triggerType === "click") {
+        const button = template.components.find((item) => item.type === "BUTTONS")?.buttons?.[Number(nextStep.triggerButtonIndex)];
+        if (button?.type !== "QUICK_REPLY") { await markEventStatus(eventId, "failed", "O botão configurado não existe mais no modelo.", { automationId: automation.id }); return; }
+      }
+      const buttonComponent = buildNextStepButtonComponent(automation.id, nextStep);
+      if (buttonComponent) components.push(buttonComponent);
+      snapshot = { version: 2, automationId: automation.id, context, nextStep };
     }
-    }
+    // followup_mode === "legacy" -> snapshot permanece null, comportamento antigo intocado.
   } catch {
     await markEventStatus(eventId, "failed", "Revise a configuração da segunda mensagem nesta automação.", { automationId: automation.id });
     return;

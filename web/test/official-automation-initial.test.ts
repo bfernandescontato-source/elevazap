@@ -33,3 +33,28 @@ it("não envia se o botão escolhido deixou de existir", async () => {
   expect(mocks.send).not.toHaveBeenCalled();
   expect(mocks.event).toHaveBeenCalledWith("event-1", "failed", expect.any(String), { automationId: "automation-1" });
 });
+
+const clickStep = { id: "11111111-1111-1111-1111-111111111111", triggerType: "click" as const, triggerButtonIndex: "0", responseType: "text" as const, responseText: "Próxima etapa", caption: null, mediaBucket: null, mediaPath: null, mimeType: null, fileName: null, buttonConfig: null };
+const delayStep = { id: "22222222-2222-2222-2222-222222222222", triggerType: "delay" as const, delayAmount: 30, delayUnit: "minutes" as const, templateName: "followup-template", templateLanguage: "pt_BR", variableMapping: {} };
+
+it("sequência: primeira etapa por clique embute o botão e congela a etapa no snapshot v2", async () => {
+  mocks.find.mockResolvedValue({ ...automation, followup_mode: "sequence", followup_config: null, followup_steps: [clickStep] });
+  await processHublaEvent("event-1", parsed);
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ components: expect.arrayContaining([{ type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: "automation:automation-1:step:11111111-1111-1111-1111-111111111111" }] }]) }));
+  expect(mocks.log).toHaveBeenCalledWith(expect.objectContaining({ automationSnapshot: { version: 2, automationId: "automation-1", context: expect.objectContaining({ productName: "Produto" }), nextStep: clickStep } }));
+});
+
+it("sequência: primeira etapa por atraso não embute botão nenhum na mensagem inicial", async () => {
+  mocks.find.mockResolvedValue({ ...automation, followup_mode: "sequence", followup_config: null, followup_steps: [delayStep] });
+  await processHublaEvent("event-1", parsed);
+  expect(mocks.send.mock.calls[0][0].components).toHaveLength(1);
+  expect(mocks.log).toHaveBeenCalledWith(expect.objectContaining({ automationSnapshot: { version: 2, automationId: "automation-1", context: expect.objectContaining({ productName: "Produto" }), nextStep: delayStep } }));
+});
+
+it("sequência: não envia se o botão da primeira etapa deixou de existir no modelo", async () => {
+  mocks.template.mockResolvedValue({ parameterFormat: "POSITIONAL", components: [] });
+  mocks.find.mockResolvedValue({ ...automation, followup_mode: "sequence", followup_config: null, followup_steps: [clickStep] });
+  await processHublaEvent("event-1", parsed);
+  expect(mocks.send).not.toHaveBeenCalled();
+  expect(mocks.event).toHaveBeenCalledWith("event-1", "failed", expect.any(String), { automationId: "automation-1" });
+});

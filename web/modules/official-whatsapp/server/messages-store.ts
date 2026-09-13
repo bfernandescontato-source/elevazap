@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import type { MessageAttribution } from "./analytics-attribution";
 import type { AutomationSnapshot } from "./automation-followup";
+import { delayToMs } from "./automation-chain";
 
 export type OfficialMessageStatus = "queued" | "sent" | "accepted" | "delivered" | "read" | "failed";
 
@@ -62,6 +63,19 @@ function safeStatusPayload(status: MetaStatusEvent) {
   };
 }
 
+// Deriva o estado de espera e (para etapas por atraso) o instante em que a próxima etapa da
+// cadeia fica devida, a partir do snapshot congelado nesta mensagem — cobre tanto a única
+// segunda mensagem legada (version 1) quanto a sequência de N etapas (version 2).
+function deriveAutomationScheduling(snapshot: AutomationSnapshot | null | undefined): { replyState: "waiting" | null; dueAt: string | null } {
+  if (!snapshot) return { replyState: null, dueAt: null };
+  if (snapshot.version === 2) {
+    if (!snapshot.nextStep) return { replyState: null, dueAt: null };
+    if (snapshot.nextStep.triggerType === "delay") return { replyState: "waiting", dueAt: new Date(Date.now() + delayToMs(snapshot.nextStep)).toISOString() };
+    return { replyState: "waiting", dueAt: null };
+  }
+  return { replyState: snapshot.mode === "button" ? "waiting" : null, dueAt: null };
+}
+
 export async function logMessageAttempt(input: {
   eventId: string | null;
   phone: string;
@@ -80,11 +94,13 @@ export async function logMessageAttempt(input: {
 }) {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
+  const scheduling = deriveAutomationScheduling(input.automationSnapshot);
   const { data, error } = await admin.from("official_messages").insert({
     event_id: input.eventId,
     automation_id: input.automationId || null,
     automation_snapshot: input.automationSnapshot || null,
-    automation_reply_state: input.automationSnapshot?.mode === "button" ? "waiting" : null,
+    automation_reply_state: scheduling.replyState,
+    automation_step_due_at: scheduling.dueAt,
     flow_run_id: input.flowRunId ?? null,
     phone: input.phone,
     template_name: input.templateName ?? null,

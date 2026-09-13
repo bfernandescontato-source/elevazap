@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/admin/official/broadcasts/run-scheduled", "schedule": "* * * * *" }
+    { "path": "/api/admin/official/broadcasts/run-scheduled", "schedule": "* * * * *" },
+    { "path": "/api/admin/official/automations/run-due-followups", "schedule": "* * * * *" }
   ]
 }

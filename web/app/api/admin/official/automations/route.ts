@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   if (guard) return guard;
   try {
     const input = automationInputSchema.parse(await request.json());
-    if (input.followupMode === "legacy") throw new Error("Novas automações devem configurar sua própria segunda mensagem.");
+    if (input.followupMode === "legacy" || input.followupMode === "button") throw new Error("Novas automações devem usar sequência de mensagens.");
     await validateAutomationInput(input);
     return NextResponse.json({ ok: true, automation: await createAutomation(input) });
   } catch (error) {
