@@ -54,6 +54,14 @@ describe("OfferParser", () => {
     expect(result.amazonLinks).toEqual(["https://link.amazon/B00jBYJv8"]);
   });
 
+  it("identifica amzlink.me, o encurtador de terceiro verificado usado pelos grupos monitorados", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-6", sourceGroupId: "120363000000@g.us",
+      text: "https://amzlink.me/5afajz0", timestamp: new Date()
+    });
+    expect(result.amazonLinks).toEqual(["https://amzlink.me/5afajz0"]);
+  });
+
   it("aceita somente URLs dos três marketplaces integrados no Piloto", () => {
     expect(isSupportedMarketplaceUrl("https://s.shopee.com.br/abc")).toBe(true);
     expect(isSupportedMarketplaceUrl("https://meli.la/xyz")).toBe(true);

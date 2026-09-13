@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addAmazonPartnerTag, convertAmazonLink, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
+import { addAmazonPartnerTag, convertAmazonLink, isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 import { amazonPartnerTagSchema } from "../modules/integrations/schemas";
 
 const TAG = "achadin0c8d8c-20";
@@ -42,6 +42,21 @@ describe("conversão manual de links Amazon", () => {
   it("não retorna o link original quando a resolução falha", async () => {
     const request = vi.fn(async () => { throw new Error("network"); });
     await expect(convertAmazonLink("https://amzn.to/exemplo", TAG, request as typeof fetch)).rejects.toThrow();
+  });
+
+  it("reconhece amzlink.me (encurtador de terceiro verificado) e converte quando o destino é a Amazon Brasil", async () => {
+    expect(isAmazonUrl("https://amzlink.me/5afajz0")).toBe(true);
+    const request = vi.fn(async () => new Response(null, {
+      status: 307,
+      headers: { location: "https://www.amazon.com.br/dp/B07DTN9W36?tag=outra-conta-20" }
+    }));
+    const result = await convertAmazonLink("https://amzlink.me/5afajz0", TAG, request as typeof fetch);
+    expect(result.resolved_url).toBe("https://www.amazon.com.br/dp/B07DTN9W36?tag=outra-conta-20");
+    expect(new URL(result.affiliate_url).searchParams.getAll("tag")).toEqual([TAG]);
+  });
+
+  it("ainda bloqueia encurtadores de terceiro não aprovados explicitamente", () => {
+    expect(isAmazonUrl("https://amzlinks.in/B09iZUsu8")).toBe(false);
   });
 
   it("exige Partner Tag e valida seu formato", async () => {
