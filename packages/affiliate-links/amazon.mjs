@@ -39,6 +39,17 @@ export function isAmazonUrl(value) {
 export function addAmazonPartnerTag(value, partnerTag) {
   const url = parseAllowedInput(value);
   if (!AMAZON_BR_HOSTS.has(url.hostname.toLowerCase())) throw new Error("Resolva o link curto antes de converter.");
+  // URLs da Amazon chegam com muitos parâmetros de rastreamento (ref_,
+  // pd_rd_*, etc.). Para uma página de produto, só o ASIN e o Partner Tag
+  // são necessários. Removê-los também evita que links longos do app sejam
+  // repassados para os grupos.
+  const productMatch = url.pathname.match(/^\/(?:dp|gp\/product|gp\/aw\/d)\/([^/?#]+)/i);
+  if (productMatch) {
+    const productUrl = new URL(`https://amazon.com.br/dp/${productMatch[1]}`);
+    productUrl.searchParams.set("tag", partnerTag);
+    return productUrl.toString();
+  }
+
   for (const key of Array.from(url.searchParams.keys())) if (key.toLowerCase() === "tag") url.searchParams.delete(key);
   url.searchParams.set("tag", partnerTag);
   return url.toString();

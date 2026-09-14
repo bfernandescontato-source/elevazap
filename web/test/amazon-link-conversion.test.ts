@@ -7,15 +7,12 @@ const TAG = "achadin0c8d8c-20";
 describe("conversão manual de links Amazon", () => {
   it("adiciona o Partner Tag a um link sem parâmetros", () => {
     expect(addAmazonPartnerTag("https://www.amazon.com.br/dp/B0XXXXX", TAG))
-      .toBe(`https://www.amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
+      .toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
   });
 
-  it("preserva parâmetros e fragmento e substitui qualquer tag anterior", () => {
+  it("reduz links de produto para o ASIN e o Partner Tag", () => {
     const result = addAmazonPartnerTag("https://amazon.com.br/dp/B0XXXXX?ref_=abc&tag=antiga-20#detalhes", TAG);
-    const url = new URL(result);
-    expect(url.searchParams.get("ref_")).toBe("abc");
-    expect(url.searchParams.getAll("tag")).toEqual([TAG]);
-    expect(url.hash).toBe("#detalhes");
+    expect(result).toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
   });
 
   it("remove tags duplicadas inclusive com capitalização diferente", () => {
@@ -31,7 +28,7 @@ describe("conversão manual de links Amazon", () => {
   it("resolve link curto somente quando o destino é a Amazon Brasil", async () => {
     const request = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://www.amazon.com.br/dp/B0XXXXX?ref_=short" } }));
     const result = await convertAmazonLink("https://amzn.to/exemplo", TAG, request as typeof fetch);
-    expect(result.affiliate_url).toBe(`https://www.amazon.com.br/dp/B0XXXXX?ref_=short&tag=${TAG}`);
+    expect(result.affiliate_url).toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
   });
 
   it("bloqueia redirecionamento de link curto para domínio externo", async () => {
