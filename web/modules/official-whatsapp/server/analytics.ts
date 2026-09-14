@@ -52,7 +52,7 @@ export async function getOfficialAnalytics(filters: AnalyticsFilters) {
 export async function getBroadcastPerformance(broadcastId: string) {
   const admin = supabaseAdmin();
   const [{ data: broadcast, error: broadcastError }, { data: messages, error: messagesError }, { data: clicks, error: clicksError }] = await Promise.all([
-    admin.from("official_broadcasts").select("flow_id").eq("id", broadcastId).maybeSingle(),
+    admin.from("official_broadcasts").select("flow_id,accepted").eq("id", broadcastId).maybeSingle(),
     admin.from("official_messages").select("id,step_id,message_key,status,delivered_at,read_at,failed_at").eq("broadcast_id", broadcastId).limit(20_000),
     admin.from("official_cta_clicks").select("id,step_id,cta_id,phone").eq("broadcast_id", broadcastId).limit(20_000)
   ]);
@@ -77,10 +77,14 @@ export async function getBroadcastPerformance(broadcastId: string) {
   const failed = firstMessages.filter((message) => message.failed_at || message.status === "failed").length;
   const clickRows = clicks || [];
 
+  // `accepted` é a fonte de verdade do lote: o contador de mensagens pode ter
+  // lacunas nos disparos anteriores à atribuição por etapa, mas isso não torna
+  // o envio menor do que foi aceito pela Meta.
+  const sent = broadcast.accepted || firstMessages.length;
   return {
-    sent: firstMessages.length,
+    sent,
     delivered,
-    deliveryRate: pct(delivered, firstMessages.length),
+    deliveryRate: pct(delivered, sent),
     read,
     readRate: pct(read, delivered),
     failed,
