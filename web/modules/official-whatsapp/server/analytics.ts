@@ -45,3 +45,55 @@ export async function getOfficialAnalytics(filters: AnalyticsFilters) {
   });
   return { filters, totals: { started: runRows.length, sent, delivered, deliveryRate:pct(delivered,sent), read, readRate:pct(read,delivered), uniqueClicks: uniqueClickPhones, joins, failures:failed, failureRate:pct(failed,sent) }, flows: flowTable, steps: stepDetails };
 }
+
+// Métricas de uma transmissão específica. Mantemos essa leitura separada da visão
+// geral para que cada disparo tenha o seu próprio funil, sem misturar resultados
+// de campanhas diferentes que usam o mesmo fluxo.
+export async function getBroadcastPerformance(broadcastId: string) {
+  const admin = supabaseAdmin();
+  const [{ data: broadcast, error: broadcastError }, { data: messages, error: messagesError }, { data: clicks, error: clicksError }] = await Promise.all([
+    admin.from("official_broadcasts").select("flow_id").eq("id", broadcastId).maybeSingle(),
+    admin.from("official_messages").select("id,step_id,message_key,status,delivered_at,read_at,failed_at").eq("broadcast_id", broadcastId).limit(20_000),
+    admin.from("official_cta_clicks").select("id,step_id,cta_id,phone").eq("broadcast_id", broadcastId).limit(20_000)
+  ]);
+  if (broadcastError || messagesError || clicksError) throw broadcastError || messagesError || clicksError;
+  if (!broadcast) return null;
+
+  const [{ data: steps, error: stepsError }, { data: ctas, error: ctasError }] = await Promise.all([
+    admin.from("official_flow_steps").select("id,name,position,step_key").eq("flow_id", broadcast.flow_id).order("position"),
+    admin.from("official_flow_ctas").select("id,flow_step_id,label,cta_key")
+  ]);
+  if (stepsError || ctasError) throw stepsError || ctasError;
+
+  const messageRows = messages || [];
+  const initialStep = (steps || []).find((step) => step.step_key === "initial");
+  const initial = initialStep
+    ? messageRows.filter((message) => message.step_id === initialStep.id)
+    : messageRows.filter((message) => message.message_key === "initial");
+  // Transmissões anteriores à atribuição por etapa ainda aparecem com um resumo útil.
+  const firstMessages = initial.length ? initial : messageRows;
+  const delivered = firstMessages.filter((message) => message.delivered_at || message.read_at || ["delivered", "read"].includes(message.status || "")).length;
+  const read = firstMessages.filter((message) => message.read_at || message.status === "read").length;
+  const failed = firstMessages.filter((message) => message.failed_at || message.status === "failed").length;
+  const clickRows = clicks || [];
+
+  return {
+    sent: firstMessages.length,
+    delivered,
+    deliveryRate: pct(delivered, firstMessages.length),
+    read,
+    readRate: pct(read, delivered),
+    failed,
+    steps: (steps || []).map((step) => ({
+      id: step.id,
+      name: step.name,
+      position: step.position,
+      sent: messageRows.filter((message) => message.step_id === step.id).length,
+      ctas: (ctas || []).filter((cta) => cta.flow_step_id === step.id).map((cta) => {
+        const ctaClicks = clickRows.filter((click) => click.cta_id === cta.id);
+        const uniqueClicks = new Set(ctaClicks.map((click) => click.phone || click.id)).size;
+        return { id: cta.id, label: cta.label, ctaKey: cta.cta_key, uniqueClicks, totalClicks: ctaClicks.length, ctrDelivered: pct(uniqueClicks, delivered), ctrRead: pct(uniqueClicks, read) };
+      })
+    }))
+  };
+}

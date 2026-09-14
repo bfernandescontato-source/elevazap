@@ -13,6 +13,7 @@ type Broadcast = {
   official_flows: { name: string } | null;
 };
 type Recipient = { id: string; phone: string; row_data: { name: string | null }; status: string; meta_message_id: string | null; error: string | null; created_at: string };
+type Performance = { sent: number; delivered: number; deliveryRate: number | null; read: number; readRate: number | null; failed: number; steps: Array<{ id: string; name: string; position: number; sent: number; ctas: Array<{ id: string; label: string; ctaKey: string; uniqueClicks: number; totalClicks: number; ctrDelivered: number | null; ctrRead: number | null }> }> };
 
 const STATUS_LABELS: Record<string, string> = { draft: "Rascunho", ready: "Pronto", scheduled: "Agendado", processing: "Em andamento", paused: "Pausado", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 
@@ -20,12 +21,18 @@ function formatBrasilia(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 }
 const FILTERS = [{ value: "all", label: "Todos" }, { value: "accepted", label: "Aceitos" }, { value: "failed", label: "Falharam" }];
+const number = new Intl.NumberFormat("pt-BR");
+function rate(value: number | null) { return value === null ? "—" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`; }
+function Metric({ label, value, detail, tone = "" }: { label: string; value: number; detail?: string; tone?: string }) {
+  return <div className={`rounded-xl border p-4 ${tone || "border-line bg-white"}`}><p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p><p className="mt-2 text-2xl font-semibold text-ink">{number.format(value)}</p>{detail ? <p className="mt-1 text-sm text-muted">{detail}</p> : null}</div>;
+}
 
 export default function BroadcastDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [performance, setPerformance] = useState<Performance | null>(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [pausing, setPausing] = useState(false);
@@ -36,7 +43,7 @@ export default function BroadcastDetailPage() {
   async function load(currentFilter = filter) {
     const response = await fetch(`/api/admin/official/broadcasts/${id}?status=${currentFilter}`, { cache: "no-store" });
     const data = await response.json();
-    if (response.ok) { setBroadcast(data.broadcast); setRecipients(data.recipients || []); }
+    if (response.ok) { setBroadcast(data.broadcast); setRecipients(data.recipients || []); setPerformance(data.performance || null); }
     setLoading(false);
   }
 
@@ -111,6 +118,19 @@ export default function BroadcastDetailPage() {
           <div className="rounded-lg border border-red-200 bg-red-50 p-3"><div className="text-xs text-red-700">Falharam</div><div className="text-lg font-semibold text-red-700">{broadcast.failed}</div></div>
           <div className="rounded-lg border border-line bg-wash p-3"><div className="text-xs text-muted">Ignorar já enviados</div><div className="text-lg font-semibold text-ink">{broadcast.skip_recipients_with_prior_run ? "Sim" : "Não"}</div></div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-line bg-panel p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-semibold text-ink">Resultado do disparo</h2><p className="mt-1 text-sm text-muted">Acompanhe a jornada a partir da primeira mensagem, como no painel de transmissões.</p></div><span className="rounded-full bg-wash px-3 py-1 text-xs text-muted">Atualiza com os eventos da Meta</span></div>
+        {performance ? <>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="Enviadas" value={performance.sent} />
+            <Metric label="Entregues" value={performance.delivered} detail={rate(performance.deliveryRate)} tone="border-emerald-200 bg-emerald-50" />
+            <Metric label="Lidas" value={performance.read} detail={`${rate(performance.readRate)} das entregues`} tone="border-sky-200 bg-sky-50" />
+            <Metric label="Falharam" value={performance.failed} tone={performance.failed ? "border-red-200 bg-red-50" : "border-line bg-white"} />
+          </div>
+          {performance.steps.some((step) => step.ctas.length) ? <div className="mt-6 grid gap-4 lg:grid-cols-2">{performance.steps.filter((step) => step.ctas.length).map((step) => <article key={step.id} className="rounded-xl border border-line bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-wide text-muted">Etapa {step.position}</p><h3 className="mt-1 font-semibold text-ink">{step.name}</h3></div><span className="rounded-full bg-wash px-3 py-1 text-xs text-muted">{number.format(step.sent)} enviadas</span></div><div className="mt-4 space-y-3">{step.ctas.map((cta) => <div key={cta.id} className="rounded-lg bg-wash p-3"><div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"><p className="font-medium text-ink">{cta.label}</p><p className="text-sm text-muted">CTR: {rate(cta.ctrDelivered)}</p></div><p className="mt-1 text-sm text-muted"><strong className="font-semibold text-ink">{number.format(cta.uniqueClicks)}</strong> pessoas clicaram · {number.format(cta.totalClicks)} cliques no total{cta.ctrRead !== null ? ` · ${rate(cta.ctrRead)} das pessoas que leram` : ""}</p></div>)}</div></article>)}</div> : <p className="mt-5 rounded-xl bg-wash p-4 text-sm text-muted">Este disparo não tem botões rastreáveis configurados no fluxo.</p>}
+        </> : <p className="mt-5 rounded-xl bg-wash p-4 text-sm text-muted">As métricas aparecerão quando as mensagens forem atribuídas ao disparo.</p>}
       </section>
 
       <section>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInternalAdmin } from "@/lib/internal-admin";
 import { getBroadcast, listBroadcastRecipients } from "@/modules/official-whatsapp/server/broadcasts";
+import { getBroadcastPerformance } from "@/modules/official-whatsapp/server/analytics";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,6 +12,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!broadcast) return NextResponse.json({ error: "Disparo não encontrado." }, { status: 404 });
 
   const statusFilter = request.nextUrl.searchParams.get("status") || "all";
-  const recipients = await listBroadcastRecipients(id, statusFilter);
-  return NextResponse.json({ broadcast, recipients });
+  const [recipients, performance] = await Promise.all([listBroadcastRecipients(id, statusFilter), getBroadcastPerformance(id)]);
+  return NextResponse.json({ broadcast, recipients, performance });
 }
