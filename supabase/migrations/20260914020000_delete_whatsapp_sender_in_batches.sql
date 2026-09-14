@@ -107,5 +107,6 @@ $$;
 
 revoke all on function public.delete_whatsapp_sender(uuid, uuid) from public;
 grant execute on function public.delete_whatsapp_sender(uuid, uuid) to service_role;
+notify pgrst, 'reload schema';
 
 commit;
