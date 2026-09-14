@@ -6,29 +6,37 @@ const TAG = "achadin0c8d8c-20";
 
 describe("conversão manual de links Amazon", () => {
   it("adiciona o Partner Tag a um link sem parâmetros", () => {
-    expect(addAmazonPartnerTag("https://www.amazon.com.br/dp/B0XXXXX", TAG))
-      .toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
+    expect(addAmazonPartnerTag("https://www.amazon.com.br/dp/B0ABCDEF12", TAG))
+      .toBe(`https://amazon.com.br/dp/B0ABCDEF12?tag=${TAG}`);
   });
 
   it("reduz links de produto para o ASIN e o Partner Tag", () => {
-    const result = addAmazonPartnerTag("https://amazon.com.br/dp/B0XXXXX?ref_=abc&tag=antiga-20#detalhes", TAG);
-    expect(result).toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
+    const result = addAmazonPartnerTag("https://amazon.com.br/dp/B0ABCDEF12?ref_=abc&tag=antiga-20#detalhes", TAG);
+    expect(result).toBe(`https://amazon.com.br/dp/B0ABCDEF12?tag=${TAG}`);
+  });
+
+  it("reduz links com o título do produto antes de /dp/", () => {
+    const result = addAmazonPartnerTag(
+      "https://www.amazon.com.br/Fone-Bluetooth-Nome-Muito-Longo/dp/B0D123ABCD/ref=sr_1_5?dib=abc&keywords=fone&qid=123",
+      TAG
+    );
+    expect(result).toBe(`https://amazon.com.br/dp/B0D123ABCD?tag=${TAG}`);
   });
 
   it("remove tags duplicadas inclusive com capitalização diferente", () => {
-    const result = addAmazonPartnerTag("https://amazon.com.br/dp/B0XXXXX?TAG=uma-20&tag=outra-20", TAG);
+    const result = addAmazonPartnerTag("https://amazon.com.br/dp/B0ABCDEF12?TAG=uma-20&tag=outra-20", TAG);
     expect(Array.from(new URL(result).searchParams.entries())).toEqual([["tag", TAG]]);
   });
 
   it("rejeita domínios parecidos e protocolos não seguros", () => {
-    expect(() => addAmazonPartnerTag("https://amazon.com.br.evil.test/dp/B0XXXXX", TAG)).toThrow();
-    expect(() => addAmazonPartnerTag("http://amazon.com.br/dp/B0XXXXX", TAG)).toThrow();
+    expect(() => addAmazonPartnerTag("https://amazon.com.br.evil.test/dp/B0ABCDEF12", TAG)).toThrow();
+    expect(() => addAmazonPartnerTag("http://amazon.com.br/dp/B0ABCDEF12", TAG)).toThrow();
   });
 
   it("resolve link curto somente quando o destino é a Amazon Brasil", async () => {
-    const request = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://www.amazon.com.br/dp/B0XXXXX?ref_=short" } }));
+    const request = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://www.amazon.com.br/dp/B0ABCDEF12?ref_=short" } }));
     const result = await convertAmazonLink("https://amzn.to/exemplo", TAG, request as typeof fetch);
-    expect(result.affiliate_url).toBe(`https://amazon.com.br/dp/B0XXXXX?tag=${TAG}`);
+    expect(result.affiliate_url).toBe(`https://amazon.com.br/dp/B0ABCDEF12?tag=${TAG}`);
   });
 
   it("bloqueia redirecionamento de link curto para domínio externo", async () => {
@@ -70,7 +78,7 @@ describe("conversão manual de links Amazon", () => {
   });
 
   it("exige Partner Tag e valida seu formato", async () => {
-    await expect(convertAmazonLink("https://amazon.com.br/dp/B0XXXXX", "")).rejects.toThrow("Configure");
+    await expect(convertAmazonLink("https://amazon.com.br/dp/B0ABCDEF12", "")).rejects.toThrow("Configure");
     expect(amazonPartnerTagSchema.safeParse({ partner_tag: TAG }).success).toBe(true);
     expect(amazonPartnerTagSchema.safeParse({ partner_tag: "tag inválida" }).success).toBe(false);
   });

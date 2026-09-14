@@ -43,7 +43,10 @@ export function addAmazonPartnerTag(value, partnerTag) {
   // pd_rd_*, etc.). Para uma página de produto, só o ASIN e o Partner Tag
   // são necessários. Removê-los também evita que links longos do app sejam
   // repassados para os grupos.
-  const productMatch = url.pathname.match(/^\/(?:dp|gp\/product|gp\/aw\/d)\/([^/?#]+)/i);
+  // A Amazon frequentemente inclui o título do produto antes de /dp/ASIN
+  // (ex.: /nome-longo-do-produto/dp/B0XXXXXXXX). Extraia o identificador
+  // independentemente desse prefixo para não preservar o slug e os parâmetros gigantes.
+  const productMatch = url.pathname.match(/\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?:[/?#]|$)/i);
   if (productMatch) {
     const productUrl = new URL(`https://amazon.com.br/dp/${productMatch[1]}`);
     productUrl.searchParams.set("tag", partnerTag);
