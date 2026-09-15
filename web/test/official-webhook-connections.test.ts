@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
-const state = vi.hoisted(() => ({ jobs: [] as Array<() => Promise<unknown>>, capture: vi.fn(), click: vi.fn(), status: vi.fn(), verify: vi.fn() }));
+const state = vi.hoisted(() => ({ jobs: [] as Array<() => Promise<unknown>>, capture: vi.fn(), click: vi.fn(), status: vi.fn(), verify: vi.fn(), relay: vi.fn() }));
 vi.mock("next/server", async (original) => ({ ...await original<typeof import("next/server")>(), after: (job: () => Promise<unknown>) => state.jobs.push(job) }));
 vi.mock("@/modules/official-whatsapp/server/official-connections", () => ({
   listWebhookCredentials: async () => [
@@ -13,6 +13,7 @@ vi.mock("@/modules/official-whatsapp/server/official-connections", () => ({
 vi.mock("@/modules/official-whatsapp/server/hubla-events", () => ({ captureMetaButtonClick: state.capture }));
 vi.mock("@/modules/official-whatsapp/server/flow-processor", () => ({ processButtonClickEvent: state.click }));
 vi.mock("@/modules/official-whatsapp/server/messages-store", () => ({ applyMetaMessageStatus: state.status }));
+vi.mock("@/modules/official-whatsapp/server/meta-relay", () => ({ enqueueMetaRelay: state.relay }));
 import { GET, POST } from "../app/api/webhooks/meta/route";
 
 function request(phone = "222222", waba = "222223", secret = "account-b-secret") {
@@ -24,6 +25,7 @@ beforeEach(() => {
   state.capture.mockResolvedValue({ id: "event-id", duplicate: false });
   state.status.mockResolvedValue({ matched: true });
   state.verify.mockResolvedValue(false);
+  state.relay.mockResolvedValue({ queued: true });
 });
 describe("webhooks isolados por conta oficial", () => {
   it("rejeita assinatura inválida antes de persistir", async () => {
@@ -46,6 +48,15 @@ describe("webhooks isolados por conta oficial", () => {
     for (const job of state.jobs) await job();
     expect(state.click).toHaveBeenCalledWith("event-id", expect.any(Object), "account-b");
     expect(state.status).toHaveBeenCalledWith(expect.objectContaining({ id: "wamid.example" }), "account-b");
+  });
+  it("agenda o relay somente para números reconhecidos, sem afetar a resposta da Meta", async () => {
+    expect((await POST(request())).status).toBe(200);
+    for (const job of state.jobs) await job();
+    expect(state.relay).toHaveBeenCalledWith(expect.any(Object), expect.any(Set));
+    state.jobs = [];
+    await POST(request("999999", "222223"));
+    for (const job of state.jobs) await job();
+    expect(state.relay).toHaveBeenCalledTimes(1);
   });
   it("preserva webhooks da conta principal", async () => {
     await POST(request("111111", "111112", "legacy-secret"));

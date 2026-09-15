@@ -4,6 +4,7 @@ import { listWebhookCredentials, webhookVerifyTokenMatches } from "@/modules/off
 import { captureMetaButtonClick } from "@/modules/official-whatsapp/server/hubla-events";
 import { processButtonClickEvent } from "@/modules/official-whatsapp/server/flow-processor";
 import { applyMetaMessageStatus } from "@/modules/official-whatsapp/server/messages-store";
+import { enqueueMetaRelay } from "@/modules/official-whatsapp/server/meta-relay";
 
 // Handshake de assinatura do webhook (feito uma vez, ao configurar na Meta).
 export async function GET(request: NextRequest) {
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(body?.entry)) return NextResponse.json({ error: "Formato inválido." }, { status: 400 });
   const messages: any[] = [];
   const statuses: any[] = [];
+  const recognizedPhoneNumberIds = new Set<string>();
   for (const entry of body.entry) {
     for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
       const value = change?.value;
@@ -61,11 +63,19 @@ export async function POST(request: NextRequest) {
       // A valid signature from account A cannot authorize events for account B.
       // Unknown numbers never fall back to the legacy sender.
       if (!credential) continue;
+      recognizedPhoneNumberIds.add(value.metadata.phone_number_id);
       for (const message of Array.isArray(value?.messages) ? value.messages : []) messages.push({ ...message, connectionId: credential.id });
       if (Array.isArray(value?.statuses)) statuses.push(...value.statuses.map((status: any) => ({ status, connectionId: credential.id })));
     }
   }
   const buttonClicks = messages.filter((message) => message?.type === "button" && message?.button?.payload && message?.from && message?.id);
+
+  // O relay é enfileirado depois de validar e identificar a conexão, mas nunca é aguardado
+  // pela resposta à Meta. A função filtra entries/changes de outros phone_number_id antes de
+  // persistir, inclusive quando a Meta agrupa números distintos no mesmo POST.
+  if (recognizedPhoneNumberIds.size) {
+    after(() => enqueueMetaRelay(body, recognizedPhoneNumberIds).catch((error) => console.error("[meta-relay] Falha ao enfileirar evento:", error)));
+  }
 
   if (statuses.length) {
     after(async () => {

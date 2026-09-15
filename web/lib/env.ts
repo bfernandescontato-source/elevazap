@@ -28,6 +28,10 @@ const serverEnvSchema = z.object({
   HUBLA_WEBHOOK_SECRET: z.string().min(16).optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(16).optional(),
   META_APP_SECRET: z.string().min(16).optional(),
+  META_RELAY_ENABLED: z.enum(["true", "false"]).optional(),
+  META_RELAY_PHONE_NUMBER_ID: z.string().min(1).optional(),
+  META_RELAY_URL: z.string().url().optional(),
+  META_RELAY_TOKEN: z.string().min(24).optional(),
   OFFICIAL_BROADCAST_CONCURRENCY: z.coerce.number().int().min(1).max(20).optional(),
   CRON_SECRET: z.string().min(16).optional()
 });
