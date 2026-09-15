@@ -22,6 +22,12 @@ const css = `
   a{ text-decoration:none; color:inherit; }
   .wrap{ max-width:1120px; margin:0 auto; padding:0 32px; }
 
+  .trial-banner{
+    background:var(--black); color:var(--white); text-align:center; padding:10px 24px;
+    font-size:13px; font-weight:600;
+  }
+  .trial-banner strong{ font-weight:800; }
+
   nav{
     display:flex; align-items:center; justify-content:space-between;
     padding:24px 32px; border-bottom:1px solid var(--gray-100);
@@ -236,6 +242,11 @@ const css = `
   .price{ font-size:44px; font-weight:800; letter-spacing:-2px; margin-bottom:4px; }
   .price span{ font-size:16px; color:var(--gray-500); font-weight:500; }
   .price-sub{ color:var(--gray-500); font-size:13px; margin-bottom:28px; }
+  .trial-note{
+    display:inline-flex; align-items:center; justify-content:center; margin:0 auto 16px;
+    border-radius:999px; background:#dcfce7; color:#166534; padding:6px 12px;
+    font-size:12px; font-weight:800;
+  }
   .price-list{ text-align:left; display:flex; flex-direction:column; gap:12px; margin-bottom:30px; }
   .price-list .row{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; }
   .price-list .check{
@@ -284,6 +295,8 @@ export default function HomePage() {
     <>
       {/* eslint-disable-next-line react/no-danger */}
       <style dangerouslySetInnerHTML={{ __html: css }} />
+
+      <div className="trial-banner">Comece agora: <strong>30 dias grátis em qualquer plano</strong></div>
 
       <nav>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -490,11 +503,13 @@ export default function HomePage() {
           <div className="section-head">
             <div className="eyebrow">Preço</div>
             <h2>Um plano. Sem letra miúda, sem pegadinha.</h2>
+            <p>Teste qualquer plano grátis por 30 dias.</p>
           </div>
           <div className="pricing-grid">
             <div className="price-card">
               <div className="tag">START</div>
               <div className="price">R$39<span>/mês</span></div>
+              <div className="trial-note">30 dias grátis</div>
               <div className="price-sub">Cancele quando quiser, sem multa</div>
               <div className="price-list">
                 <div className="row"><div className="check">✓</div> 1 número de WhatsApp conectado</div>
@@ -512,6 +527,7 @@ export default function HomePage() {
               <div className="featured-badge">⭐ Mais escolhido</div>
               <div className="tag">PRO</div>
               <div className="price">R$79<span>/mês</span></div>
+              <div className="trial-note">30 dias grátis</div>
               <div className="price-sub">Cancele quando quiser, sem multa</div>
               <div className="price-list">
                 <div className="row"><div className="check">✓</div> Até 3 números de WhatsApp conectados</div>
@@ -530,6 +546,7 @@ export default function HomePage() {
             <div className="price-card">
               <div className="tag">SCALE</div>
               <div className="price">R$149<span>/mês</span></div>
+              <div className="trial-note">30 dias grátis</div>
               <div className="price-sub">Cancele quando quiser, sem multa</div>
               <div className="price-list">
                 <div className="row"><div className="check">✓</div> Até 10 números de WhatsApp conectados</div>
