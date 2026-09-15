@@ -32,6 +32,14 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reset_redirect_count"), group_jid: z.string() })
 ]);
 
+// Meta pontual da Black Friday: fica disponível exclusivamente para a campanha
+// Faceclub da conta administrativa solicitada, sem aparecer para outros clientes.
+const BLACK_FRIDAY_FACECLUB = {
+  accountEmail: "bfernandes.contato@gmail.com",
+  campaignId: "8b882a23-3bce-4892-9eae-33b9a42061fe",
+  targetParticipants: 12_000
+} as const;
+
 function calculatedSituation(group: any, campaign: any, activeGroupJid?: string) {
   if (group.manual_status === "cheio") return "Marcado manualmente como cheio";
   if (group.manual_status === "pausado") return "Pausado";
@@ -69,8 +77,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   ]);
   const responseGroups = groups.map((group: any) => ({ ...group, situacao: calculatedSituation(group, campaign, activeGroupJid) }));
   const sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] || null : campaign.whatsapp_senders;
+  const blackFridayGoal = context.session.email.toLowerCase() === BLACK_FRIDAY_FACECLUB.accountEmail
+    && campaign.id === BLACK_FRIDAY_FACECLUB.campaignId
+    ? { title: "Meta Black Friday 2026", targetParticipants: BLACK_FRIDAY_FACECLUB.targetParticipants }
+    : null;
   return NextResponse.json({
-    campaign: { ...campaign, whatsapp_senders: sender, campanha_grupos: undefined, groups: responseGroups, active_group_jid: activeGroupJid || null, next_group_jid: eligible[1]?.group_jid || null },
+    campaign: { ...campaign, whatsapp_senders: sender, campanha_grupos: undefined, groups: responseGroups, active_group_jid: activeGroupJid || null, next_group_jid: eligible[1]?.group_jid || null, black_friday_goal: blackFridayGoal },
     events: events || [],
     metrics: {
       accesses: Number(campaign.total_accesses || 0),

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
-import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, TrendingDown, TrendingUp, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, Target, TrendingDown, TrendingUp, Users, X } from "lucide-react";
 
 type Group = {
   group_jid: string;
@@ -38,6 +38,7 @@ type Campaign = {
   whatsapp_senders?: { id: string; label: string; session_name: string } | null;
   active_group_jid?: string | null;
   next_group_jid?: string | null;
+  black_friday_goal?: { title: string; targetParticipants: number } | null;
   created_at: string;
   groups: Group[];
 };
@@ -319,6 +320,10 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   if (!campaign || !detail) return <AppShell title="Campanha"><EmptyState title="Campanha não encontrada" description="Volte para Campanhas e selecione outra opção." /></AppShell>;
 
   const vsLabel = periodVsLabel(period);
+  const blackFridayGoal = campaign.black_friday_goal;
+  const blackFridayProgress = blackFridayGoal
+    ? Math.min(100, (summaryMetrics.totalParticipants / blackFridayGoal.targetParticipants) * 100)
+    : 0;
 
   return (
     <AppShell
@@ -335,6 +340,33 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
         <ChevronRight size={14} />
         <span className="text-ink">{campaign.nome}</span>
       </nav>
+
+      {blackFridayGoal && (
+        <section className="mb-8 overflow-hidden rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 via-amber-50 to-white shadow-soft">
+          <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-600 text-white">
+                <Target size={19} />
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-widest text-orange-700">{blackFridayGoal.title}</div>
+                <h2 className="mt-1 text-lg font-semibold text-ink">Meta de {blackFridayGoal.targetParticipants.toLocaleString("pt-BR")} pessoas nos grupos</h2>
+                <p className="mt-1 text-sm text-muted">Acompanhe o avanço da campanha em tempo real.</p>
+              </div>
+            </div>
+            <div className="min-w-0 w-full sm:max-w-md">
+              <div className="mb-2 flex items-end justify-between gap-3">
+                <span className="text-sm font-semibold text-ink">{summaryMetrics.totalParticipants.toLocaleString("pt-BR")} pessoas</span>
+                <span className="text-2xl font-bold tracking-tight text-orange-700">{blackFridayProgress.toFixed(1).replace(".", ",")}%</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-orange-100" role="progressbar" aria-label="Progresso da meta Black Friday 2026" aria-valuemin={0} aria-valuemax={100} aria-valuenow={blackFridayProgress}>
+                <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all" style={{ width: `${blackFridayProgress}%` }} />
+              </div>
+              <div className="mt-2 text-right text-xs text-muted">Faltam {Math.max(0, blackFridayGoal.targetParticipants - summaryMetrics.totalParticipants).toLocaleString("pt-BR")} pessoas para a meta</div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Bloco 1: Cards de resumo ─────────────────────────────────── */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
