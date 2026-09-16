@@ -191,6 +191,15 @@ describe("gate de marketplace conectado/não conectado no Piloto Automático", (
     expect(updates.some((u) => u.payload.status === "ignored")).toBe(false);
   });
 
+  it("link Shopee conectado + link avulso de canal reserva (não-marketplace) → envia normalmente", async () => {
+    const { database, updates } = makeDatabase({ integrations: [{ provider: "shopee", status: "connected" }] });
+    const processor = new OfferProcessor(database as any);
+    const text = `Corre\n${SHOPEE_LINK}\n\nCaso esse número pare de funcionar, entre em outro por aqui: https://compreiieindico.com.br/`;
+    const result = await processor.process(baseAutomation, buildMessage(text));
+    expect(result?.status).toBe("scheduled");
+    expect(updates.some((u) => u.payload.status === "ignored")).toBe(false);
+  });
+
   it("cupom + link de marketplace desconectado → não envia a mensagem inteira (não remove o link, não envia parcial)", async () => {
     const { database, updates, getInsertedOffer } = makeDatabase({ integrations: [] });
     const processor = new OfferProcessor(database as any);

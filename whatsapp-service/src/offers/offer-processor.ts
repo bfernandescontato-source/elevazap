@@ -173,20 +173,22 @@ export class OfferProcessor {
     } else {
       log("offer_processing_resumed", { ...common, offer_id: offer.id, processing_attempts: offer.processing_attempts });
     }
-    if (!hasSupportedMarketplaceLink || unsupportedLinks.length > 0 || disconnectedProvider) {
+    if (!hasSupportedMarketplaceLink || disconnectedProvider) {
+      // Um link avulso não reconhecido (ex: divulgação de canal reserva, cupom de site
+      // externo) ao lado de um link Shopee/ML/Amazon válido e conectado NÃO deve
+      // derrubar a oferta inteira — só bloqueia quando não sobra nenhum link de
+      // marketplace suportado, ou quando o marketplace presente não está conectado.
       const providerLabel = disconnectedProvider === "shopee" ? "Shopee" : disconnectedProvider === "mercado_livre" ? "Mercado Livre" : "Amazon";
       const message = !hasSupportedMarketplaceLink
           ? "A oferta não possui link de marketplace suportado; oferta ignorada."
-          : disconnectedProvider
-            ? `${providerLabel} não está conectado nesta conta; oferta ignorada.`
-            : "A oferta contém link não permitido; oferta ignorada.";
-      const errorCode = disconnectedProvider === "shopee"
-          ? "SHOPEE_NOT_CONNECTED"
-          : disconnectedProvider === "mercado_livre"
-            ? "MERCADO_LIVRE_NOT_CONNECTED"
-            : disconnectedProvider === "amazon"
-              ? "AMAZON_NOT_CONNECTED"
-            : "UNSUPPORTED_MARKETPLACE_LINK";
+          : `${providerLabel} não está conectado nesta conta; oferta ignorada.`;
+      const errorCode = !hasSupportedMarketplaceLink
+          ? "UNSUPPORTED_MARKETPLACE_LINK"
+          : disconnectedProvider === "shopee"
+            ? "SHOPEE_NOT_CONNECTED"
+            : disconnectedProvider === "mercado_livre"
+              ? "MERCADO_LIVRE_NOT_CONNECTED"
+              : "AMAZON_NOT_CONNECTED";
       await this.database.from("captured_offers").update({
         status: "ignored", error_code: errorCode, error_message: message,
         processed_at: new Date().toISOString(), processing_worker_id: null,
