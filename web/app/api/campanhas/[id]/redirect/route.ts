@@ -71,8 +71,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     && (campaign.allow_stale_participant_count || !group.participants_sync_error)) : [];
   const activeGroupJid = eligible[0]?.group_jid;
 
-  const [{ data: events }, { data: metricBreakdown }] = await Promise.all([
+  const [{ data: events }, { data: participantEvents }, { data: metricBreakdown }] = await Promise.all([
     sb.from("campaign_redirect_events").select("*").eq("campaign_id", campaign.id).eq("account_id", context.accountId).order("created_at", { ascending: false }).limit(300),
+    sb.from("campaign_participant_events").select("id,group_jid,action,occurred_at").eq("campaign_id", campaign.id).eq("account_id", context.accountId).order("occurred_at", { ascending: false }).limit(2000),
     sb.rpc("get_campaign_redirect_metrics", { p_campaign_id: campaign.id })
   ]);
   const responseGroups = groups.map((group: any) => ({ ...group, situacao: calculatedSituation(group, campaign, activeGroupJid) }));
@@ -84,6 +85,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({
     campaign: { ...campaign, whatsapp_senders: sender, campanha_grupos: undefined, groups: responseGroups, active_group_jid: activeGroupJid || null, next_group_jid: eligible[1]?.group_jid || null, black_friday_goal: blackFridayGoal },
     events: events || [],
+    participant_events: participantEvents || [],
     metrics: {
       accesses: Number(campaign.total_accesses || 0),
       redirects: Number(campaign.total_redirects || 0),

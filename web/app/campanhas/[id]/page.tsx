@@ -44,9 +44,10 @@ type Campaign = {
 };
 
 type Event = { id: string; group_jid?: string | null; result: string; reason?: string | null; utm?: Record<string, string>; destination_url?: string | null; created_at: string };
+type ParticipantEvent = { id: string; group_jid: string; action: "add" | "remove"; occurred_at: string };
 type Sender = { id: string; label: string };
 type AvailableGroup = { group_jid: string; nome?: string };
-type DetailData = { campaign: Campaign; events: Event[]; metrics: { accesses: number; redirects: number; failures: number; daily: { date: string; count: number }[]; sources: { source: string; count: number }[] } };
+type DetailData = { campaign: Campaign; events: Event[]; participant_events: ParticipantEvent[]; metrics: { accesses: number; redirects: number; failures: number; daily: { date: string; count: number }[]; sources: { source: string; count: number }[] } };
 type Period = "hoje" | "ontem" | "7dias" | "30dias" | "este-mes" | "mes-passado" | "personalizado";
 
 function formatDate(value?: string | null) {
@@ -132,33 +133,37 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
   const periodRange = useMemo(() => getPeriodRange(period, customStart, customEnd), [period, customStart, customEnd]);
 
-  const currentEvents = useMemo(() => {
+  const currentParticipantEvents = useMemo(() => {
     const { start, end } = periodRange;
-    return (detail?.events || []).filter((e) => { const t = new Date(e.created_at).getTime(); return t >= start.getTime() && t < end.getTime(); });
-  }, [detail?.events, periodRange]);
+    return (detail?.participant_events || []).filter((e) => { const t = new Date(e.occurred_at).getTime(); return t >= start.getTime() && t < end.getTime(); });
+  }, [detail?.participant_events, periodRange]);
 
-  const prevEvents = useMemo(() => {
+  const previousParticipantEvents = useMemo(() => {
     const { prevStart, prevEnd } = periodRange;
-    return (detail?.events || []).filter((e) => { const t = new Date(e.created_at).getTime(); return t >= prevStart.getTime() && t < prevEnd.getTime(); });
-  }, [detail?.events, periodRange]);
+    return (detail?.participant_events || []).filter((e) => { const t = new Date(e.occurred_at).getTime(); return t >= prevStart.getTime() && t < prevEnd.getTime(); });
+  }, [detail?.participant_events, periodRange]);
 
   const summaryMetrics = useMemo(() => {
-    const entered = currentEvents.filter((e) => e.result === "redirecionado").length;
-    const left = currentEvents.filter((e) => e.result !== "redirecionado").length;
-    const prevEntered = prevEvents.filter((e) => e.result === "redirecionado").length;
-    const prevLeft = prevEvents.filter((e) => e.result !== "redirecionado").length;
+    const entered = currentParticipantEvents.filter((e) => e.action === "add").length;
+    const left = currentParticipantEvents.filter((e) => e.action === "remove").length;
+    const prevEntered = previousParticipantEvents.filter((e) => e.action === "add").length;
+    const prevLeft = previousParticipantEvents.filter((e) => e.action === "remove").length;
     const totalParticipants = groups.reduce((sum, g) => sum + (g.participant_count ?? 0), 0);
     return { totalParticipants, entered, left, balance: entered - left, enteredDelta: deltaPercent(entered, prevEntered), leftDelta: deltaPercent(left, prevLeft) };
-  }, [currentEvents, prevEvents, groups]);
+  }, [currentParticipantEvents, previousParticipantEvents, groups]);
 
   const groupMetrics = useMemo(() => {
-    const map = new Map<string, { entered: number }>();
-    for (const g of groups) map.set(g.group_jid, { entered: 0 });
-    for (const e of currentEvents) {
-      if (e.group_jid && map.has(e.group_jid) && e.result === "redirecionado") map.get(e.group_jid)!.entered++;
+    const map = new Map<string, { entered: number; left: number }>();
+    for (const g of groups) map.set(g.group_jid, { entered: 0, left: 0 });
+    for (const e of currentParticipantEvents) {
+      if (map.has(e.group_jid)) {
+        const metrics = map.get(e.group_jid)!;
+        if (e.action === "add") metrics.entered++;
+        if (e.action === "remove") metrics.left++;
+      }
     }
     return map;
-  }, [groups, currentEvents]);
+  }, [groups, currentParticipantEvents]);
 
   const dateRangeLabel = useMemo(() => {
     const { start, end } = periodRange;
@@ -529,7 +534,8 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
           ? <EmptyState title="Nenhum grupo nesta campanha" description="Adicione grupos para ativar o link inteligente." />
           : <div className="space-y-4">
             {groups.map((group, index) => {
-              const gm = groupMetrics.get(group.group_jid) || { entered: 0 };
+              const gm = groupMetrics.get(group.group_jid) || { entered: 0, left: 0 };
+              const groupBalance = gm.entered - gm.left;
               const isActive = campaign.active_group_jid === group.group_jid;
               return (
                 <article
@@ -595,13 +601,13 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
                       </div>
                       <div className="rounded-lg bg-wash p-3">
                         <div className="text-xs text-muted">Saíram</div>
-                        <div className="mt-1.5 text-xl font-bold text-muted">—</div>
-                        <div className="mt-0.5 text-xs text-muted">não rastreado</div>
+                        <div className="mt-1.5 text-xl font-bold text-red-500">{gm.left}</div>
+                        <div className="mt-0.5 text-xs text-muted">{dateRangeLabel}</div>
                       </div>
                       <div className="rounded-lg bg-wash p-3">
                         <div className="text-xs text-muted">Saldo</div>
-                        <div className={`mt-1.5 text-xl font-bold ${gm.entered > 0 ? "text-emerald-600" : "text-muted"}`}>
-                          {gm.entered > 0 ? "+" : ""}{gm.entered}
+                        <div className={`mt-1.5 text-xl font-bold ${groupBalance > 0 ? "text-emerald-600" : groupBalance < 0 ? "text-red-500" : "text-muted"}`}>
+                          {groupBalance > 0 ? "+" : ""}{groupBalance}
                         </div>
                         <div className="mt-0.5 text-xs text-muted">{dateRangeLabel}</div>
                       </div>

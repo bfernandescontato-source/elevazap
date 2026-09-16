@@ -5,6 +5,42 @@ import { trackOfficialGroupJoin } from "./official-funnel-tracking.js";
 
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
+async function persistParticipantEvents(senderId: string | null, update: any) {
+  const groupJid = typeof update?.id === "string" ? update.id : "";
+  const action = update?.action;
+  const participants = Array.isArray(update?.participants)
+    ? update.participants.filter((participant: unknown): participant is string => typeof participant === "string" && participant.length > 0)
+    : [];
+  if (!senderId || !["add", "remove"].includes(action) || !participants.length) return;
+
+  const { data: sender, error: senderError } = await supabase.from("whatsapp_senders")
+    .select("account_id").eq("id", senderId).maybeSingle();
+  if (senderError) throw senderError;
+  if (!sender?.account_id) return;
+
+  // A group can be used by more than one campaign. Record the WhatsApp event
+  // against each campaign that contains it, rather than treating a link click
+  // as a participant entry.
+  const { data: campaignGroups, error: groupsError } = await supabase.from("campanha_grupos")
+    .select("campanha_id").eq("account_id", sender.account_id).eq("group_jid", groupJid);
+  if (groupsError) throw groupsError;
+  const campaignIds = Array.from(new Set((campaignGroups || []).map((row: any) => row.campanha_id).filter(Boolean)));
+  if (!campaignIds.length) return;
+
+  const occurredAt = new Date().toISOString();
+  const rows = campaignIds.flatMap((campaignId: string) => participants.map((participantJid: string) => ({
+    account_id: sender.account_id,
+    campaign_id: campaignId,
+    group_jid: groupJid,
+    whatsapp_sender_id: senderId,
+    participant_jid: participantJid,
+    action,
+    occurred_at: occurredAt
+  })));
+  const { error } = await supabase.from("campaign_participant_events").insert(rows);
+  if (error) throw error;
+}
+
 async function persistForCampaigns(senderId: string | null, groupJid: string, sock: any) {
   if (!senderId) return;
   const { data: sender } = await supabase.from("whatsapp_senders").select("account_id").eq("id", senderId).maybeSingle();
@@ -41,6 +77,7 @@ export function scheduleParticipantEventSync(senderId: string | null, update: an
   if (!/^\d+(-\d+)?@g\.us$/.test(groupJid)) return;
 
   trackOfficialGroupJoin(senderId, update, sock).catch((error) => console.error("[groups] official funnel tracking error:", error));
+  persistParticipantEvents(senderId, update).catch((error) => console.error("[groups] campaign participant event error:", error));
 
   const key = `${senderId || "principal"}:${groupJid}`;
   const current = pending.get(key);
