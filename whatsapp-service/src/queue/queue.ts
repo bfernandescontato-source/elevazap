@@ -17,6 +17,7 @@ import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
+import { MercadoLivreUrlResolver } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
@@ -98,6 +99,7 @@ export class GlobalSendQueue {
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
   private shopeeUrlResolver = new ShopeeUrlResolver();
+  private mercadoLivreUrlResolver = new MercadoLivreUrlResolver();
 
   constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
@@ -444,6 +446,17 @@ export class GlobalSendQueue {
         // a seguir um redirecionamento assim por segurança própria dele, então
         // resolvemos pra URL final aqui antes de raspar a página.
         metadataUrl = context.resolvedUrl || await resolveAmazonUrl(matched);
+      } else if (["meli.la", "mercadolivre.com.br", "www.mercadolivre.com.br", "produto.mercadolivre.com.br"].includes(host)) {
+        // meli.la redireciona pra um domínio diferente (mercadolivre.com.br),
+        // mesmo problema de redirect cross-domain do Amazon acima, e além
+        // disso o Mercado Livre só devolve os componentes de página (inclusive
+        // o produto de uma vitrine /social/) pra um user-agent de navegador —
+        // por isso usa o mesmo resolvedor já usado na conversão de afiliado.
+        try {
+          metadataUrl = context.resolvedUrl || (await this.mercadoLivreUrlResolver.resolveUrl(matched)).resolvedUrl;
+        } catch (resolveError) {
+          console.warn({ event: "offer_link_preview_failed", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: matched, reason: "mercado_livre_resolve_failed", ...errorFields(resolveError) });
+        }
       }
       let info = await getUrlInfo(metadataUrl, {
         thumbnailWidth: 720,
