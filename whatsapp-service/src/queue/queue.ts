@@ -17,6 +17,7 @@ import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
+import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
@@ -375,6 +376,13 @@ export class GlobalSendQueue {
           const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId, sock);
           if (product) return { ...product, "matched-text": matched };
         }
+      } else if (isAmazonUrl(matched)) {
+        // Os grupos monitorados embrulham o link da Amazon em encurtadores de
+        // terceiro (amzlink.me, amzlinks.in) que redirecionam pra um domínio
+        // diferente (amazon.com.br) — o scraper genérico do Baileys se recusa
+        // a seguir um redirecionamento assim por segurança própria dele, então
+        // resolvemos pra URL final aqui antes de raspar a página.
+        metadataUrl = context.resolvedUrl || await resolveAmazonUrl(matched);
       }
       const info = await getUrlInfo(metadataUrl, {
         thumbnailWidth: 720,
