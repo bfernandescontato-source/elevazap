@@ -21,6 +21,41 @@ import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon"
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
+const OG_META_PATTERNS: Record<"title" | "description" | "image", RegExp[]> = {
+  title: [
+    /<meta[^>]+(?:property|name)=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:title["']/i,
+    /<title[^>]*>([^<]+)<\/title>/i
+  ],
+  description: [
+    /<meta[^>]+(?:property|name)=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:description["']/i,
+    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i
+  ],
+  image: [
+    /<meta[^>]+(?:property|name)=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image(?::secure_url)?["']/i
+  ]
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+function extractOgMeta(html: string, field: "title" | "description" | "image"): string | undefined {
+  for (const pattern of OG_META_PATTERNS[field]) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1].trim());
+  }
+  return undefined;
+}
+
 type OfferPreviewContext = {
   link: string;
   accountId: string;
@@ -384,7 +419,7 @@ export class GlobalSendQueue {
         // resolvemos pra URL final aqui antes de raspar a página.
         metadataUrl = context.resolvedUrl || await resolveAmazonUrl(matched);
       }
-      const info = await getUrlInfo(metadataUrl, {
+      let info = await getUrlInfo(metadataUrl, {
         thumbnailWidth: 720,
         fetchOpts: {
           timeout: 10_000,
@@ -398,6 +433,26 @@ export class GlobalSendQueue {
         // preview na mão, então precisamos ligar o upload nós mesmos).
         uploadImage: sock.waUploadToServer
       });
+      const hasImage = (candidate: WAUrlInfo | undefined) => !!(candidate?.jpegThumbnail || candidate?.highQualityThumbnail);
+      if (!info?.title || !hasImage(info)) {
+        // Amazon e Mercado Livre não têm uma API de produto própria como a da
+        // Shopee aqui; o scraper genérico do Baileys às vezes não acha (ou é
+        // bloqueado ao buscar) a og:image dessas páginas. Raspa a página nós
+        // mesmos com cabeçalhos de navegador antes de desistir da imagem,
+        // sem descartar o que o Baileys já tiver conseguido (título/descrição).
+        const fallback = await this.scrapeOgImageAndMeta(metadataUrl, dispatchId, sock);
+        if (fallback) {
+          info = {
+            ...(info || {}),
+            "canonical-url": info?.["canonical-url"] || fallback["canonical-url"],
+            title: info?.title || fallback.title,
+            description: info?.description || fallback.description,
+            originalThumbnailUrl: hasImage(info) ? info?.originalThumbnailUrl : fallback.originalThumbnailUrl,
+            jpegThumbnail: hasImage(info) ? info?.jpegThumbnail : fallback.jpegThumbnail,
+            highQualityThumbnail: hasImage(info) ? info?.highQualityThumbnail : fallback.highQualityThumbnail
+          } as WAUrlInfo;
+        }
+      }
       if (!info?.title) throw new Error("A página do produto não retornou metadados para o preview.");
       info["matched-text"] = matched;
       return info;
@@ -472,6 +527,73 @@ export class GlobalSendQueue {
     } catch (error) {
       console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
       return undefined;
+    }
+  }
+
+  /**
+   * Generic OG-tag fallback for hosts without a dedicated product API (Amazon,
+   * Mercado Livre): fetches the page ourselves with browser-like headers,
+   * since a bot-identifying user-agent (or none) can get served a page
+   * without the real og:image/og:title — the same failure mode already
+   * handled for Shopee via its official API instead.
+   */
+  private async scrapeOgImageAndMeta(url: string, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
+    const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
+      console.warn({ event: "offer_generic_og_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason, ...extra });
+      return undefined;
+    };
+    try {
+      const page = await axios.get<string>(url, {
+        timeout: 10_000,
+        responseType: "text",
+        validateStatus: () => true,
+        maxContentLength: 3_000_000,
+        maxRedirects: 5,
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "pt-BR,pt;q=0.9,en;q=0.8"
+        }
+      });
+      if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
+      const html = page.data;
+      const title = extractOgMeta(html, "title");
+      const description = extractOgMeta(html, "description");
+      const imageRaw = extractOgMeta(html, "image");
+      let originalThumbnailUrl: string | undefined;
+      let jpegThumbnail: Buffer | undefined;
+      let highQualityThumbnail: any;
+      if (imageRaw) {
+        try {
+          const imageUrl = new URL(imageRaw, url);
+          if (imageUrl.protocol === "https:") {
+            const { imageMessage } = await prepareWAMessageMedia({ image: { url: imageUrl.toString() } }, {
+              upload: sock.waUploadToServer,
+              mediaTypeOverride: "thumbnail-link",
+              options: { timeout: 10_000 }
+            });
+            if (imageMessage) {
+              originalThumbnailUrl = imageUrl.toString();
+              jpegThumbnail = imageMessage.jpegThumbnail ? Buffer.from(imageMessage.jpegThumbnail) : undefined;
+              highQualityThumbnail = imageMessage;
+            }
+          }
+        } catch (imageError) {
+          logSkip("image_download_failed", errorFields(imageError));
+        }
+      }
+      if (!title && !jpegThumbnail && !highQualityThumbnail) return logSkip("no_usable_metadata");
+      return {
+        "canonical-url": url,
+        "matched-text": "",
+        title: title || "",
+        description: description || new URL(url).hostname,
+        originalThumbnailUrl,
+        jpegThumbnail,
+        highQualityThumbnail
+      };
+    } catch (error) {
+      return logSkip("exception", errorFields(error));
     }
   }
 
