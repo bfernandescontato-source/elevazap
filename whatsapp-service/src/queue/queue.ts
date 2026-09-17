@@ -372,7 +372,7 @@ export class GlobalSendQueue {
         metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(matched);
         const itemId = context.itemId || extractShopeeProductIdentifiers(metadataUrl).itemId;
         if (itemId) {
-          const product = await this.getShopeeProductPreview(context.accountId, itemId);
+          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId);
           if (product) return { ...product, "matched-text": matched };
         }
       }
@@ -398,37 +398,58 @@ export class GlobalSendQueue {
     }
   }
 
-  private async getShopeeProductPreview(accountId: string, itemId: string): Promise<WAUrlInfo | undefined> {
-    if (!/^\d+$/.test(itemId)) return undefined;
-    const { data: integration, error } = await supabase.from("affiliate_integrations")
-      .select("app_id,encrypted_app_secret").eq("account_id", accountId)
-      .eq("provider", "shopee").eq("status", "connected").maybeSingle();
-    if (error || !integration) return undefined;
-    const query = `query { productOfferV2(itemId: ${itemId}, page: 1, limit: 1) { nodes { itemId productName imageUrl productLink } } }`;
-    const body = JSON.stringify({ query });
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = createHash("sha256").update(`${integration.app_id}${timestamp}${body}${decryptIntegrationSecret(integration.encrypted_app_secret)}`).digest("hex");
-    const response = await axios.post("https://open-api.affiliate.shopee.com.br/graphql", body, {
-      timeout: 10_000,
-      headers: { "content-type": "application/json", authorization: `SHA256 Credential=${integration.app_id}, Timestamp=${timestamp}, Signature=${signature}` }
-    });
-    const product = response.data?.data?.productOfferV2?.nodes?.find((node: any) => String(node.itemId) === itemId);
-    if (!product?.productName || !product?.imageUrl || !product?.productLink) return undefined;
-    const imageUrl = new URL(product.imageUrl);
-    if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return undefined;
-    const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
-      timeout: 10_000, responseType: "arraybuffer", maxContentLength: 2_000_000
-    });
-    if (!String(image.headers["content-type"] || "").startsWith("image/")) return undefined;
-    const thumbnail = await extractImageThumb(Buffer.from(image.data), 192);
-    return {
-      "canonical-url": product.productLink,
-      "matched-text": "",
-      title: product.productName,
-      description: "shopee.com.br",
-      originalThumbnailUrl: imageUrl.toString(),
-      jpegThumbnail: thumbnail.buffer
+  /**
+   * Any failure here (auth, missing offer, network, thumbnail) must fall back
+   * to the generic scraper in the caller instead of aborting the whole
+   * preview — so every failure is caught and logged with its exact reason
+   * here, never left to bubble up as a silent "no preview at all".
+   */
+  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string): Promise<WAUrlInfo | undefined> {
+    const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
+      console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason, ...extra });
+      return undefined;
     };
+    try {
+      if (!/^\d+$/.test(itemId)) return logSkip("invalid_item_id");
+      const { data: integration, error } = await supabase.from("affiliate_integrations")
+        .select("app_id,encrypted_app_secret").eq("account_id", accountId)
+        .eq("provider", "shopee").eq("status", "connected").maybeSingle();
+      if (error || !integration?.app_id || !integration?.encrypted_app_secret) return logSkip("shopee_not_connected");
+      const query = `query { productOfferV2(itemId: ${itemId}, page: 1, limit: 1) { nodes { itemId productName imageUrl productLink } } }`;
+      const body = JSON.stringify({ query });
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const signature = createHash("sha256").update(`${integration.app_id}${timestamp}${body}${decryptIntegrationSecret(integration.encrypted_app_secret)}`).digest("hex");
+      const response = await axios.post("https://open-api.affiliate.shopee.com.br/graphql", body, {
+        timeout: 10_000,
+        validateStatus: () => true,
+        headers: { "content-type": "application/json", authorization: `SHA256 Credential=${integration.app_id}, Timestamp=${timestamp}, Signature=${signature}` }
+      });
+      if (response.status < 200 || response.status >= 300) return logSkip("http_error", { status: response.status });
+      const apiError = response.data?.errors?.[0];
+      if (apiError) return logSkip("graphql_error", { message: apiError.extensions?.message || apiError.message, code: apiError.extensions?.code });
+      const product = response.data?.data?.productOfferV2?.nodes?.find((node: any) => String(node.itemId) === itemId);
+      if (!product) return logSkip("item_not_in_active_offer");
+      if (!product.productName || !product.imageUrl || !product.productLink) return logSkip("incomplete_product_fields");
+      const imageUrl = new URL(product.imageUrl);
+      if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return logSkip("unexpected_image_host", { host: imageUrl.hostname });
+      const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
+        timeout: 10_000, responseType: "arraybuffer", maxContentLength: 2_000_000, validateStatus: () => true
+      });
+      if (image.status < 200 || image.status >= 300) return logSkip("image_download_failed", { status: image.status });
+      if (!String(image.headers["content-type"] || "").startsWith("image/")) return logSkip("image_not_image_content_type");
+      const thumbnail = await extractImageThumb(Buffer.from(image.data), 192);
+      return {
+        "canonical-url": product.productLink,
+        "matched-text": "",
+        title: product.productName,
+        description: "shopee.com.br",
+        originalThumbnailUrl: imageUrl.toString(),
+        jpegThumbnail: thumbnail.buffer
+      };
+    } catch (error) {
+      console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
+      return undefined;
+    }
   }
 
   private async getGroupMentions(sock: any, groupJid: string) {
