@@ -11,14 +11,20 @@ import { QueueMetrics } from "./metrics.js";
 import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
-import { getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
-import { ShopeeUrlResolver } from "../offers/shopee-url-resolver.js";
+import { normalizeWhatsappOfferText } from "../offers/whatsapp-copy.js";
+import { extractImageThumb, getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
+import axios from "axios";
+import { createHash } from "crypto";
+import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
+import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
 type OfferPreviewContext = {
   link: string;
-  mediaSource: "original_image" | "product_link_preview";
+  accountId: string;
+  itemId?: string;
+  resolvedUrl?: string;
 };
 
 export class GlobalSendQueue {
@@ -310,8 +316,9 @@ export class GlobalSendQueue {
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
-    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview.link, row.id) : undefined;
+    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview, row.id) : undefined;
     const message: any = buildBaileysMessage(row, media, mentions);
+    if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
     if (linkPreview && "text" in message) message.linkPreview = linkPreview;
     const result = await withTimeout<any>(
       "whatsapp.sendMessage",
@@ -323,8 +330,8 @@ export class GlobalSendQueue {
         event: "offer_media_delivery",
         component: "queue",
         dispatch_id: correlationId(row.id),
-        media_source: offerPreview.mediaSource,
-        link_preview_generated: Boolean(linkPreview),
+        media_source: "product_link_preview",
+        link_preview_generated: Boolean(result?.message?.extendedTextMessage?.jpegThumbnail || result?.message?.extendedTextMessage?.thumbnailDirectPath),
         preview_url: linkPreview?.["canonical-url"] || offerPreview.link
       });
     }
@@ -337,11 +344,17 @@ export class GlobalSendQueue {
    */
   private async findOfferPreviewContext(row: any): Promise<OfferPreviewContext | null> {
     const [{ data: pilotDelivery }, { data: catalogDelivery }] = await Promise.all([
-      supabase.from("offer_deliveries").select("link_used").eq("group_dispatch_id", row.id).maybeSingle(),
-      supabase.from("affiliate_offer_deliveries").select("affiliate_url").eq("group_dispatch_id", row.id).maybeSingle()
+      supabase.from("offer_deliveries").select("link_used,offer_id").eq("group_dispatch_id", row.id).maybeSingle(),
+      supabase.from("affiliate_offer_deliveries").select("affiliate_url,external_item_id,provider").eq("group_dispatch_id", row.id).maybeSingle()
     ]);
     const link = String(pilotDelivery?.link_used || catalogDelivery?.affiliate_url || "").trim();
-    return link ? { link, mediaSource: "product_link_preview" } : null;
+    if (!link) return null;
+    if (pilotDelivery?.offer_id) {
+      const { data: offer } = await supabase.from("captured_offers").select("item_id,resolved_url")
+        .eq("id", pilotDelivery.offer_id).eq("account_id", row.account_id).maybeSingle();
+      return { link, accountId: row.account_id, itemId: offer?.item_id || undefined, resolvedUrl: offer?.resolved_url || undefined };
+    }
+    return { link, accountId: row.account_id, itemId: catalogDelivery?.provider === "SHOPEE" ? catalogDelivery.external_item_id : undefined };
   }
 
   /**
@@ -349,14 +362,19 @@ export class GlobalSendQueue {
    * Resolve that URL ourselves for metadata, while retaining the original
    * affiliate URL as the visible/clickable text in WhatsApp.
    */
-  private async generateOfferLinkPreview(text: string, deliveryLink: string, dispatchId: string): Promise<WAUrlInfo | undefined> {
-    const matched = text.match(URL_IN_TEXT)?.[0] || deliveryLink;
+  private async generateOfferLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string): Promise<WAUrlInfo | undefined> {
+    const matched = text.match(URL_IN_TEXT)?.[0] || context.link;
     if (!matched) return undefined;
     try {
       let metadataUrl = matched;
       const host = new URL(matched).hostname.toLowerCase();
       if (["shopee.com.br", "www.shopee.com.br", "s.shopee.com.br"].includes(host)) {
-        metadataUrl = await this.shopeeUrlResolver.resolveUrl(matched);
+        metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(matched);
+        const itemId = context.itemId || extractShopeeProductIdentifiers(metadataUrl).itemId;
+        if (itemId) {
+          const product = await this.getShopeeProductPreview(context.accountId, itemId);
+          if (product) return { ...product, "matched-text": matched };
+        }
       }
       const info = await getUrlInfo(metadataUrl, {
         thumbnailWidth: 192,
@@ -378,6 +396,39 @@ export class GlobalSendQueue {
       });
       return undefined;
     }
+  }
+
+  private async getShopeeProductPreview(accountId: string, itemId: string): Promise<WAUrlInfo | undefined> {
+    if (!/^\d+$/.test(itemId)) return undefined;
+    const { data: integration, error } = await supabase.from("affiliate_integrations")
+      .select("app_id,encrypted_app_secret").eq("account_id", accountId)
+      .eq("provider", "shopee").eq("status", "connected").maybeSingle();
+    if (error || !integration) return undefined;
+    const query = `query { productOfferV2(itemId: ${itemId}, page: 1, limit: 1) { nodes { itemId productName imageUrl productLink } } }`;
+    const body = JSON.stringify({ query });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHash("sha256").update(`${integration.app_id}${timestamp}${body}${decryptIntegrationSecret(integration.encrypted_app_secret)}`).digest("hex");
+    const response = await axios.post("https://open-api.affiliate.shopee.com.br/graphql", body, {
+      timeout: 10_000,
+      headers: { "content-type": "application/json", authorization: `SHA256 Credential=${integration.app_id}, Timestamp=${timestamp}, Signature=${signature}` }
+    });
+    const product = response.data?.data?.productOfferV2?.nodes?.find((node: any) => String(node.itemId) === itemId);
+    if (!product?.productName || !product?.imageUrl || !product?.productLink) return undefined;
+    const imageUrl = new URL(product.imageUrl);
+    if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return undefined;
+    const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
+      timeout: 10_000, responseType: "arraybuffer", maxContentLength: 2_000_000
+    });
+    if (!String(image.headers["content-type"] || "").startsWith("image/")) return undefined;
+    const thumbnail = await extractImageThumb(Buffer.from(image.data), 192);
+    return {
+      "canonical-url": product.productLink,
+      "matched-text": "",
+      title: product.productName,
+      description: "shopee.com.br",
+      originalThumbnailUrl: imageUrl.toString(),
+      jpegThumbnail: thumbnail.buffer
+    };
   }
 
   private async getGroupMentions(sock: any, groupJid: string) {

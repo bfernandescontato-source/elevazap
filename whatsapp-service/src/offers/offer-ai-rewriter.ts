@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { normalizeWhatsappOfferText } from "./whatsapp-copy.js";
 
 const RewriteOutput = z.object({ rewritten_text: z.string() });
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
@@ -53,7 +54,7 @@ export function validateRewrite(original: string, rewritten: string, purchaseLin
   const expectedFacts = normalizedFacts(original);
   const actualFacts = normalizedFacts(output);
   if (expectedFacts.some((fact) => !actualFacts.includes(fact))) throw new Error("A copy gerada alterou preço, desconto ou percentual.");
-  return output;
+  return normalizeWhatsappOfferText(output);
 }
 
 export class OfferAiRewriter {
