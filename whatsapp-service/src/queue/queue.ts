@@ -12,7 +12,7 @@ import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
 import { normalizeWhatsappOfferText } from "../offers/whatsapp-copy.js";
-import { extractImageThumb, getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
+import { getUrlInfo, prepareWAMessageMedia, type WAUrlInfo } from "@whiskeysockets/baileys";
 import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
@@ -316,7 +316,7 @@ export class GlobalSendQueue {
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
-    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview, row.id) : undefined;
+    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview, row.id, sock) : undefined;
     const message: any = buildBaileysMessage(row, media, mentions);
     if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
     if (linkPreview && "text" in message) message.linkPreview = linkPreview;
@@ -362,7 +362,7 @@ export class GlobalSendQueue {
    * Resolve that URL ourselves for metadata, while retaining the original
    * affiliate URL as the visible/clickable text in WhatsApp.
    */
-  private async generateOfferLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string): Promise<WAUrlInfo | undefined> {
+  private async generateOfferLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
     const matched = text.match(URL_IN_TEXT)?.[0] || context.link;
     if (!matched) return undefined;
     try {
@@ -372,16 +372,23 @@ export class GlobalSendQueue {
         metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(matched);
         const itemId = context.itemId || extractShopeeProductIdentifiers(metadataUrl).itemId;
         if (itemId) {
-          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId);
+          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId, sock);
           if (product) return { ...product, "matched-text": matched };
         }
       }
       const info = await getUrlInfo(metadataUrl, {
-        thumbnailWidth: 192,
+        thumbnailWidth: 720,
         fetchOpts: {
           timeout: 10_000,
           headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
-        }
+        },
+        // Sem isso, o preview usa uma miniatura pequena comprimida localmente
+        // em vez de subir a imagem cheia pros servidores do WhatsApp — é essa
+        // etapa de upload que faz o card sair grande, igual a um link colado
+        // manualmente (o socket já habilita generateHighQualityLinkPreview,
+        // mas isso só vale pro auto-preview do Baileys; aqui montamos o
+        // preview na mão, então precisamos ligar o upload nós mesmos).
+        uploadImage: sock.waUploadToServer
       });
       if (!info?.title) throw new Error("A página do produto não retornou metadados para o preview.");
       info["matched-text"] = matched;
@@ -404,7 +411,7 @@ export class GlobalSendQueue {
    * preview — so every failure is caught and logged with its exact reason
    * here, never left to bubble up as a silent "no preview at all".
    */
-  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string): Promise<WAUrlInfo | undefined> {
+  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
     const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
       console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason, ...extra });
       return undefined;
@@ -437,14 +444,22 @@ export class GlobalSendQueue {
       });
       if (image.status < 200 || image.status >= 300) return logSkip("image_download_failed", { status: image.status });
       if (!String(image.headers["content-type"] || "").startsWith("image/")) return logSkip("image_not_image_content_type");
-      const thumbnail = await extractImageThumb(Buffer.from(image.data), 192);
+      // Sobe a imagem pros servidores do WhatsApp (mesmo passo que o preview
+      // "de alta qualidade" do Baileys faz sozinho) em vez de só comprimir uma
+      // miniatura localmente — é isso que faz o card sair grande de verdade.
+      const { imageMessage } = await prepareWAMessageMedia({ image: { url: imageUrl.toString() } }, {
+        upload: sock.waUploadToServer,
+        mediaTypeOverride: "thumbnail-link",
+        options: { timeout: 10_000 }
+      });
       return {
         "canonical-url": product.productLink,
         "matched-text": "",
         title: product.productName,
         description: "shopee.com.br",
         originalThumbnailUrl: imageUrl.toString(),
-        jpegThumbnail: thumbnail.buffer
+        jpegThumbnail: imageMessage?.jpegThumbnail ? Buffer.from(imageMessage.jpegThumbnail) : undefined,
+        highQualityThumbnail: imageMessage || undefined
       };
     } catch (error) {
       console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
