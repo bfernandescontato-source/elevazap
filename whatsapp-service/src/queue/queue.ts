@@ -12,13 +12,13 @@ import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
 import { normalizeWhatsappOfferText } from "../offers/whatsapp-copy.js";
+import { extractImageThumb, getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
 import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
-const OG_IMAGE_PATTERN = /<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']|<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i;
 
 type OfferPreviewContext = {
   link: string;
@@ -26,8 +26,6 @@ type OfferPreviewContext = {
   itemId?: string;
   resolvedUrl?: string;
 };
-
-type ProductImage = { buffer: Buffer };
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
@@ -318,14 +316,10 @@ export class GlobalSendQueue {
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
-    const productImage = offerPreview ? await this.getOfferProductImage(offerPreview, row.id) : undefined;
-    let message: any;
-    if (productImage) {
-      message = { image: productImage.buffer, caption: normalizeWhatsappOfferText(row.texto || ""), mentions };
-    } else {
-      message = buildBaileysMessage(row, media, mentions);
-      if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
-    }
+    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview, row.id) : undefined;
+    const message: any = buildBaileysMessage(row, media, mentions);
+    if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
+    if (linkPreview && "text" in message) message.linkPreview = linkPreview;
     const result = await withTimeout<any>(
       "whatsapp.sendMessage",
       env.SEND_TIMEOUT_MS,
@@ -336,18 +330,17 @@ export class GlobalSendQueue {
         event: "offer_media_delivery",
         component: "queue",
         dispatch_id: correlationId(row.id),
-        media_source: productImage ? "product_image" : "text_only_fallback",
-        link_preview_generated: false,
-        preview_url: offerPreview.link
+        media_source: "product_link_preview",
+        link_preview_generated: Boolean(result?.message?.extendedTextMessage?.jpegThumbnail || result?.message?.extendedTextMessage?.thumbnailDirectPath),
+        preview_url: linkPreview?.["canonical-url"] || offerPreview.link
       });
     }
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
   }
 
   /**
-   * Only offer deliveries opt into fetching a product photo. This keeps
-   * ordinary group messages on the existing Baileys path and never changes
-   * queue scheduling.
+   * Only offer deliveries opt into pre-built previews. This keeps ordinary group
+   * messages on the existing Baileys path and never changes queue scheduling.
    */
   private async findOfferPreviewContext(row: any): Promise<OfferPreviewContext | null> {
     const [{ data: pilotDelivery }, { data: catalogDelivery }] = await Promise.all([
@@ -365,43 +358,55 @@ export class GlobalSendQueue {
   }
 
   /**
-   * Sends the real product photo as media (large, like a normal WhatsApp
-   * photo) instead of a link-preview card — WhatsApp's own card rendering
-   * depends on Baileys/marketplace behavior we don't control and kept
-   * failing silently. A downloaded photo works the same way for Shopee,
-   * Mercado Livre and Amazon, and reuses the exact same {image, caption}
-   * shape already used for the "imagem original" mode.
+   * Baileys refuses a preview when a short Shopee URL redirects to another host.
+   * Resolve that URL ourselves for metadata, while retaining the original
+   * affiliate URL as the visible/clickable text in WhatsApp.
    */
-  private async getOfferProductImage(context: OfferPreviewContext, dispatchId: string): Promise<ProductImage | undefined> {
-    let metadataUrl = context.link;
+  private async generateOfferLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string): Promise<WAUrlInfo | undefined> {
+    const matched = text.match(URL_IN_TEXT)?.[0] || context.link;
+    if (!matched) return undefined;
     try {
-      const host = new URL(context.link).hostname.toLowerCase();
+      let metadataUrl = matched;
+      const host = new URL(matched).hostname.toLowerCase();
       if (["shopee.com.br", "www.shopee.com.br", "s.shopee.com.br"].includes(host)) {
-        metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(context.link);
+        metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(matched);
         const itemId = context.itemId || extractShopeeProductIdentifiers(metadataUrl).itemId;
         if (itemId) {
-          const image = await this.getShopeeProductImage(context.accountId, itemId, dispatchId);
-          if (image) return image;
+          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId);
+          if (product) return { ...product, "matched-text": matched };
         }
       }
+      const info = await getUrlInfo(metadataUrl, {
+        thumbnailWidth: 192,
+        fetchOpts: {
+          timeout: 10_000,
+          headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
+        }
+      });
+      if (!info?.title) throw new Error("A página do produto não retornou metadados para o preview.");
+      info["matched-text"] = matched;
+      return info;
     } catch (error) {
-      console.warn({ event: "offer_product_image_resolve_failed", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: context.link, ...errorFields(error) });
+      console.warn({
+        event: "offer_link_preview_failed",
+        component: "queue",
+        dispatch_id: correlationId(dispatchId),
+        preview_url: matched,
+        ...errorFields(error)
+      });
+      return undefined;
     }
-    // Works for any marketplace (Shopee, Mercado Livre, Amazon): og:image is a
-    // plain meta tag most product pages serve even to non-browser requests,
-    // unlike full-page title/description scraping.
-    return this.fetchOgImage(metadataUrl, dispatchId);
   }
 
   /**
-   * Any failure here (auth, missing offer, network, image download) must fall
-   * back to the generic og:image fetch in the caller instead of aborting the
-   * whole delivery — so every failure is caught and logged with its exact
-   * reason here, never left to bubble up as a silent "no photo at all".
+   * Any failure here (auth, missing offer, network, thumbnail) must fall back
+   * to the generic scraper in the caller instead of aborting the whole
+   * preview — so every failure is caught and logged with its exact reason
+   * here, never left to bubble up as a silent "no preview at all".
    */
-  private async getShopeeProductImage(accountId: string, itemId: string, dispatchId: string): Promise<ProductImage | undefined> {
+  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string): Promise<WAUrlInfo | undefined> {
     const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
-      console.warn({ event: "offer_shopee_product_image_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason, ...extra });
+      console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason, ...extra });
       return undefined;
     };
     try {
@@ -410,7 +415,7 @@ export class GlobalSendQueue {
         .select("app_id,encrypted_app_secret").eq("account_id", accountId)
         .eq("provider", "shopee").eq("status", "connected").maybeSingle();
       if (error || !integration?.app_id || !integration?.encrypted_app_secret) return logSkip("shopee_not_connected");
-      const query = `query { productOfferV2(itemId: ${itemId}, page: 1, limit: 1) { nodes { itemId imageUrl } } }`;
+      const query = `query { productOfferV2(itemId: ${itemId}, page: 1, limit: 1) { nodes { itemId productName imageUrl productLink } } }`;
       const body = JSON.stringify({ query });
       const timestamp = String(Math.floor(Date.now() / 1000));
       const signature = createHash("sha256").update(`${integration.app_id}${timestamp}${body}${decryptIntegrationSecret(integration.encrypted_app_secret)}`).digest("hex");
@@ -423,53 +428,26 @@ export class GlobalSendQueue {
       const apiError = response.data?.errors?.[0];
       if (apiError) return logSkip("graphql_error", { message: apiError.extensions?.message || apiError.message, code: apiError.extensions?.code });
       const product = response.data?.data?.productOfferV2?.nodes?.find((node: any) => String(node.itemId) === itemId);
-      if (!product?.imageUrl) return logSkip("item_not_in_active_offer");
+      if (!product) return logSkip("item_not_in_active_offer");
+      if (!product.productName || !product.imageUrl || !product.productLink) return logSkip("incomplete_product_fields");
       const imageUrl = new URL(product.imageUrl);
       if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return logSkip("unexpected_image_host", { host: imageUrl.hostname });
       const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
-        timeout: 10_000, responseType: "arraybuffer", maxContentLength: 5_000_000, validateStatus: () => true
+        timeout: 10_000, responseType: "arraybuffer", maxContentLength: 2_000_000, validateStatus: () => true
       });
       if (image.status < 200 || image.status >= 300) return logSkip("image_download_failed", { status: image.status });
       if (!String(image.headers["content-type"] || "").startsWith("image/")) return logSkip("image_not_image_content_type");
-      return { buffer: Buffer.from(image.data) };
+      const thumbnail = await extractImageThumb(Buffer.from(image.data), 192);
+      return {
+        "canonical-url": product.productLink,
+        "matched-text": "",
+        title: product.productName,
+        description: "shopee.com.br",
+        originalThumbnailUrl: imageUrl.toString(),
+        jpegThumbnail: thumbnail.buffer
+      };
     } catch (error) {
-      console.warn({ event: "offer_shopee_product_image_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
-      return undefined;
-    }
-  }
-
-  /**
-   * Marketplace-agnostic fallback: read the product page's own og:image tag
-   * (present on Shopee, Mercado Livre and Amazon product pages even for
-   * non-browser requests) and download that photo directly.
-   */
-  private async fetchOgImage(url: string, dispatchId: string): Promise<ProductImage | undefined> {
-    const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
-      console.warn({ event: "offer_og_image_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason, ...extra });
-      return undefined;
-    };
-    try {
-      const page = await axios.get<string>(url, {
-        timeout: 10_000,
-        responseType: "text",
-        validateStatus: () => true,
-        maxContentLength: 5_000_000,
-        headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
-      });
-      if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("page_fetch_failed", { status: page.status });
-      const match = page.data.match(OG_IMAGE_PATTERN);
-      const imageUrl = match?.[1] || match?.[2];
-      if (!imageUrl) return logSkip("no_og_image_tag");
-      const absolute = new URL(imageUrl, url);
-      if (absolute.protocol !== "https:") return logSkip("unsafe_image_protocol");
-      const image = await axios.get<ArrayBuffer>(absolute.toString(), {
-        timeout: 10_000, responseType: "arraybuffer", maxContentLength: 5_000_000, validateStatus: () => true
-      });
-      if (image.status < 200 || image.status >= 300) return logSkip("image_download_failed", { status: image.status });
-      if (!String(image.headers["content-type"] || "").startsWith("image/")) return logSkip("image_not_image_content_type");
-      return { buffer: Buffer.from(image.data) };
-    } catch (error) {
-      console.warn({ event: "offer_og_image_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason: "exception", ...errorFields(error) });
+      console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
       return undefined;
     }
   }
