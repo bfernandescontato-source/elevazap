@@ -51,7 +51,41 @@ function calculatedSituation(group: any, campaign: any, activeGroupJid?: string)
   return group.group_jid === activeGroupJid ? "Recebendo leads" : "Aguardando na fila";
 }
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+function readDateParam(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function listParticipantEvents(
+  sb: ReturnType<typeof supabaseAdmin>,
+  campaignId: string,
+  accountId: string,
+  start: string | null,
+  end: string | null
+) {
+  if (!start || !end || start >= end) return [];
+
+  // PostgREST pagina as respostas. Buscar somente a primeira página fazia a
+  // interface calcular os cartões a partir de uma amostra global dos grupos.
+  const events: { id: string; group_jid: string; action: "add" | "remove"; occurred_at: string }[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb.from("campaign_participant_events")
+      .select("id,group_jid,action,occurred_at")
+      .eq("campaign_id", campaignId)
+      .eq("account_id", accountId)
+      .gte("occurred_at", start)
+      .lt("occurred_at", end)
+      .order("occurred_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    events.push(...((data || []) as typeof events));
+    if (!data || data.length < pageSize) return events;
+  }
+}
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const context = await requireAccountContext();
   if (context.error) return context.error;
   const { id } = await params;
@@ -71,9 +105,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     && (campaign.allow_stale_participant_count || !group.participants_sync_error)) : [];
   const activeGroupJid = eligible[0]?.group_jid;
 
-  const [{ data: events }, { data: participantEvents }, { data: metricBreakdown }] = await Promise.all([
+  const currentStart = readDateParam(request.nextUrl.searchParams.get("participant_start"));
+  const currentEnd = readDateParam(request.nextUrl.searchParams.get("participant_end"));
+  const previousStart = readDateParam(request.nextUrl.searchParams.get("participant_previous_start"));
+  const previousEnd = readDateParam(request.nextUrl.searchParams.get("participant_previous_end"));
+  const [{ data: events }, participantEvents, previousParticipantEvents, { data: metricBreakdown }] = await Promise.all([
     sb.from("campaign_redirect_events").select("*").eq("campaign_id", campaign.id).eq("account_id", context.accountId).order("created_at", { ascending: false }).limit(300),
-    sb.from("campaign_participant_events").select("id,group_jid,action,occurred_at").eq("campaign_id", campaign.id).eq("account_id", context.accountId).order("occurred_at", { ascending: false }).limit(2000),
+    listParticipantEvents(sb, campaign.id, context.accountId, currentStart, currentEnd),
+    listParticipantEvents(sb, campaign.id, context.accountId, previousStart, previousEnd),
     sb.rpc("get_campaign_redirect_metrics", { p_campaign_id: campaign.id })
   ]);
   const responseGroups = groups.map((group: any) => ({ ...group, situacao: calculatedSituation(group, campaign, activeGroupJid) }));
@@ -85,7 +124,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({
     campaign: { ...campaign, whatsapp_senders: sender, campanha_grupos: undefined, groups: responseGroups, active_group_jid: activeGroupJid || null, next_group_jid: eligible[1]?.group_jid || null, black_friday_goal: blackFridayGoal },
     events: events || [],
-    participant_events: participantEvents || [],
+    participant_events: participantEvents,
+    previous_participant_events: previousParticipantEvents,
     metrics: {
       accesses: Number(campaign.total_accesses || 0),
       redirects: Number(campaign.total_redirects || 0),

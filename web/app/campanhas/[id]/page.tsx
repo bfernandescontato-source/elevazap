@@ -47,7 +47,7 @@ type Event = { id: string; group_jid?: string | null; result: string; reason?: s
 type ParticipantEvent = { id: string; group_jid: string; action: "add" | "remove"; occurred_at: string };
 type Sender = { id: string; label: string };
 type AvailableGroup = { group_jid: string; nome?: string };
-type DetailData = { campaign: Campaign; events: Event[]; participant_events: ParticipantEvent[]; metrics: { accesses: number; redirects: number; failures: number; daily: { date: string; count: number }[]; sources: { source: string; count: number }[] } };
+type DetailData = { campaign: Campaign; events: Event[]; participant_events: ParticipantEvent[]; previous_participant_events: ParticipantEvent[]; metrics: { accesses: number; redirects: number; failures: number; daily: { date: string; count: number }[]; sources: { source: string; count: number }[] } };
 type Period = "hoje" | "ontem" | "7dias" | "30dias" | "este-mes" | "mes-passado" | "personalizado";
 
 function formatDate(value?: string | null) {
@@ -133,15 +133,10 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
   const periodRange = useMemo(() => getPeriodRange(period, customStart, customEnd), [period, customStart, customEnd]);
 
-  const currentParticipantEvents = useMemo(() => {
-    const { start, end } = periodRange;
-    return (detail?.participant_events || []).filter((e) => { const t = new Date(e.occurred_at).getTime(); return t >= start.getTime() && t < end.getTime(); });
-  }, [detail?.participant_events, periodRange]);
-
-  const previousParticipantEvents = useMemo(() => {
-    const { prevStart, prevEnd } = periodRange;
-    return (detail?.participant_events || []).filter((e) => { const t = new Date(e.occurred_at).getTime(); return t >= prevStart.getTime() && t < prevEnd.getTime(); });
-  }, [detail?.participant_events, periodRange]);
+  // Os eventos já chegam do servidor filtrados pelo período. Isso evita que
+  // uma página limitada de eventos de todos os grupos distorça cada cartão.
+  const currentParticipantEvents = useMemo(() => detail?.participant_events || [], [detail]);
+  const previousParticipantEvents = useMemo(() => detail?.previous_participant_events || [], [detail]);
 
   const summaryMetrics = useMemo(() => {
     const entered = currentParticipantEvents.filter((e) => e.action === "add").length;
@@ -197,7 +192,13 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
   async function load(sync = false) {
     if (sync) await fetch(`/api/campanhas/${id}/sync-groups`, { method: "POST" }).catch(() => undefined);
-    const [dr, sr] = await Promise.all([fetch(`/api/campanhas/${id}/redirect`, { cache: "no-store" }), fetch("/api/whatsapp/senders", { cache: "no-store" })]);
+    const participantParams = new URLSearchParams({
+      participant_start: periodRange.start.toISOString(),
+      participant_end: periodRange.end.toISOString(),
+      participant_previous_start: periodRange.prevStart.toISOString(),
+      participant_previous_end: periodRange.prevEnd.toISOString()
+    });
+    const [dr, sr] = await Promise.all([fetch(`/api/campanhas/${id}/redirect?${participantParams}`, { cache: "no-store" }), fetch("/api/whatsapp/senders", { cache: "no-store" })]);
     const [dd, sd] = await Promise.all([dr.json(), sr.json()]);
     if (!dr.ok) throw new Error(dd.error || "Falha ao carregar a campanha.");
     setDetail(dd); setSenders(sd.senders || []); setFallbackType(dd.campaign.fallback_type || "padrao"); setFallbackUrl(dd.campaign.fallback_url || "");
@@ -208,6 +209,13 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
     load(true).catch((e) => showMessage(e.message)).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (loading) return;
+    load().catch((e) => showMessage(e.message));
+  // O período é a única entrada que deve recarregar as métricas de entrada e saída.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customStart, customEnd]);
 
   async function patch(body: Record<string, unknown>, success: string) {
     const r = await fetch(`/api/campanhas/${id}/redirect`, { method: "PATCH", body: JSON.stringify(body) });
