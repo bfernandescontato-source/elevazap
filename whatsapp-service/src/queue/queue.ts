@@ -612,26 +612,19 @@ export class GlobalSendQueue {
       const page = await fetchHtml(url);
       if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
       let effectiveUrl = url;
-      let html = page.data;
+      const html = page.data;
       // Um link de afiliado do Mercado Livre normalmente abre uma vitrine
-      // (/social/<campanha>) em vez do produto específico — a vitrine tem
-      // og:tags genéricas da campanha, não do produto que foi compartilhado.
-      // O produto de verdade fica embutido no JSON server-rendered da própria
-      // vitrine; troca pra ele antes de extrair título/imagem.
-      const currentPath = (() => { try { return new URL(effectiveUrl).pathname; } catch { return ""; } })();
-      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(url).hostname) && currentPath.startsWith("/social/")) {
+      // (/social/<campanha>) em vez do produto específico, e a página do
+      // produto (/p/MLBxxxx) é bloqueada por uma verificação de segurança
+      // quando acessada direto por um servidor (responde 200, mas com uma
+      // página de "Segurança — Mercado Livre" genérica) — então não dá pra
+      // simplesmente buscar de novo a página do produto encontrado. A
+      // vitrine já tem og:title/og:image corretos do produto em destaque
+      // (verificado manualmente: o id da imagem bate com o do card
+      // destacado); só troca a URL "canônica" mostrada pra a do produto.
+      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(url).hostname) && new URL(url).pathname.startsWith("/social/")) {
         const featured = extractFeaturedSocialProduct(html);
-        if (featured?.url) {
-          try {
-            const featuredPage = await fetchHtml(featured.url);
-            if (featuredPage.status >= 200 && featuredPage.status < 300 && typeof featuredPage.data === "string") {
-              effectiveUrl = featured.url;
-              html = featuredPage.data;
-            }
-          } catch (featuredError) {
-            logSkip("mercado_livre_featured_product_fetch_failed", errorFields(featuredError));
-          }
-        }
+        if (featured?.url) effectiveUrl = featured.url;
       }
       const title = extractOgMeta(html, "title");
       const description = extractOgMeta(html, "description");
