@@ -56,6 +56,32 @@ function extractOgMeta(html: string, field: "title" | "description" | "image"): 
   return undefined;
 }
 
+/**
+ * The Amazon.com.br og:image tag is a generic brand logo, not the product
+ * photo, so it must not be used as the preview image. The real photo lives
+ * on the #landingImage element instead — same source every long-standing
+ * Amazon price-tracker scraper reads, since it's server-rendered in the
+ * initial HTML (unlike a JS-only gallery).
+ */
+function extractAmazonProductImage(html: string): string | undefined {
+  const dynamicImageAttr = html.match(/id=["']landingImage["'][^>]*data-a-dynamic-image=["']([^"']+)["']/i)
+    || html.match(/data-a-dynamic-image=["']([^"']+)["'][^>]*id=["']landingImage["']/i);
+  if (dynamicImageAttr?.[1]) {
+    try {
+      const parsed = JSON.parse(decodeHtmlEntities(dynamicImageAttr[1]));
+      const firstUrl = Object.keys(parsed)[0];
+      if (firstUrl) return firstUrl;
+    } catch {
+      // falls through to the other attributes below
+    }
+  }
+  const hiresAttr = html.match(/id=["']landingImage["'][^>]*data-old-hires=["']([^"']+)["']/i);
+  if (hiresAttr?.[1]?.trim()) return decodeHtmlEntities(hiresAttr[1]);
+  const srcAttr = html.match(/id=["']landingImage["'][^>]*src=["']([^"']+)["']/i);
+  if (srcAttr?.[1]) return decodeHtmlEntities(srcAttr[1]);
+  return undefined;
+}
+
 type OfferPreviewContext = {
   link: string;
   accountId: string;
@@ -434,7 +460,11 @@ export class GlobalSendQueue {
         uploadImage: sock.waUploadToServer
       });
       const hasImage = (candidate: WAUrlInfo | undefined) => !!(candidate?.jpegThumbnail || candidate?.highQualityThumbnail);
-      if (!info?.title || !hasImage(info)) {
+      // amazon.com.br's own og:image is a generic brand logo, not the product
+      // photo, so an image found there by the generic scraper can't be
+      // trusted — always re-check against the real product image for it.
+      const imageIsUntrustworthy = isAmazonUrl(metadataUrl);
+      if (!info?.title || !hasImage(info) || imageIsUntrustworthy) {
         // Amazon e Mercado Livre não têm uma API de produto própria como a da
         // Shopee aqui; o scraper genérico do Baileys às vezes não acha (ou é
         // bloqueado ao buscar) a og:image dessas páginas. Raspa a página nós
@@ -442,14 +472,15 @@ export class GlobalSendQueue {
         // sem descartar o que o Baileys já tiver conseguido (título/descrição).
         const fallback = await this.scrapeOgImageAndMeta(metadataUrl, dispatchId, sock);
         if (fallback) {
+          const preferFallbackImage = imageIsUntrustworthy ? hasImage(fallback) : !hasImage(info);
           info = {
             ...(info || {}),
             "canonical-url": info?.["canonical-url"] || fallback["canonical-url"],
             title: info?.title || fallback.title,
             description: info?.description || fallback.description,
-            originalThumbnailUrl: hasImage(info) ? info?.originalThumbnailUrl : fallback.originalThumbnailUrl,
-            jpegThumbnail: hasImage(info) ? info?.jpegThumbnail : fallback.jpegThumbnail,
-            highQualityThumbnail: hasImage(info) ? info?.highQualityThumbnail : fallback.highQualityThumbnail
+            originalThumbnailUrl: preferFallbackImage ? fallback.originalThumbnailUrl : info?.originalThumbnailUrl,
+            jpegThumbnail: preferFallbackImage ? fallback.jpegThumbnail : info?.jpegThumbnail,
+            highQualityThumbnail: preferFallbackImage ? fallback.highQualityThumbnail : info?.highQualityThumbnail
           } as WAUrlInfo;
         }
       }
@@ -559,7 +590,8 @@ export class GlobalSendQueue {
       const html = page.data;
       const title = extractOgMeta(html, "title");
       const description = extractOgMeta(html, "description");
-      const imageRaw = extractOgMeta(html, "image");
+      const isAmazon = /(^|\.)amazon\.com\.br$/i.test(new URL(url).hostname);
+      const imageRaw = (isAmazon && extractAmazonProductImage(html)) || extractOgMeta(html, "image");
       let originalThumbnailUrl: string | undefined;
       let jpegThumbnail: Buffer | undefined;
       let highQualityThumbnail: any;
