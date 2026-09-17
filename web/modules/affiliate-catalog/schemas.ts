@@ -17,7 +17,8 @@ export const aiMessageSchema = z.object({
 
 export const dispatchOfferSchema = z.object({
   offer: offerSchema, message: z.string().trim().min(1).max(4000), senderId: z.string().uuid(),
-  groupJids: z.array(z.string()).min(1).max(500), scheduledAt: z.string().datetime().optional()
+  groupJids: z.array(z.string()).min(1).max(500), scheduledAt: z.string().datetime().optional(),
+  imageMode: z.enum(["original_image", "product_link_preview"]).default("original_image")
 });
 
 export const affiliateLinkSchema = z.object({ offer: offerSchema });

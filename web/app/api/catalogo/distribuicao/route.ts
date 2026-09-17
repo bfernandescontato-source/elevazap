@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const context = await requireAccountContext(); if (context.error) return context.error;
   const parsed = dispatchOfferSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Dados inválidos." }, { status: 400 });
-  const { offer, message, senderId, groupJids, scheduledAt } = parsed.data;
+  const { offer, message, senderId, groupJids, scheduledAt, imageMode } = parsed.data;
   if (!isConfirmedAffiliateUrl(offer.provider, offer.affiliateUrl) || !message.includes(offer.affiliateUrl!)) return NextResponse.json({ error: "A oferta precisa conter o link afiliado confirmado." }, { status: 400 });
   const when = scheduledAt || new Date().toISOString();
   if (new Date(when).getTime() < Date.now() - 60_000) return NextResponse.json({ error: "Agendamento no passado." }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   ]);
   if (!sender || (groups || []).length !== new Set(groupJids).size) return NextResponse.json({ error: "Número ou grupo não pertence à sua conta." }, { status: 403 });
   let media: any = null;
-  if (offer.imageUrl) {
+  if (imageMode === "original_image" && offer.imageUrl) {
     try {
       const image = await fetch(offer.imageUrl, { signal: AbortSignal.timeout(10_000) });
       const bytes = Buffer.from(await image.arrayBuffer());
@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
       media = { bucket: "whatsapp-media", path, mime, fileName: `oferta-${offer.provider.toLowerCase()}.${ext}`, size: bytes.length };
     } catch { return NextResponse.json({ error: "Não foi possível preparar a imagem do produto para envio." }, { status: 422 }); }
   }
+  // No modo preview a URL segue no texto; não baixamos nem anexamos a imagem.
+  // Assim o Baileys monta o card nativo do WhatsApp a partir do link afiliado.
   const type = media ? "imagem" : "texto";
   const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({ account_id: context.accountId, titulo: `Oferta · ${offer.name.slice(0, 90)}`, whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name, tipo: type, texto: type === "texto" ? message : null, legenda: type === "imagem" ? message : null, media_bucket: media?.bucket, media_path: media?.path, mime_type: media?.mime, file_name: media?.fileName, file_size_bytes: media?.size, status: "pendente", total: groupJids.length, pendentes: groupJids.length, scheduled_at: when }).select("id").single();
   if (loteError) return NextResponse.json({ error: "Não foi possível criar o envio." }, { status: 500 });

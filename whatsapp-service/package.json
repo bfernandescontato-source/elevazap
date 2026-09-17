@@ -15,6 +15,7 @@
     "@supabase/supabase-js": "2.108.2",
     "@whiskeysockets/baileys": "6.7.23",
     "axios": "1.18.0",
+    "link-preview-js": "3.0.5",
     "express": "4.22.2",
     "openai": "^7.4.0",
     "pino": "9.5.0",

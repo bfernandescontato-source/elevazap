@@ -56,7 +56,16 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         auth = await useSupabaseAuthState(sessionId, accountId);
       }
       const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
-      sock = makeWASocket({ version, auth: auth.state, printQRInTerminal: false, logger: pino({ level: "silent" }) });
+      sock = makeWASocket({
+        version,
+        auth: auth.state,
+        printQRInTerminal: false,
+        logger: pino({ level: "silent" }),
+        // Baileys não cria preview no cliente: ele precisa montar os metadados
+        // antes do envio. Com isso, links de ofertas recebem thumbnail em alta
+        // qualidade quando a URL disponibiliza Open Graph acessível.
+        generateHighQualityLinkPreview: true
+      });
 
       sock.ev.on("creds.update", () => auth.saveCreds().catch((error) => {
         status = "failed";

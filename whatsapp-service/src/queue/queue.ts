@@ -304,6 +304,20 @@ export class GlobalSendQueue {
       env.SEND_TIMEOUT_MS,
       sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions))
     );
+    const { data: offerDelivery } = await supabase.from("offer_deliveries")
+      .select("link_used").eq("group_dispatch_id", row.id).maybeSingle();
+    if (offerDelivery) {
+      const preview = result?.message?.extendedTextMessage;
+      const productLinkPreview = row.tipo === "texto";
+      console.info({
+        event: "offer_media_delivery",
+        component: "queue",
+        dispatch_id: correlationId(row.id),
+        media_source: productLinkPreview ? "product_link_preview" : "original_image",
+        link_preview_generated: productLinkPreview ? Boolean(preview?.title || preview?.jpegThumbnail || preview?.thumbnailDirectPath) : false,
+        preview_url: productLinkPreview ? (preview?.canonicalUrl || offerDelivery.link_used || null) : null
+      });
+    }
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
   }
 
