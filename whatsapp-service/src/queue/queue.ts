@@ -17,7 +17,7 @@ import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
-import { MercadoLivreUrlResolver } from "../offers/mercado-livre-url-resolver.js";
+import { MercadoLivreUrlResolver, extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
@@ -458,20 +458,30 @@ export class GlobalSendQueue {
           console.warn({ event: "offer_link_preview_failed", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: matched, reason: "mercado_livre_resolve_failed", ...errorFields(resolveError) });
         }
       }
-      let info = await getUrlInfo(metadataUrl, {
-        thumbnailWidth: 720,
-        fetchOpts: {
-          timeout: 10_000,
-          headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
-        },
-        // Sem isso, o preview usa uma miniatura pequena comprimida localmente
-        // em vez de subir a imagem cheia pros servidores do WhatsApp — é essa
-        // etapa de upload que faz o card sair grande, igual a um link colado
-        // manualmente (o socket já habilita generateHighQualityLinkPreview,
-        // mas isso só vale pro auto-preview do Baileys; aqui montamos o
-        // preview na mão, então precisamos ligar o upload nós mesmos).
-        uploadImage: sock.waUploadToServer
-      });
+      let info: WAUrlInfo | undefined;
+      try {
+        info = await getUrlInfo(metadataUrl, {
+          thumbnailWidth: 720,
+          fetchOpts: {
+            timeout: 10_000,
+            headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
+          },
+          // Sem isso, o preview usa uma miniatura pequena comprimida localmente
+          // em vez de subir a imagem cheia pros servidores do WhatsApp — é essa
+          // etapa de upload que faz o card sair grande, igual a um link colado
+          // manualmente (o socket já habilita generateHighQualityLinkPreview,
+          // mas isso só vale pro auto-preview do Baileys; aqui montamos o
+          // preview na mão, então precisamos ligar o upload nós mesmos).
+          uploadImage: sock.waUploadToServer
+        });
+      } catch (getUrlInfoError) {
+        // O getUrlInfo do Baileys tenta subir a imagem mesmo quando a página
+        // não tem nenhuma (og:image ausente) e essa chamada não tem proteção
+        // própria — um erro aí derruba a função inteira em vez de só deixar
+        // sem imagem. Trata como "sem resultado" e deixa o fallback abaixo
+        // (que já tem seu próprio tratamento de erro por imagem) tentar.
+        console.warn({ event: "offer_link_preview_failed", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: metadataUrl, reason: "get_url_info_threw", ...errorFields(getUrlInfoError) });
+      }
       const hasImage = (candidate: WAUrlInfo | undefined) => !!(candidate?.jpegThumbnail || candidate?.highQualityThumbnail);
       // amazon.com.br's own og:image is a generic brand logo, not the product
       // photo, so an image found there by the generic scraper can't be
@@ -586,31 +596,53 @@ export class GlobalSendQueue {
       console.warn({ event: "offer_generic_og_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason, ...extra });
       return undefined;
     };
+    const fetchHtml = (target: string) => axios.get<string>(target, {
+      timeout: 10_000,
+      responseType: "text",
+      validateStatus: () => true,
+      maxContentLength: 3_000_000,
+      maxRedirects: 5,
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "pt-BR,pt;q=0.9,en;q=0.8"
+      }
+    });
     try {
-      const page = await axios.get<string>(url, {
-        timeout: 10_000,
-        responseType: "text",
-        validateStatus: () => true,
-        maxContentLength: 3_000_000,
-        maxRedirects: 5,
-        headers: {
-          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "pt-BR,pt;q=0.9,en;q=0.8"
-        }
-      });
+      const page = await fetchHtml(url);
       if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
-      const html = page.data;
+      let effectiveUrl = url;
+      let html = page.data;
+      // Um link de afiliado do Mercado Livre normalmente abre uma vitrine
+      // (/social/<campanha>) em vez do produto específico — a vitrine tem
+      // og:tags genéricas da campanha, não do produto que foi compartilhado.
+      // O produto de verdade fica embutido no JSON server-rendered da própria
+      // vitrine; troca pra ele antes de extrair título/imagem.
+      const currentPath = (() => { try { return new URL(effectiveUrl).pathname; } catch { return ""; } })();
+      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(url).hostname) && currentPath.startsWith("/social/")) {
+        const featured = extractFeaturedSocialProduct(html);
+        if (featured?.url) {
+          try {
+            const featuredPage = await fetchHtml(featured.url);
+            if (featuredPage.status >= 200 && featuredPage.status < 300 && typeof featuredPage.data === "string") {
+              effectiveUrl = featured.url;
+              html = featuredPage.data;
+            }
+          } catch (featuredError) {
+            logSkip("mercado_livre_featured_product_fetch_failed", errorFields(featuredError));
+          }
+        }
+      }
       const title = extractOgMeta(html, "title");
       const description = extractOgMeta(html, "description");
-      const isAmazon = /(^|\.)amazon\.com\.br$/i.test(new URL(url).hostname);
+      const isAmazon = /(^|\.)amazon\.com\.br$/i.test(new URL(effectiveUrl).hostname);
       const imageRaw = (isAmazon && extractAmazonProductImage(html)) || extractOgMeta(html, "image");
       let originalThumbnailUrl: string | undefined;
       let jpegThumbnail: Buffer | undefined;
       let highQualityThumbnail: any;
       if (imageRaw) {
         try {
-          const imageUrl = new URL(imageRaw, url);
+          const imageUrl = new URL(imageRaw, effectiveUrl);
           if (imageUrl.protocol === "https:") {
             const { imageMessage } = await prepareWAMessageMedia({ image: { url: imageUrl.toString() } }, {
               upload: sock.waUploadToServer,
@@ -629,10 +661,10 @@ export class GlobalSendQueue {
       }
       if (!title && !jpegThumbnail && !highQualityThumbnail) return logSkip("no_usable_metadata");
       return {
-        "canonical-url": url,
+        "canonical-url": effectiveUrl,
         "matched-text": "",
         title: title || "",
-        description: description || new URL(url).hostname,
+        description: description || new URL(effectiveUrl).hostname,
         originalThumbnailUrl,
         jpegThumbnail,
         highQualityThumbnail
