@@ -29,12 +29,17 @@ export async function POST(request: NextRequest) {
     if (deliveriesError) throw deliveriesError;
     const dispatchIds = (deliveries || []).map((delivery) => delivery.group_dispatch_id).filter(Boolean);
     const now = new Date().toISOString();
-    if (dispatchIds.length) await context.database.from("envios_grupo").update({ status: "cancelado", updated_at: now })
-      .eq("account_id", context.accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado"]);
-    await context.database.from("offer_deliveries").update({ status: "cancelled", error_message: "Cancelada em massa pelo usuário.", updated_at: now })
+    if (dispatchIds.length) {
+      const { error: dispatchError } = await context.database.from("envios_grupo").update({ status: "cancelado", updated_at: now })
+        .eq("account_id", context.accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado"]);
+      if (dispatchError) throw dispatchError;
+    }
+    const { error: deliveriesUpdateError } = await context.database.from("offer_deliveries").update({ status: "cancelled", error_message: "Cancelada em massa pelo usuário.", updated_at: now })
       .eq("account_id", context.accountId).in("offer_id", cancellableIds).in("status", ["pending", "scheduled"]);
-    await context.database.from("captured_offers").update({ status: "ignored", error_code: "CANCELLED_BY_USER", error_message: "Cancelada em massa pelo usuário.", updated_at: now })
+    if (deliveriesUpdateError) throw deliveriesUpdateError;
+    const { error: offersUpdateError } = await context.database.from("captured_offers").update({ status: "ignored", error_code: "CANCELLED_BY_USER", error_message: "Cancelada em massa pelo usuário.", updated_at: now })
       .eq("account_id", context.accountId).in("id", cancellableIds);
+    if (offersUpdateError) throw offersUpdateError;
     return NextResponse.json({ ok: true, cancelled: cancellableIds, skipped });
   } catch (error) { return serverError(error, "Não foi possível cancelar as ofertas selecionadas."); }
 }

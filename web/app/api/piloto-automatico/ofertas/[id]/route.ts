@@ -30,9 +30,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (["sent", "sending"].includes(offer.status)) return NextResponse.json({ error: "Esta oferta já está em envio ou foi enviada." }, { status: 409 });
       const { data: deliveries } = await context.database.from("offer_deliveries").select("group_dispatch_id").eq("offer_id", id).eq("account_id", context.accountId);
       const dispatchIds = (deliveries || []).map((row) => row.group_dispatch_id).filter(Boolean);
-      if (dispatchIds.length) await context.database.from("envios_grupo").update({ status: "cancelado", updated_at: new Date().toISOString() }).eq("account_id", context.accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado"]);
-      await context.database.from("offer_deliveries").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("offer_id", id).eq("account_id", context.accountId).in("status", ["pending", "scheduled"]);
-      await context.database.from("captured_offers").update({ status: "ignored", updated_at: new Date().toISOString() }).eq("id", id).eq("account_id", context.accountId);
+      if (dispatchIds.length) {
+        const { error: dispatchError } = await context.database.from("envios_grupo").update({ status: "cancelado", updated_at: new Date().toISOString() }).eq("account_id", context.accountId).in("id", dispatchIds).in("status", ["pendente", "enfileirado"]);
+        if (dispatchError) throw dispatchError;
+      }
+      const { error: deliveriesUpdateError } = await context.database.from("offer_deliveries").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("offer_id", id).eq("account_id", context.accountId).in("status", ["pending", "scheduled"]);
+      if (deliveriesUpdateError) throw deliveriesUpdateError;
+      const { error: offerUpdateError } = await context.database.from("captured_offers").update({ status: "ignored", updated_at: new Date().toISOString() }).eq("id", id).eq("account_id", context.accountId);
+      if (offerUpdateError) throw offerUpdateError;
     } else if (parsed.data.action === "retry_conversion") {
       const response = await fetch(`${env().WHATSAPP_SERVICE_URL}/offers/${encodeURIComponent(id)}/retry-conversion`, {
         method: "POST", headers: { "content-type": "application/json", "x-internal-api-key": env().INTERNAL_API_KEY },

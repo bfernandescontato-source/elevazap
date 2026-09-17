@@ -28,14 +28,19 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
   ]);
   if (groupsError) throw groupsError;
   if (offersError) throw offersError;
+  // The sender can lose access to a group (removed from it, group sync drop)
+  // after it was selected here. Saving always resends the full source/destination
+  // list, so a stale id the picker can no longer show would block every future
+  // save with "grupo não acessível" — even one only changing interval_minutes.
+  const ownedGroupIds = new Set((groups || []).map((row: any) => row.group_jid));
   return {
     automation,
     shopee_integration: shopeeIntegration,
     mercado_livre_integration: mercadoLivreIntegration,
     senders: senders || [],
     groups: (groups || []).map((row: any) => row.grupos || { group_jid: row.group_jid, nome: row.group_jid }),
-    source_group_ids: (sources || []).map((row) => row.whatsapp_group_id),
-    destination_group_ids: (destinations || []).map((row) => row.whatsapp_group_id),
+    source_group_ids: (sources || []).map((row) => row.whatsapp_group_id).filter((id) => ownedGroupIds.has(id)),
+    destination_group_ids: (destinations || []).map((row) => row.whatsapp_group_id).filter((id) => ownedGroupIds.has(id)),
     offers: offers || [],
     metrics: {
       captured_today: capturedCount.count || 0,
