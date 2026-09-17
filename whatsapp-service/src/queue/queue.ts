@@ -11,6 +11,15 @@ import { QueueMetrics } from "./metrics.js";
 import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
+import { getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
+import { ShopeeUrlResolver } from "../offers/shopee-url-resolver.js";
+
+const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
+
+type OfferPreviewContext = {
+  link: string;
+  mediaSource: "original_image" | "product_link_preview";
+};
 
 export class GlobalSendQueue {
   private buffer: QueueItem[] = [];
@@ -20,6 +29,7 @@ export class GlobalSendQueue {
   private activeSessions = new Map<string, { count: number; kind: QueueItem["kind"] }>();
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
+  private shopeeUrlResolver = new ShopeeUrlResolver();
 
   constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
@@ -299,26 +309,75 @@ export class GlobalSendQueue {
         ...sharedMediaCache.snapshot() });
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
+    const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
+    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview.link, row.id) : undefined;
+    const message: any = buildBaileysMessage(row, media, mentions);
+    if (linkPreview && "text" in message) message.linkPreview = linkPreview;
     const result = await withTimeout<any>(
       "whatsapp.sendMessage",
       env.SEND_TIMEOUT_MS,
-      sock.sendMessage(row.group_jid, buildBaileysMessage(row, media, mentions))
+      sock.sendMessage(row.group_jid, message)
     );
-    const { data: offerDelivery } = await supabase.from("offer_deliveries")
-      .select("link_used").eq("group_dispatch_id", row.id).maybeSingle();
-    if (offerDelivery) {
-      const preview = result?.message?.extendedTextMessage;
-      const productLinkPreview = row.tipo === "texto";
+    if (offerPreview) {
       console.info({
         event: "offer_media_delivery",
         component: "queue",
         dispatch_id: correlationId(row.id),
-        media_source: productLinkPreview ? "product_link_preview" : "original_image",
-        link_preview_generated: productLinkPreview ? Boolean(preview?.title || preview?.jpegThumbnail || preview?.thumbnailDirectPath) : false,
-        preview_url: productLinkPreview ? (preview?.canonicalUrl || offerDelivery.link_used || null) : null
+        media_source: offerPreview.mediaSource,
+        link_preview_generated: Boolean(linkPreview),
+        preview_url: linkPreview?.["canonical-url"] || offerPreview.link
       });
     }
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
+  }
+
+  /**
+   * Only offer deliveries opt into pre-built previews. This keeps ordinary group
+   * messages on the existing Baileys path and never changes queue scheduling.
+   */
+  private async findOfferPreviewContext(row: any): Promise<OfferPreviewContext | null> {
+    const [{ data: pilotDelivery }, { data: catalogDelivery }] = await Promise.all([
+      supabase.from("offer_deliveries").select("link_used").eq("group_dispatch_id", row.id).maybeSingle(),
+      supabase.from("affiliate_offer_deliveries").select("affiliate_url").eq("group_dispatch_id", row.id).maybeSingle()
+    ]);
+    const link = String(pilotDelivery?.link_used || catalogDelivery?.affiliate_url || "").trim();
+    return link ? { link, mediaSource: "product_link_preview" } : null;
+  }
+
+  /**
+   * Baileys refuses a preview when a short Shopee URL redirects to another host.
+   * Resolve that URL ourselves for metadata, while retaining the original
+   * affiliate URL as the visible/clickable text in WhatsApp.
+   */
+  private async generateOfferLinkPreview(text: string, deliveryLink: string, dispatchId: string): Promise<WAUrlInfo | undefined> {
+    const matched = text.match(URL_IN_TEXT)?.[0] || deliveryLink;
+    if (!matched) return undefined;
+    try {
+      let metadataUrl = matched;
+      const host = new URL(matched).hostname.toLowerCase();
+      if (["shopee.com.br", "www.shopee.com.br", "s.shopee.com.br"].includes(host)) {
+        metadataUrl = await this.shopeeUrlResolver.resolveUrl(matched);
+      }
+      const info = await getUrlInfo(metadataUrl, {
+        thumbnailWidth: 192,
+        fetchOpts: {
+          timeout: 10_000,
+          headers: { "user-agent": "Mozilla/5.0 (compatible; Disparei/1.0)" }
+        }
+      });
+      if (!info?.title) throw new Error("A página do produto não retornou metadados para o preview.");
+      info["matched-text"] = matched;
+      return info;
+    } catch (error) {
+      console.warn({
+        event: "offer_link_preview_failed",
+        component: "queue",
+        dispatch_id: correlationId(dispatchId),
+        preview_url: matched,
+        ...errorFields(error)
+      });
+      return undefined;
+    }
   }
 
   private async getGroupMentions(sock: any, groupJid: string) {
