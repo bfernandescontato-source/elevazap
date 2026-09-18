@@ -17,7 +17,7 @@ import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
-import { MercadoLivreUrlResolver, extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
+import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
@@ -99,7 +99,6 @@ export class GlobalSendQueue {
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
   private shopeeUrlResolver = new ShopeeUrlResolver();
-  private mercadoLivreUrlResolver = new MercadoLivreUrlResolver();
 
   constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
@@ -446,18 +445,15 @@ export class GlobalSendQueue {
         // a seguir um redirecionamento assim por segurança própria dele, então
         // resolvemos pra URL final aqui antes de raspar a página.
         metadataUrl = context.resolvedUrl || await resolveAmazonUrl(matched);
-      } else if (["meli.la", "mercadolivre.com.br", "www.mercadolivre.com.br", "produto.mercadolivre.com.br"].includes(host)) {
-        // meli.la redireciona pra um domínio diferente (mercadolivre.com.br),
-        // mesmo problema de redirect cross-domain do Amazon acima, e além
-        // disso o Mercado Livre só devolve os componentes de página (inclusive
-        // o produto de uma vitrine /social/) pra um user-agent de navegador —
-        // por isso usa o mesmo resolvedor já usado na conversão de afiliado.
-        try {
-          metadataUrl = context.resolvedUrl || (await this.mercadoLivreUrlResolver.resolveUrl(matched)).resolvedUrl;
-        } catch (resolveError) {
-          console.warn({ event: "offer_link_preview_failed", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: matched, reason: "mercado_livre_resolve_failed", ...errorFields(resolveError) });
-        }
       }
+      // Não resolve o link do Mercado Livre pra URL final do produto aqui:
+      // essa página específica (/p/MLBxxxx) é bloqueada por uma verificação
+      // de segurança do Mercado Livre quando acessada direto por um servidor
+      // (responde 200, mas com uma tela genérica de "Segurança"). A página de
+      // vitrine (/social/<campanha>) pra onde o link de afiliado realmente
+      // aponta não tem esse bloqueio e já traz o produto certo embutido —
+      // deixa o metadataUrl como o link original pra cair nela naturalmente
+      // (o scraper genérico segue o redirect e sabe extrair essa vitrine).
       let info: WAUrlInfo | undefined;
       try {
         info = await getUrlInfo(metadataUrl, {
@@ -611,7 +607,13 @@ export class GlobalSendQueue {
     try {
       const page = await fetchHtml(url);
       if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
-      let effectiveUrl = url;
+      // axios segue os redirects sozinho (maxRedirects acima); pra saber
+      // onde a página realmente terminou (ex.: meli.la/xxx -> .../social/yyy)
+      // precisa olhar a URL final da resposta, não a `url` original — senão a
+      // detecção da vitrine abaixo nunca bate, porque a original ainda é o
+      // link curto de afiliado.
+      const finalUrl = (page.request as { res?: { responseUrl?: string } } | undefined)?.res?.responseUrl || url;
+      let effectiveUrl = finalUrl;
       const html = page.data;
       // Um link de afiliado do Mercado Livre normalmente abre uma vitrine
       // (/social/<campanha>) em vez do produto específico, e a página do
@@ -622,7 +624,7 @@ export class GlobalSendQueue {
       // vitrine já tem og:title/og:image corretos do produto em destaque
       // (verificado manualmente: o id da imagem bate com o do card
       // destacado); só troca a URL "canônica" mostrada pra a do produto.
-      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(url).hostname) && new URL(url).pathname.startsWith("/social/")) {
+      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(finalUrl).hostname) && new URL(finalUrl).pathname.startsWith("/social/")) {
         const featured = extractFeaturedSocialProduct(html);
         if (featured?.url) effectiveUrl = featured.url;
       }
