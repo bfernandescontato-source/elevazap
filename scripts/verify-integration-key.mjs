@@ -109,12 +109,13 @@ function ask(question, secret) {
 
 async function promptMissingEnv() {
   const wanted = [
-    ["SUPABASE_URL", "1/3 Cole a URL do Supabase e aperte Enter: ", false],
-    ["SUPABASE_SERVICE_KEY", "2/3 Cole a SUPABASE_SERVICE_KEY e aperte Enter (não aparece na tela): ", true],
-    ["INTEGRATION_ENCRYPTION_KEY", "3/3 Cole a INTEGRATION_ENCRYPTION_KEY e aperte Enter (não aparece na tela): ", true]
-  ];
-  for (const [name, question, secret] of wanted) {
-    if (!process.env[name] && process.stdin.isTTY) process.env[name] = await ask(question, secret);
+    ["SUPABASE_URL", "Cole a URL do Supabase e aperte Enter: ", false],
+    ["SUPABASE_SERVICE_KEY", "Cole a SUPABASE_SERVICE_KEY e aperte Enter (não aparece na tela): ", true],
+    ["INTEGRATION_ENCRYPTION_KEY", "Cole a INTEGRATION_ENCRYPTION_KEY e aperte Enter (não aparece na tela): ", true]
+  ].filter(([name]) => !process.env[name]);
+  if (!process.stdin.isTTY) return;
+  for (const [index, [name, question, secret]] of wanted.entries()) {
+    process.env[name] = await ask(`${index + 1}/${wanted.length} ${question}`, secret);
   }
 }
 
