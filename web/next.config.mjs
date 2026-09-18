@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // O modo standalone deixa o painel autocontido para o runtime Docker/Coolify.
+  // O Traefik do Coolify continua sendo o único proxy público da VPS.
+  output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
   outputFileTracingRoot: new URL("..", import.meta.url).pathname,
