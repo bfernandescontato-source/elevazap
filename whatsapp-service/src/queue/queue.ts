@@ -607,7 +607,13 @@ export class GlobalSendQueue {
     try {
       const page = await fetchHtml(url);
       if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
-      let effectiveUrl = url;
+      // axios segue os redirects sozinho (maxRedirects acima); pra saber
+      // onde a página realmente terminou (ex.: meli.la/xxx -> .../social/yyy)
+      // precisa olhar a URL final da resposta, não a `url` original — senão a
+      // detecção da vitrine abaixo nunca bate, porque a original ainda é o
+      // link curto de afiliado.
+      const finalUrl = (page.request as { res?: { responseUrl?: string } } | undefined)?.res?.responseUrl || url;
+      let effectiveUrl = finalUrl;
       const html = page.data;
       // Um link de afiliado do Mercado Livre normalmente abre uma vitrine
       // (/social/<campanha>) em vez do produto específico, e a página do
@@ -618,7 +624,7 @@ export class GlobalSendQueue {
       // vitrine já tem og:title/og:image corretos do produto em destaque
       // (verificado manualmente: o id da imagem bate com o do card
       // destacado); só troca a URL "canônica" mostrada pra a do produto.
-      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(url).hostname) && new URL(url).pathname.startsWith("/social/")) {
+      if (/(^|\.)mercadolivre\.com\.br$/i.test(new URL(finalUrl).hostname) && new URL(finalUrl).pathname.startsWith("/social/")) {
         const featured = extractFeaturedSocialProduct(html);
         if (featured?.url) effectiveUrl = featured.url;
       }
