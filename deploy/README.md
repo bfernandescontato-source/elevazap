@@ -28,9 +28,12 @@ os serviços sobem normalmente e as integrações falham só depois. Por isso, a
 de qualquer virada, confira a chave contra os segredos reais (somente leitura):
 
 ```sh
-read -rs INTEGRATION_ENCRYPTION_KEY && export INTEGRATION_ENCRYPTION_KEY
-SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/verify-integration-key.mjs
+node scripts/verify-integration-key.mjs
 ```
+
+O script pergunta `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` e
+`INTEGRATION_ENCRYPTION_KEY` (as duas chaves não aparecem na tela). Se as
+variáveis já estiverem definidas no ambiente, ele não pergunta.
 
 O resultado deve ser `Todos os segredos descriptografam` (exit 0). O fingerprint
 impresso no topo identifica a chave sem revelá-la e deve ser igual no Railway,

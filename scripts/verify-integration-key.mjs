@@ -64,7 +64,12 @@ async function fetchColumn({ table, column }, baseUrl, serviceKey) {
   const rows = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const url = `${baseUrl}/rest/v1/${table}?select=id,${column}&${column}=not.is.null&order=id&limit=${PAGE_SIZE}&offset=${offset}`;
-    const response = await fetch(url, { headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` } });
+    let response;
+    try { response = await fetch(url, { headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` } }); }
+    catch { throw new Error(`não consegui conectar em ${baseUrl}. Confira a URL do Supabase.`); }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`o Supabase recusou a SUPABASE_SERVICE_KEY (HTTP ${response.status}). Confira se copiou a chave inteira, a service_role/secret.`);
+    }
     if (!response.ok) throw new Error(`${table}.${column}: HTTP ${response.status}`);
     const page = await response.json();
     rows.push(...page);
@@ -72,8 +77,50 @@ async function fetchColumn({ table, column }, baseUrl, serviceKey) {
   }
 }
 
+// Lê uma linha do terminal. Com `secret`, nada é ecoado (só o tamanho, pra
+// conferir que a colagem funcionou). Aceita "NOME=valor" e aspas na colagem.
+function ask(question, secret) {
+  return new Promise((resolve) => {
+    const { stdin, stdout } = process;
+    let value = "";
+    stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    const finish = () => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.off("data", onData);
+      const clean = value.trim().replace(/^[A-Z_]+=/, "").replace(/^["']|["']$/g, "");
+      stdout.write(secret ? `\n  recebido (${clean.length} caracteres)\n` : "\n");
+      resolve(clean);
+    };
+    const onData = (chunk) => {
+      for (const char of chunk) {
+        if (char === "\r" || char === "\n") return finish();
+        if (char === "") { stdin.setRawMode(false); stdout.write("\n"); process.exit(130); }
+        if (char === "" || char === "\b") { value = value.slice(0, -1); if (!secret) stdout.write("\b \b"); continue; }
+        if (char >= " ") { value += char; if (!secret) stdout.write(char); }
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+async function promptMissingEnv() {
+  const wanted = [
+    ["SUPABASE_URL", "1/3 Cole a URL do Supabase e aperte Enter: ", false],
+    ["SUPABASE_SERVICE_KEY", "2/3 Cole a SUPABASE_SERVICE_KEY e aperte Enter (não aparece na tela): ", true],
+    ["INTEGRATION_ENCRYPTION_KEY", "3/3 Cole a INTEGRATION_ENCRYPTION_KEY e aperte Enter (não aparece na tela): ", true]
+  ];
+  for (const [name, question, secret] of wanted) {
+    if (!process.env[name] && process.stdin.isTTY) process.env[name] = await ask(question, secret);
+  }
+}
+
 async function main() {
   if (process.argv.includes("--self-test")) return selfTest();
+  await promptMissingEnv();
 
   const baseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
   const serviceKey = process.env.SUPABASE_SERVICE_KEY;
