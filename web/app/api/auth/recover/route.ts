@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicUrl } from "@/lib/public-url";
 import { z } from "zod";
 import { appUrl } from "@/lib/env";
 import { requireValidOrigin } from "@/lib/security";
@@ -13,5 +14,5 @@ export async function POST(request: NextRequest) {
       redirectTo: `${appUrl()}/auth/confirm?next=/redefinir-senha`
     });
   }
-  return NextResponse.redirect(new URL("/recuperar-senha?sent=1", request.url), { status: 303 });
+  return NextResponse.redirect(publicUrl("/recuperar-senha?sent=1", request), { status: 303 });
 }

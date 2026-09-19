@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicUrl } from "@/lib/public-url";
 import { createSession } from "@/lib/auth";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { getOrCreateUserProfile } from "@/lib/user-access";
@@ -19,18 +20,18 @@ export async function GET(request: NextRequest) {
     const { data } = await auth.auth.verifyOtp({ token_hash: tokenHash, type: type as any });
     user = data.user;
   }
-  if (!user) return NextResponse.redirect(new URL("/login?error=link", request.url));
+  if (!user) return NextResponse.redirect(publicUrl("/login?error=link", request));
 
   const profile = await getOrCreateUserProfile(user);
-  if (!profile) return NextResponse.redirect(new URL("/login?error=setup", request.url));
+  if (!profile) return NextResponse.redirect(publicUrl("/login?error=setup", request));
   if (next === "/redefinir-senha") {
     if (profile.status === "active") await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
-    return NextResponse.redirect(new URL(next, request.url));
+    return NextResponse.redirect(publicUrl(next, request));
   }
   if (profile.status !== "active") {
     await auth.auth.signOut();
-    return NextResponse.redirect(new URL(`/auth/pending?status=${profile.status}`, request.url));
+    return NextResponse.redirect(publicUrl(`/auth/pending?status=${profile.status}`, request));
   }
   await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
-  return NextResponse.redirect(new URL(next.startsWith("/") ? next : "/dashboard", request.url));
+  return NextResponse.redirect(publicUrl(next.startsWith("/") ? next : "/dashboard", request));
 }
