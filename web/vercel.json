@@ -1,7 +1,3 @@
 {
-  "crons": [
-    { "path": "/api/admin/official/broadcasts/run-scheduled", "schedule": "* * * * *" },
-    { "path": "/api/admin/official/automations/run-due-followups", "schedule": "* * * * *" },
-    { "path": "/api/admin/official/meta-relay/run-due", "schedule": "* * * * *" }
-  ]
+  "crons": []
 }
