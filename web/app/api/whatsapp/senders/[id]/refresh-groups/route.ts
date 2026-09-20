@@ -27,6 +27,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         { onConflict: "whatsapp_sender_id,group_jid" }
       );
     if (linked.error) return NextResponse.json({ error: linked.error.message }, { status: 500 });
+
+    // A leitura acabou de dar certo (o serviço lança erro se não conseguir listar),
+    // então o que não veio nela é grupo que o número deixou de ter: sai da lista e
+    // dos destinos do Piloto, senão os envios voltam "forbidden" e travam o número.
+    const pruned = await sb.rpc("prune_sender_groups", {
+      p_account_id: context.accountId,
+      p_sender_id: sender.id,
+      p_group_jids: groups.map((group: any) => group.group_jid).filter(Boolean)
+    });
+    if (pruned.error) console.warn({ event: "prune_sender_groups_failed", sender_id: sender.id, message: pruned.error.message });
+    return NextResponse.json({ ...result, removed_groups: pruned.error ? 0 : pruned.data ?? 0 });
   }
   return NextResponse.json(result);
 }
