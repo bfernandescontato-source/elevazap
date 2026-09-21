@@ -11,7 +11,8 @@ FROM dependencies AS builder
 
 WORKDIR /app
 COPY . .
-RUN npm --workspace @elevazap/whatsapp-service run build
+RUN mkdir -p whatsapp-service/node_modules \
+  && npm --workspace @elevazap/whatsapp-service run build
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -26,6 +27,7 @@ RUN apt-get update \
 
 COPY --from=builder --chown=app:app /app/node_modules ./node_modules
 COPY --from=builder --chown=app:app /app/packages ./packages
+COPY --from=builder --chown=app:app /app/whatsapp-service/node_modules ./whatsapp-service/node_modules
 COPY --from=builder --chown=app:app /app/whatsapp-service/dist ./whatsapp-service/dist
 COPY --from=builder --chown=app:app /app/whatsapp-service/package.json ./whatsapp-service/package.json
 
