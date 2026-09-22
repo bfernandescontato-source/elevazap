@@ -32,6 +32,7 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
   const secret = decryptIntegrationSecret(integration.encrypted_app_secret);
   let scrollId = "";
   let pages = 0;
+  const receivedOrderIds = new Set<string>();
   try {
     do {
       const cursorArgument = scrollId ? `,scrollId:${JSON.stringify(scrollId)}` : "";
@@ -43,6 +44,7 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
         purchase_time: iso(conversion.purchaseTime), conversion_status: conversion.conversionStatus, order_status: order.orderStatus,
         estimated_commission: number(conversion.estimatedTotalCommission), total_commission: number(conversion.totalCommission), net_commission: number(conversion.netCommission), synced_at: new Date().toISOString()
       })));
+      for (const order of orders) receivedOrderIds.add(order.order_id);
       if (orders.length) { const { error } = await database.from("shopee_affiliate_orders").upsert(orders, { onConflict: "account_id,integration_id,order_id" }); if (error) throw error; }
       const items = report.nodes.flatMap(conversion => (conversion.orders || []).flatMap(order => (order.items || []).map((item, index) => ({
         account_id: accountId, integration_id: integration.id, order_id: String(order.orderId), item_key: createHash("sha256").update(`${item.itemId || ""}:${item.modelId || ""}:${index}`).digest("hex"), item_id: item.itemId ? String(item.itemId) : null, model_id: item.modelId ? String(item.modelId) : null,
@@ -53,6 +55,27 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
       pages += 1;
       if (pages > 200) throw new Error("SHOPEE_PAGINATION_LIMIT");
     } while (scrollId);
+    // A Shopee devolve um retrato completo do período solicitado. Remover os
+    // pedidos ausentes evita que dados de uma credencial anterior sobrevivam à
+    // troca de conta e também corrige o cache já contaminado sem afetar outros
+    // períodos.
+    const { data: cachedOrders, error: cachedOrdersError } = await database
+      .from("shopee_affiliate_orders")
+      .select("order_id")
+      .eq("account_id", accountId)
+      .eq("integration_id", integration.id)
+      .gte("purchase_time", new Date(`${from}T00:00:00-03:00`).toISOString())
+      .lte("purchase_time", new Date(`${to}T23:59:59-03:00`).toISOString());
+    if (cachedOrdersError) throw cachedOrdersError;
+    const staleOrderIds = (cachedOrders || []).map(row => row.order_id).filter(orderId => !receivedOrderIds.has(orderId));
+    for (let index = 0; index < staleOrderIds.length; index += 500) {
+      const orderIds = staleOrderIds.slice(index, index + 500);
+      const [{ error: itemsError }, { error: ordersError }] = await Promise.all([
+        database.from("shopee_affiliate_order_items").delete().eq("account_id", accountId).eq("integration_id", integration.id).in("order_id", orderIds),
+        database.from("shopee_affiliate_orders").delete().eq("account_id", accountId).eq("integration_id", integration.id).in("order_id", orderIds)
+      ]);
+      if (itemsError || ordersError) throw itemsError || ordersError;
+    }
     const coverageStart = !state?.coverage_start || state.coverage_start > from ? from : state.coverage_start;
     const coverageEnd = !state?.coverage_end || state.coverage_end < to ? to : state.coverage_end;
     await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, coverage_start: coverageStart, coverage_end: coverageEnd, last_success_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() });
