@@ -61,26 +61,10 @@ export async function connectShopeeIntegration(database: SupabaseClient, account
   catch (error) { console.error({ event: "shopee_credentials_encryption_failed", component: "integrations", account_id: accountId, error_type: error instanceof Error ? error.name : "unknown" }); throw new Error("INTEGRATION_ENCRYPTION_UNAVAILABLE"); }
   try {
     await testShopeeCredentials(input.app_id, input.app_secret);
-    // A integração é uma linha estável por conta. Ao trocar as credenciais, os
-    // pedidos já salvos pertencem à conta Shopee anterior e não podem continuar
-    // aparecendo no Analytics da nova conta.
-    const { data: previous, error: previousError } = await database
-      .from("affiliate_integrations")
-      .select("credential_fingerprint")
-      .eq("account_id", accountId)
-      .eq("provider", "shopee")
-      .maybeSingle();
-    if (previousError) throw previousError;
+    // O cache do Analytics é isolado por fingerprint da credencial. Uma
+    // sincronização antiga pode terminar após a troca sem contaminar a nova.
     const { error } = await database.from("affiliate_integrations").upsert({ account_id: accountId, user_id: userId, provider: "shopee", app_id: input.app_id, encrypted_app_secret: encryptedSecret, credential_fingerprint: fingerprint, status: "connected", last_tested_at: now, last_error: null, updated_at: now }, { onConflict: "account_id,provider" });
     if (error) throw error;
-    if (previous?.credential_fingerprint && previous.credential_fingerprint !== fingerprint) {
-      const [{ error: itemsError }, { error: ordersError }, { error: syncError }] = await Promise.all([
-        database.from("shopee_affiliate_order_items").delete().eq("account_id", accountId),
-        database.from("shopee_affiliate_orders").delete().eq("account_id", accountId),
-        database.from("shopee_affiliate_sync_state").delete().eq("account_id", accountId)
-      ]);
-      if (itemsError || ordersError || syncError) throw itemsError || ordersError || syncError;
-    }
     return { status: "connected", app_id: input.app_id };
   } catch (error) {
     const message = error instanceof Error && /Credenciais|Limite|Shopee/.test(error.message) ? error.message : "Não foi possível conectar à Shopee. Verifique App ID e App Secret.";

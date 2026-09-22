@@ -15,16 +15,16 @@ const rate = (value?: number | string) => value == null ? null : Number(String(v
 
 export async function connectedShopee(accountId: string) {
   const database = supabaseAdmin();
-  const { data, error } = await database.from("affiliate_integrations").select("id,app_id,encrypted_app_secret,status").eq("account_id", accountId).eq("provider", "shopee").maybeSingle();
+  const { data, error } = await database.from("affiliate_integrations").select("id,app_id,encrypted_app_secret,credential_fingerprint,status").eq("account_id", accountId).eq("provider", "shopee").maybeSingle();
   if (error) throw error;
-  return data?.status === "connected" && data.app_id && data.encrypted_app_secret ? data : null;
+  return data?.status === "connected" && data.app_id && data.encrypted_app_secret && data.credential_fingerprint ? data : null;
 }
 
 export async function syncShopeeAnalytics(accountId: string, from: string, to: string, force = false) {
   const database = supabaseAdmin();
   const integration = await connectedShopee(accountId);
   if (!integration) return { connected: false, synced: false };
-  const { data: state } = await database.from("shopee_affiliate_sync_state").select("last_success_at,coverage_start,coverage_end").eq("account_id", accountId).eq("integration_id", integration.id).maybeSingle();
+  const { data: state } = await database.from("shopee_affiliate_sync_state").select("last_success_at,coverage_start,coverage_end").eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).maybeSingle();
   const fresh = state?.last_success_at && Date.now() - new Date(state.last_success_at).getTime() < 15 * 60_000 && state.coverage_start <= from && state.coverage_end >= to;
   if (fresh && !force) return { connected: true, synced: false };
   const start = Math.floor(new Date(`${from}T00:00:00-03:00`).getTime() / 1000);
@@ -40,30 +40,28 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
       const result = await shopeeGraphQl<Report>(integration.app_id, secret, query);
       const report = result.conversionReport;
       const orders = report.nodes.flatMap(conversion => (conversion.orders || []).map(order => ({
-        account_id: accountId, integration_id: integration.id, order_id: String(order.orderId), conversion_id: conversion.conversionId ? String(conversion.conversionId) : null, checkout_id: conversion.checkoutId ? String(conversion.checkoutId) : null,
+        account_id: accountId, integration_id: integration.id, credential_fingerprint: integration.credential_fingerprint, order_id: String(order.orderId), conversion_id: conversion.conversionId ? String(conversion.conversionId) : null, checkout_id: conversion.checkoutId ? String(conversion.checkoutId) : null,
         purchase_time: iso(conversion.purchaseTime), conversion_status: conversion.conversionStatus, order_status: order.orderStatus,
         estimated_commission: number(conversion.estimatedTotalCommission), total_commission: number(conversion.totalCommission), net_commission: number(conversion.netCommission), synced_at: new Date().toISOString()
       })));
       for (const order of orders) receivedOrderIds.add(order.order_id);
-      if (orders.length) { const { error } = await database.from("shopee_affiliate_orders").upsert(orders, { onConflict: "account_id,integration_id,order_id" }); if (error) throw error; }
+      if (orders.length) { const { error } = await database.from("shopee_affiliate_orders").upsert(orders, { onConflict: "account_id,integration_id,credential_fingerprint,order_id" }); if (error) throw error; }
       const items = report.nodes.flatMap(conversion => (conversion.orders || []).flatMap(order => (order.items || []).map((item, index) => ({
-        account_id: accountId, integration_id: integration.id, order_id: String(order.orderId), item_key: createHash("sha256").update(`${item.itemId || ""}:${item.modelId || ""}:${index}`).digest("hex"), item_id: item.itemId ? String(item.itemId) : null, model_id: item.modelId ? String(item.modelId) : null,
+        account_id: accountId, integration_id: integration.id, credential_fingerprint: integration.credential_fingerprint, order_id: String(order.orderId), item_key: createHash("sha256").update(`${item.itemId || ""}:${item.modelId || ""}:${index}`).digest("hex"), item_id: item.itemId ? String(item.itemId) : null, model_id: item.modelId ? String(item.modelId) : null,
         item_name: item.itemName || "Produto sem nome", shop_id: item.shopId ? String(item.shopId) : null, shop_name: item.shopName || "Loja não informada", item_price: number(item.itemPrice), actual_amount: number(item.actualAmount), refund_amount: number(item.refundAmount), quantity: Math.max(0, Number(item.qty || 0)), commission: number(item.itemTotalCommission), seller_commission: number(item.itemSellerCommission), shopee_commission: number(item.itemShopeeCommissionCapped), seller_commission_rate: rate(item.itemSellerCommissionRate), shopee_commission_rate: rate(item.itemShopeeCommissionRate), item_status: item.displayItemStatus || null, complete_time: iso(item.completeTime), image_url: item.imageUrl || null, synced_at: new Date().toISOString()
       }))));
-      if (items.length) { const { error } = await database.from("shopee_affiliate_order_items").upsert(items, { onConflict: "account_id,integration_id,order_id,item_key" }); if (error) throw error; }
+      if (items.length) { const { error } = await database.from("shopee_affiliate_order_items").upsert(items, { onConflict: "account_id,integration_id,credential_fingerprint,order_id,item_key" }); if (error) throw error; }
       scrollId = report.pageInfo.hasNextPage ? report.pageInfo.scrollId || "" : "";
       pages += 1;
       if (pages > 200) throw new Error("SHOPEE_PAGINATION_LIMIT");
     } while (scrollId);
-    // A Shopee devolve um retrato completo do período solicitado. Remover os
-    // pedidos ausentes evita que dados de uma credencial anterior sobrevivam à
-    // troca de conta e também corrige o cache já contaminado sem afetar outros
-    // períodos.
+    // Reconciliar somente os pedidos desta credencial e deste período.
     const { data: cachedOrders, error: cachedOrdersError } = await database
       .from("shopee_affiliate_orders")
       .select("order_id")
       .eq("account_id", accountId)
       .eq("integration_id", integration.id)
+      .eq("credential_fingerprint", integration.credential_fingerprint)
       .gte("purchase_time", new Date(`${from}T00:00:00-03:00`).toISOString())
       .lte("purchase_time", new Date(`${to}T23:59:59-03:00`).toISOString());
     if (cachedOrdersError) throw cachedOrdersError;
@@ -71,18 +69,18 @@ export async function syncShopeeAnalytics(accountId: string, from: string, to: s
     for (let index = 0; index < staleOrderIds.length; index += 500) {
       const orderIds = staleOrderIds.slice(index, index + 500);
       const [{ error: itemsError }, { error: ordersError }] = await Promise.all([
-        database.from("shopee_affiliate_order_items").delete().eq("account_id", accountId).eq("integration_id", integration.id).in("order_id", orderIds),
-        database.from("shopee_affiliate_orders").delete().eq("account_id", accountId).eq("integration_id", integration.id).in("order_id", orderIds)
+        database.from("shopee_affiliate_order_items").delete().eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).in("order_id", orderIds),
+        database.from("shopee_affiliate_orders").delete().eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).in("order_id", orderIds)
       ]);
       if (itemsError || ordersError) throw itemsError || ordersError;
     }
     const coverageStart = !state?.coverage_start || state.coverage_start > from ? from : state.coverage_start;
     const coverageEnd = !state?.coverage_end || state.coverage_end < to ? to : state.coverage_end;
-    await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, coverage_start: coverageStart, coverage_end: coverageEnd, last_success_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() });
+    await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, credential_fingerprint: integration.credential_fingerprint, coverage_start: coverageStart, coverage_end: coverageEnd, last_success_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }, { onConflict: "account_id,integration_id,credential_fingerprint" });
     return { connected: true, synced: true, pages };
   } catch (error) {
     const code = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String(error.message) : "SHOPEE_UNAVAILABLE";
-    await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, last_error: code, updated_at: new Date().toISOString() });
+    await database.from("shopee_affiliate_sync_state").upsert({ account_id: accountId, integration_id: integration.id, credential_fingerprint: integration.credential_fingerprint, last_error: code, updated_at: new Date().toISOString() }, { onConflict: "account_id,integration_id,credential_fingerprint" });
     throw new Error(code);
   }
 }
@@ -93,12 +91,12 @@ export async function getShopeeAnalytics(accountId: string, from: string, to: st
   if (!integration) return { connected: false };
   const startIso = new Date(`${from}T00:00:00-03:00`).toISOString();
   const endIso = new Date(`${to}T23:59:59-03:00`).toISOString();
-  const { data: orders, error: ordersError } = await database.from("shopee_affiliate_orders").select("order_id,purchase_time,conversion_status,order_status,estimated_commission,total_commission,net_commission").eq("account_id", accountId).eq("integration_id", integration.id).gte("purchase_time", startIso).lte("purchase_time", endIso).limit(10000);
+  const { data: orders, error: ordersError } = await database.from("shopee_affiliate_orders").select("order_id,purchase_time,conversion_status,order_status,estimated_commission,total_commission,net_commission").eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).gte("purchase_time", startIso).lte("purchase_time", endIso).limit(10000);
   if (ordersError) throw ordersError;
   const orderIds = (orders || []).map(row => row.order_id);
   const allItems: Record<string, any>[] = [];
   for (let index = 0; index < orderIds.length; index += 500) {
-    const { data, error } = await database.from("shopee_affiliate_order_items").select("*").eq("account_id", accountId).eq("integration_id", integration.id).in("order_id", orderIds.slice(index, index + 500)).limit(10000);
+    const { data, error } = await database.from("shopee_affiliate_order_items").select("*").eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).in("order_id", orderIds.slice(index, index + 500)).limit(10000);
     if (error) throw error;
     allItems.push(...(data || []));
   }
@@ -128,7 +126,7 @@ export async function getShopeeAnalytics(accountId: string, from: string, to: st
   if (status && status !== "ALL") details = details.filter(row => row.conversion_status === status || row.order_status === status);
   details.sort((a, b) => new Date(b.purchase_time).getTime() - new Date(a.purchase_time).getTime() || a.order_id.localeCompare(b.order_id));
   const statusOptions = [...new Set((orders || []).flatMap(row => [row.conversion_status, row.order_status]).filter(Boolean))].sort();
-  const { data: state } = await database.from("shopee_affiliate_sync_state").select("last_success_at,last_error").eq("account_id", accountId).eq("integration_id", integration.id).maybeSingle();
+  const { data: state } = await database.from("shopee_affiliate_sync_state").select("last_success_at,last_error").eq("account_id", accountId).eq("integration_id", integration.id).eq("credential_fingerprint", integration.credential_fingerprint).maybeSingle();
   return {
     connected: true, summary: { estimated, confirmed, pending, gmv, orders: new Set(orderIds).size, pendingOrders: (orders || []).filter(row => row.conversion_status === "PENDING").length, units },
     topProducts: [...productMap.values()].sort((a,b) => b.commission-a.commission || a.name.localeCompare(b.name)).slice(0,5),
