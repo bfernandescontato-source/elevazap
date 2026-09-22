@@ -502,8 +502,8 @@ export default function HomePage() {
         <div className="wrap">
           <div className="section-head">
             <div className="eyebrow">Preço</div>
-            <h2>Um plano. Sem letra miúda, sem pegadinha.</h2>
-            <p>Teste qualquer plano grátis por 30 dias.</p>
+            <h2>Escolha o plano ideal para fazer seus grupos crescerem.</h2>
+            <p>O plano anual entrega o START completo e uma biblioteca de conteúdos para você vender mais.</p>
           </div>
           <div className="pricing-grid">
             <div className="price-card">
@@ -524,23 +524,24 @@ export default function HomePage() {
             </div>
 
             <div className="price-card featured">
-              <div className="featured-badge">⭐ Mais escolhido</div>
-              <div className="tag">PRO</div>
-              <div className="price">R$79<span>/mês</span></div>
-              <div className="trial-note">30 dias grátis</div>
-              <div className="price-sub">Cancele quando quiser, sem multa</div>
+              <div className="featured-badge">⭐ Melhor custo-benefício</div>
+              <div className="tag">PLANO ANUAL</div>
+              <div className="price">12x de R$30,81</div>
+              <div className="trial-note">ou R$297 à vista</div>
+              <div className="price-sub">Acesso ao plano START + conteúdos para acelerar suas vendas</div>
               <div className="price-list">
-                <div className="row"><div className="check">✓</div> Até 3 números de WhatsApp conectados</div>
-                <div className="row"><div className="check">✓</div> Campanhas ilimitadas</div>
-                <div className="row"><div className="check">✓</div> Grupos ilimitados</div>
-                <div className="row"><div className="check">✓</div> Disparos em massa ilimitados</div>
-                <div className="row"><div className="check">✓</div> Agendamento de disparos</div>
-                <div className="row"><div className="check">✓</div> Modelos organizados por pastas</div>
-                <div className="row"><div className="check">✓</div> Histórico completo de envios e falhas</div>
-                <div className="row"><div className="check">✓</div> Estatísticas básicas</div>
-                <div className="row"><div className="check">✓</div> Fila inteligente</div>
+                <div className="row"><div className="check">✓</div> Plano START liberado por 1 ano</div>
+                <div className="row"><div className="check">✓</div> Curso de TikTok Shop</div>
+                <div className="row"><div className="check">✓</div> Curso de Shopee</div>
+                <div className="row"><div className="check">✓</div> Curso de Mercado Livre</div>
+                <div className="row"><div className="check">✓</div> Como lotar grupos no orgânico, tráfego e TikTok</div>
+                <div className="row"><div className="check">✓</div> Instagram de achadinhos</div>
+                <div className="row"><div className="check">✓</div> Como criar imagens e vídeos com IA</div>
+                <div className="row"><div className="check">✓</div> Pack com 15 mil vídeos virais</div>
+                <div className="row"><div className="check">✓</div> Packs de carrosséis e criativos virais</div>
+                <div className="row"><div className="check">✓</div> 21 templates de páginas de captura</div>
               </div>
-              <a href="https://pay.hub.la/BRRDudofJKxPpKFJHBxe" className="btn-primary btn-full">Quero extrair o máximo dos meus grupos</a>
+              <a href="https://pay.hub.la/ILPh7mvrbMcJPrwggaB8" className="btn-primary btn-full">Quero o plano anual</a>
             </div>
 
             <div className="price-card">

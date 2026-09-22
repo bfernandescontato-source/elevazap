@@ -18,6 +18,8 @@ export const OFFER_CODE_TO_PLAN: Record<string, PlanName> = {
   // Shop Lab — oferta usada no checkout da Hubla.
   DaheQpgnIGPTloukiCPa: "start",
   LI3Txcm3rWNDfrCIybVW: "start",
+  // Plano anual com conteúdos extras — libera os recursos do START.
+  ILPh7mvrbMcJPrwggaB8: "start",
   BRRDudofJKxPpKFJHBxe: "pro",
   "3kJ87CEotVEFhsSsGCYC": "scale",
 };
