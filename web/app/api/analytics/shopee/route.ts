@@ -3,7 +3,21 @@ import { requireAccountContext, requireValidOrigin } from "@/lib/security";
 import { getShopeeAnalytics, syncShopeeAnalytics } from "@/modules/shopee-analytics/server/service";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+function errorCode(error: unknown) {
+  const candidate = error && typeof error === "object" && "code" in error
+    ? String(error.code)
+    : error instanceof Error ? error.message : "";
+  return /^[A-Z][A-Z0-9_]{2,50}$/.test(candidate) ? candidate : "SHOPEE_SYNC_FAILURE";
+}
+
+function syncErrorResponse(error: unknown, stage: "sync" | "read") {
+  const code = errorCode(error);
+  console.error({ event: "shopee_analytics_failed", stage, code, error_type: error instanceof Error ? error.name : "unknown" });
+  return NextResponse.json({ error: `Não foi possível sincronizar com a Shopee agora. Código: ${code}.` }, { status: 502 });
+}
 
 function parameters(request: NextRequest) {
   const from = request.nextUrl.searchParams.get("from") || "";
@@ -16,13 +30,15 @@ function parameters(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const context = await requireAccountContext(); if (context.error) return context.error;
-  try { const p = parameters(request); await syncShopeeAnalytics(context.accountId, p.from, p.to); return NextResponse.json(await getShopeeAnalytics(context.accountId, p.from, p.to, p.page, p.pageSize, p.search, p.status)); }
-  catch (error) { const code = error instanceof Error ? error.message : "SHOPEE_UNAVAILABLE"; return NextResponse.json({ error: code === "PERIODO_INVALIDO" ? "Selecione um período válido de até 90 dias." : "Não foi possível atualizar os dados da Shopee agora." }, { status: code === "PERIODO_INVALIDO" ? 400 : 502 }); }
+  let stage: "sync" | "read" = "sync";
+  try { const p = parameters(request); await syncShopeeAnalytics(context.accountId, p.from, p.to); stage = "read"; return NextResponse.json(await getShopeeAnalytics(context.accountId, p.from, p.to, p.page, p.pageSize, p.search, p.status)); }
+  catch (error) { if (errorCode(error) === "PERIODO_INVALIDO") return NextResponse.json({ error: "Selecione um período válido de até 90 dias." }, { status: 400 }); return syncErrorResponse(error, stage); }
 }
 
 export async function POST(request: NextRequest) {
   const context = await requireAccountContext(); if (context.error) return context.error;
   const origin = requireValidOrigin(request); if (origin) return origin;
-  try { const p = parameters(request); await syncShopeeAnalytics(context.accountId, p.from, p.to, true); return NextResponse.json(await getShopeeAnalytics(context.accountId, p.from, p.to, p.page, p.pageSize, p.search, p.status)); }
-  catch { return NextResponse.json({ error: "Não foi possível sincronizar com a Shopee agora." }, { status: 502 }); }
+  let stage: "sync" | "read" = "sync";
+  try { const p = parameters(request); await syncShopeeAnalytics(context.accountId, p.from, p.to, true); stage = "read"; return NextResponse.json(await getShopeeAnalytics(context.accountId, p.from, p.to, p.page, p.pageSize, p.search, p.status)); }
+  catch (error) { if (errorCode(error) === "PERIODO_INVALIDO") return NextResponse.json({ error: "Selecione um período válido de até 90 dias." }, { status: 400 }); return syncErrorResponse(error, stage); }
 }
