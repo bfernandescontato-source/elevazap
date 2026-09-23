@@ -71,21 +71,17 @@ describe("preview de produto da Amazon", () => {
   });
 });
 
-describe("miniatura do card de link", () => {
-  it("pede a foto do Mercado Livre em JPEG e não mexe nas outras", async () => {
-    const { toJpegLinkThumbnailUrl } = await import("../queue/link-preview-page.js");
-    expect(toJpegLinkThumbnailUrl(new URL("https://http2.mlstatic.com/D_NQ_NP_900432-MLA113518359539_062026-O.webp")).toString())
-      .toBe("https://http2.mlstatic.com/D_NQ_NP_900432-MLA113518359539_062026-O.jpg");
-    const amazon = "https://m.media-amazon.com/images/I/71DSWwyIa7L._AC_SX355_.jpg";
-    expect(toJpegLinkThumbnailUrl(new URL(amazon)).toString()).toBe(amazon);
-  });
-});
-
-describe("medidas da foto do card", () => {
-  it("lê largura e altura do cabeçalho JPEG", async () => {
-    const { jpegDimensions } = await import("../queue/link-preview-page.js");
-    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x03, 0xfb, 0x02, 0xa7, 0x03, 0x01, 0x22, 0x00]);
-    expect(jpegDimensions(jpeg)).toEqual({ width: 679, height: 1019 });
-    expect(jpegDimensions(Buffer.from("not an image"))).toBeUndefined();
+describe("imagem padronizada do card de link", () => {
+  it("coloca qualquer foto num quadrado JPEG fixo, sem cortar", async () => {
+    const sharp = (await import("sharp")).default;
+    const { standardizeLinkImage, LINK_THUMBNAIL_SIZE } = await import("../queue/link-thumbnail.js");
+    const tall = await sharp({ create: { width: 259, height: 355, channels: 3, background: "#ff0000" } }).webp().toBuffer();
+    const wide = await sharp({ create: { width: 1500, height: 600, channels: 4, background: "#00ff0080" } }).png().toBuffer();
+    for (const source of [tall, wide]) {
+      const { image, thumbnail } = await standardizeLinkImage(source);
+      const meta = await sharp(image).metadata();
+      expect([meta.format, meta.width, meta.height]).toEqual(["jpeg", LINK_THUMBNAIL_SIZE, LINK_THUMBNAIL_SIZE]);
+      expect((await sharp(thumbnail).metadata()).format).toBe("jpeg");
+    }
   });
 });

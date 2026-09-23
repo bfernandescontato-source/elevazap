@@ -12,14 +12,15 @@ import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
 import { normalizeWhatsappOfferText } from "../offers/whatsapp-copy.js";
-import { extractImageThumb, getUrlInfo, prepareWAMessageMedia, type WAUrlInfo } from "@whiskeysockets/baileys";
+import { getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
 import axios from "axios";
 import { createHash } from "crypto";
 import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
-import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage, jpegDimensions, toJpegLinkThumbnailUrl } from "./link-preview-page.js";
+import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage } from "./link-preview-page.js";
+import { buildLinkThumbnail } from "./link-thumbnail.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
@@ -556,27 +557,15 @@ export class GlobalSendQueue {
       if (!product.productName || !product.imageUrl || !product.productLink) return logSkip("incomplete_product_fields");
       const imageUrl = new URL(product.imageUrl);
       if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return logSkip("unexpected_image_host", { host: imageUrl.hostname });
-      const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
-        timeout: 10_000, responseType: "arraybuffer", maxContentLength: 2_000_000, validateStatus: () => true
-      });
-      if (image.status < 200 || image.status >= 300) return logSkip("image_download_failed", { status: image.status });
-      if (!String(image.headers["content-type"] || "").startsWith("image/")) return logSkip("image_not_image_content_type");
-      // Sobe a imagem pros servidores do WhatsApp (mesmo passo que o preview
-      // "de alta qualidade" do Baileys faz sozinho) em vez de só comprimir uma
-      // miniatura localmente — é isso que faz o card sair grande de verdade.
-      const { imageMessage } = await prepareWAMessageMedia({ image: { url: imageUrl.toString() } }, {
-        upload: sock.waUploadToServer,
-        mediaTypeOverride: "thumbnail-link",
-        options: { timeout: 10_000 }
-      });
+      const { jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer);
       return {
         "canonical-url": product.productLink,
         "matched-text": "",
         title: product.productName,
         description: "shopee.com.br",
         originalThumbnailUrl: imageUrl.toString(),
-        jpegThumbnail: imageMessage?.jpegThumbnail ? Buffer.from(imageMessage.jpegThumbnail) : undefined,
-        highQualityThumbnail: imageMessage || undefined
+        jpegThumbnail,
+        highQualityThumbnail
       };
     } catch (error) {
       console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason: "exception", ...errorFields(error) });
@@ -653,29 +642,10 @@ export class GlobalSendQueue {
       let highQualityThumbnail: any;
       if (imageRaw) {
         try {
-          const imageUrl = toJpegLinkThumbnailUrl(new URL(imageRaw, effectiveUrl));
+          const imageUrl = new URL(imageRaw, effectiveUrl);
           if (imageUrl.protocol === "https:") {
-            const image = await axios.get<ArrayBuffer>(imageUrl.toString(), {
-              timeout: 10_000, responseType: "arraybuffer", maxContentLength: 5_000_000, validateStatus: () => true
-            });
-            if (image.status < 200 || image.status >= 300) throw new Error(`Imagem do produto respondeu HTTP ${image.status}.`);
-            const imageBuffer = Buffer.from(image.data);
-            // "thumbnail-link" não gera a miniatura pequena embutida; sem ela o
-            // card depende só da versão grande, e o WhatsApp do celular não a
-            // exibe se algo falhar nela. Gera aqui, como o Baileys faz no
-            // preview automático.
-            jpegThumbnail = (await extractImageThumb(imageBuffer, 192)).buffer;
-            const { imageMessage } = await prepareWAMessageMedia({ image: imageBuffer }, {
-              upload: sock.waUploadToServer,
-              mediaTypeOverride: "thumbnail-link",
-              options: { timeout: 10_000 }
-            });
-            if (imageMessage && (!imageMessage.width || !imageMessage.height)) {
-              const size = jpegDimensions(imageBuffer);
-              if (size) Object.assign(imageMessage, size);
-            }
+            ({ jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer));
             originalThumbnailUrl = imageUrl.toString();
-            if (imageMessage) highQualityThumbnail = imageMessage;
           }
         } catch (imageError) {
           logSkip("image_download_failed", errorFields(imageError));
