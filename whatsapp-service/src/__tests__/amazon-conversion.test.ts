@@ -80,3 +80,12 @@ describe("miniatura do card de link", () => {
     expect(toJpegLinkThumbnailUrl(new URL(amazon)).toString()).toBe(amazon);
   });
 });
+
+describe("medidas da foto do card", () => {
+  it("lê largura e altura do cabeçalho JPEG", async () => {
+    const { jpegDimensions } = await import("../queue/link-preview-page.js");
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x03, 0xfb, 0x02, 0xa7, 0x03, 0x01, 0x22, 0x00]);
+    expect(jpegDimensions(jpeg)).toEqual({ width: 679, height: 1019 });
+    expect(jpegDimensions(Buffer.from("not an image"))).toBeUndefined();
+  });
+});

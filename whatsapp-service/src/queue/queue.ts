@@ -19,7 +19,7 @@ import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
-import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage, toJpegLinkThumbnailUrl } from "./link-preview-page.js";
+import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage, jpegDimensions, toJpegLinkThumbnailUrl } from "./link-preview-page.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
@@ -70,9 +70,12 @@ function extractAmazonProductImage(html: string): string | undefined {
     || html.match(/data-a-dynamic-image=["']([^"']+)["'][^>]*id=["']landingImage["']/i);
   if (dynamicImageAttr?.[1]) {
     try {
-      const parsed = JSON.parse(decodeHtmlEntities(dynamicImageAttr[1]));
-      const firstUrl = Object.keys(parsed)[0];
-      if (firstUrl) return firstUrl;
+      // Mapa url -> [largura, altura]; a primeira é a menor (355px), e o
+      // WhatsApp só monta o card grande com imagem grande — pega a maior.
+      const parsed = JSON.parse(decodeHtmlEntities(dynamicImageAttr[1])) as Record<string, [number, number]>;
+      const area = (url: string) => (parsed[url]?.[0] || 0) * (parsed[url]?.[1] || 0);
+      const largestUrl = Object.keys(parsed).sort((a, b) => area(b) - area(a))[0];
+      if (largestUrl) return largestUrl;
     } catch {
       // falls through to the other attributes below
     }
@@ -667,6 +670,10 @@ export class GlobalSendQueue {
               mediaTypeOverride: "thumbnail-link",
               options: { timeout: 10_000 }
             });
+            if (imageMessage && (!imageMessage.width || !imageMessage.height)) {
+              const size = jpegDimensions(imageBuffer);
+              if (size) Object.assign(imageMessage, size);
+            }
             originalThumbnailUrl = imageUrl.toString();
             if (imageMessage) highQualityThumbnail = imageMessage;
           }
