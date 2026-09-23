@@ -60,3 +60,13 @@ describe("conversão Amazon do Piloto", () => {
     expect(source).toContain('last_error_code: connected ? "AMAZON_LINK_CONVERSION_FAILED" : "AMAZON_NOT_CONNECTED"');
   });
 });
+
+describe("preview de produto da Amazon", () => {
+  it("reconhece a página de captcha e não confunde com a página do produto", async () => {
+    const { isAmazonCaptchaPage } = await import("../queue/amazon-page.js");
+    const captcha = `<html><head><title dir="ltr">Amazon.com.br</title></head><body><form action="/errors/validateCaptcha"><input name="amzn-captcha"></form></body></html>`;
+    const product = `<html><head><meta property="og:image" content="https://m.media-amazon.com/images/I/71DSWwyIa7L.jpg"></head><body><img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/71DSWwyIa7L._AC_SL1500_.jpg"><script>var captchaTheme = 1;</script></body></html>`;
+    expect(isAmazonCaptchaPage(captcha)).toBe(true);
+    expect(isAmazonCaptchaPage(product)).toBe(false);
+  });
+});

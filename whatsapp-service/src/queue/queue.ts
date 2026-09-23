@@ -19,6 +19,7 @@ import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
+import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage } from "./amazon-page.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 
@@ -592,20 +593,32 @@ export class GlobalSendQueue {
       console.warn({ event: "offer_generic_og_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason, ...extra });
       return undefined;
     };
-    const fetchHtml = (target: string) => axios.get<string>(target, {
+    const fetchHtml = (target: string, userAgent: string) => axios.get<string>(target, {
       timeout: 10_000,
       responseType: "text",
       validateStatus: () => true,
       maxContentLength: 3_000_000,
       maxRedirects: 5,
       headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "user-agent": userAgent,
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "accept-language": "pt-BR,pt;q=0.9,en;q=0.8"
       }
     });
     try {
-      const page = await fetchHtml(url);
+      // A Amazon responde com uma página de captcha (sem foto nem título do
+      // produto) para user-agent de navegador vindo de IP de datacenter, mas
+      // entrega a página completa para o robô de preview do WhatsApp — o
+      // mesmo que gera o card quando alguém cola o link manualmente. Tenta
+      // esse primeiro na Amazon e só cai no de navegador se vier captcha.
+      const userAgents = isAmazonUrl(url) ? [WHATSAPP_PREVIEW_USER_AGENT, BROWSER_USER_AGENT] : [BROWSER_USER_AGENT];
+      let page = await fetchHtml(url, userAgents[0]);
+      for (const fallbackAgent of userAgents.slice(1)) {
+        if (typeof page.data === "string" && !isAmazonCaptchaPage(page.data)) break;
+        logSkip("amazon_captcha_retrying", { status: page.status });
+        page = await fetchHtml(url, fallbackAgent);
+      }
+      if (typeof page.data === "string" && isAmazonCaptchaPage(page.data)) return logSkip("amazon_captcha");
       if (page.status < 200 || page.status >= 300 || typeof page.data !== "string") return logSkip("http_error", { status: page.status });
       // axios segue os redirects sozinho (maxRedirects acima); pra saber
       // onde a página realmente terminou (ex.: meli.la/xxx -> .../social/yyy)
