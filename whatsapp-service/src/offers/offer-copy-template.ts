@@ -100,7 +100,8 @@ export function buildOfferCopy(facts: OfferCopyFacts, purchaseLink: string, rand
 
   const condition = facts.priceCondition ? ` ${facts.priceCondition}` : "";
   if (computed && facts.priceFromCents && facts.priceToCents) {
-    blocks.push([`😱🔻${computed}% DE DESCONTO`, `De: ${formatBrl(facts.priceFromCents)}`, `Por: ${formatBrl(facts.priceToCents)}${condition} ✅`].join("\n"));
+    // ~texto~ é riscado no WhatsApp: o preço antigo riscado ancora a economia.
+    blocks.push([`😱🔻${computed}% DE DESCONTO`, `❌ De: ~${formatBrl(facts.priceFromCents)}~`, `✅ Por: ${formatBrl(facts.priceToCents)}${condition}`].join("\n"));
   } else if (stated && facts.priceToCents) {
     blocks.push([`😱🔻${stated}% DE DESCONTO`, `Por: ${formatBrl(facts.priceToCents)}${condition} ✅`].join("\n"));
   } else if (facts.priceToCents) {
