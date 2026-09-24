@@ -35,6 +35,8 @@ export const GENERAL_HOOKS = [
 
 /** Below this, "2% DE DESCONTO" hurts more than it helps, so the offer is shown as a plain price. */
 export const MIN_DISCOUNT_PERCENT = 5;
+/** "PREÇO DE ERRO?!" on a 9% discount sounds fake; below this only the general hooks are used. */
+export const STRONG_DISCOUNT_HOOK_PERCENT = 20;
 export const OFFER_DISCLAIMER = "⚠️ Promoção sujeita à alteração de preço e estoque do site";
 
 export type OfferCopyFacts = {
@@ -92,7 +94,8 @@ export function buildOfferCopy(facts: OfferCopyFacts, purchaseLink: string, rand
   const statedPercent = facts.statedDiscountPercent;
   const stated = !facts.priceFromCents && facts.priceToCents && statedPercent && statedPercent >= MIN_DISCOUNT_PERCENT && statedPercent < 100
     ? statedPercent : null;
-  const hook = pick(computed || stated ? [...DISCOUNT_HOOKS, ...GENERAL_HOOKS] : GENERAL_HOOKS, random);
+  const shownPercent = computed || stated || 0;
+  const hook = pick(shownPercent >= STRONG_DISCOUNT_HOOK_PERCENT ? [...DISCOUNT_HOOKS, ...GENERAL_HOOKS] : GENERAL_HOOKS, random);
   const blocks: string[] = [hook, `🛍️ ${facts.productName}`];
 
   const condition = facts.priceCondition ? ` ${facts.priceCondition}` : "";

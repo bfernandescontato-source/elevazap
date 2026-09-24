@@ -68,6 +68,14 @@ describe("copy da oferta no modelo fixo", () => {
     }
   });
 
+  it("desconto pequeno (abaixo de 20%) aparece, mas sem gancho de desconto forte", () => {
+    for (let i = 0; i < 20; i++) {
+      const text = buildOfferCopy({ productName: "Cesta para Ovos", priceFromCents: 3090, priceToCents: 2789, priceCondition: null, statedDiscountPercent: null, coupon: null, extraLines: [] }, link, () => i / 20);
+      expect(text).toContain("9% DE DESCONTO");
+      expect(DISCOUNT_HOOKS).not.toContain(text.split("\n")[0]);
+    }
+  });
+
   it("mantém recorrência e cupom em blocos próprios", () => {
     const original = "Fralda Pampers Pants M 124 Tiras\nR$ 141,82\nSelecione Programe e Poupe\nComprando 5 unidades: R$ 134,73 cada\nCupom: FRALDA10";
     const facts = verifyExtractedOffer(original, extracted({
