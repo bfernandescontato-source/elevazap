@@ -1,3 +1,14 @@
+import { appendFileSync } from "node:fs";
+import { inspect } from "node:util";
+
+/**
+ * Container logs keep only ~45 min (half of it libsignal noise), so the error
+ * behind a crash is usually gone by the time anyone looks. The container's
+ * filesystem survives restarts (not redeploys), so fatal errors are also
+ * appended here: `docker exec disparei-whatsapp cat /tmp/disparei-crash.log`.
+ */
+export const CRASH_LOG_PATH = "/tmp/disparei-crash.log";
+
 /**
  * Baileys fires some socket writes (e.g. message retry receipts) without
  * awaiting them. When that session's socket has just closed, the write
@@ -13,6 +24,13 @@ export function isClosedSocketRejection(reason: unknown): boolean {
 }
 
 export function installBaileysRejectionGuard() {
+  process.on("uncaughtExceptionMonitor", (error, origin) => {
+    try {
+      appendFileSync(CRASH_LOG_PATH, `${new Date().toISOString()} ${origin}\n${inspect(error, { depth: 4 })}\n\n`);
+    } catch {
+      // never let crash logging hide the original crash
+    }
+  });
   process.on("unhandledRejection", (reason) => {
     if (isClosedSocketRejection(reason)) {
       console.warn({ event: "whatsapp.closed_socket_rejection_ignored", component: "runtime" });
