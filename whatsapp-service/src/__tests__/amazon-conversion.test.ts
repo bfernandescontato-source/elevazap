@@ -85,3 +85,15 @@ describe("imagem padronizada do card de link", () => {
     }
   });
 });
+
+describe("link de loja em disparo manual", () => {
+  it("acha o primeiro link Shopee, Amazon ou Mercado Livre e ignora os outros", async () => {
+    const { findMarketplaceLink } = await import("../queue/link-preview-page.js");
+    expect(findMarketplaceLink("Grupo: https://chat.whatsapp.com/abc\nOferta: https://meli.la/1TWvh8e.")).toBe("https://meli.la/1TWvh8e");
+    expect(findMarketplaceLink("Veja https://amzn.to/3xYz")).toBe("https://amzn.to/3xYz");
+    expect(findMarketplaceLink("https://s.shopee.com.br/7ptU14nVXN?lp=aff")).toBe("https://s.shopee.com.br/7ptU14nVXN?lp=aff");
+    expect(findMarketplaceLink("https://produto.mercadolivre.com.br/MLB-123-x")).toBe("https://produto.mercadolivre.com.br/MLB-123-x");
+    expect(findMarketplaceLink("Promo https://www.magazineluiza.com.br/x e https://youtube.com/y")).toBeUndefined();
+    expect(findMarketplaceLink("sem link nenhum")).toBeUndefined();
+  });
+});

@@ -19,10 +19,11 @@ import { decryptIntegrationSecret } from "../utils/integration-crypto.js";
 import { ShopeeUrlResolver, extractShopeeProductIdentifiers } from "../offers/shopee-url-resolver.js";
 import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolver.js";
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
-import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, isAmazonCaptchaPage } from "./link-preview-page.js";
+import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, findMarketplaceLink, isAmazonCaptchaPage } from "./link-preview-page.js";
 import { buildLinkThumbnail } from "./link-thumbnail.js";
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
+const LINK_PREVIEW_CACHE_MS = 10 * 60_000;
 
 const OG_META_PATTERNS: Record<"title" | "description" | "image", RegExp[]> = {
   title: [
@@ -104,6 +105,7 @@ export class GlobalSendQueue {
   private reconciliation = new Map<string, QueueReconciliation>();
   private metrics = new QueueMetrics();
   private shopeeUrlResolver = new ShopeeUrlResolver();
+  private linkPreviewCache = new Map<string, { info: WAUrlInfo; expiresAt: number }>();
 
   constructor(private databaseCapabilities: DatabaseCapabilities) {}
 
@@ -384,7 +386,13 @@ export class GlobalSendQueue {
     }
     const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
     const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
-    const linkPreview = offerPreview ? await this.generateOfferLinkPreview(row.texto || "", offerPreview, row.id, sock) : undefined;
+    // Disparos manuais/agendados com link de loja ganham o mesmo card do
+    // Piloto; o texto deles fica como o cliente escreveu.
+    const manualLink = !offerPreview && row.tipo === "texto" ? findMarketplaceLink(row.texto || "") : undefined;
+    const previewContext: OfferPreviewContext | null = offerPreview || (manualLink ? { link: manualLink, accountId: row.account_id } : null);
+    const linkPreview = previewContext
+      ? await this.cachedLinkPreview(offerPreview ? row.texto || "" : manualLink!, previewContext, row.id, sock)
+      : undefined;
     const message: any = buildBaileysMessage(row, media, mentions);
     if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
     if (linkPreview && "text" in message) message.linkPreview = linkPreview;
@@ -393,14 +401,14 @@ export class GlobalSendQueue {
       env.SEND_TIMEOUT_MS,
       sock.sendMessage(row.group_jid, message)
     );
-    if (offerPreview) {
+    if (previewContext) {
       console.info({
         event: "offer_media_delivery",
         component: "queue",
         dispatch_id: correlationId(row.id),
-        media_source: "product_link_preview",
+        media_source: offerPreview ? "product_link_preview" : "manual_marketplace_link_preview",
         link_preview_generated: Boolean(result?.message?.extendedTextMessage?.jpegThumbnail || result?.message?.extendedTextMessage?.thumbnailDirectPath),
-        preview_url: linkPreview?.["canonical-url"] || offerPreview.link
+        preview_url: linkPreview?.["canonical-url"] || previewContext.link
       });
     }
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
@@ -423,6 +431,24 @@ export class GlobalSendQueue {
       return { link, accountId: row.account_id, itemId: offer?.item_id || undefined, resolvedUrl: offer?.resolved_url || undefined };
     }
     return { link, accountId: row.account_id, itemId: catalogDelivery?.provider === "SHOPEE" ? catalogDelivery.external_item_id : undefined };
+  }
+
+  /**
+   * A dispatch to many groups sends the same link over and over; building the
+   * card once and reusing it (the uploaded photo stays valid on WhatsApp's
+   * servers) avoids scraping Amazon/ML once per group, which gets the server
+   * IP blocked, and keeps every group's card identical. Only cards with a
+   * photo are reused, so a failed attempt is retried on the next send.
+   */
+  private async cachedLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
+    const key = `${context.accountId}:${text.match(URL_IN_TEXT)?.[0] || context.link}`;
+    const now = Date.now();
+    for (const [cachedKey, entry] of this.linkPreviewCache) if (entry.expiresAt <= now) this.linkPreviewCache.delete(cachedKey);
+    const cached = this.linkPreviewCache.get(key);
+    if (cached) return { ...cached.info };
+    const info = await this.generateOfferLinkPreview(text, context, dispatchId, sock);
+    if (info?.highQualityThumbnail) this.linkPreviewCache.set(key, { info, expiresAt: now + LINK_PREVIEW_CACHE_MS });
+    return info;
   }
 
   /**
