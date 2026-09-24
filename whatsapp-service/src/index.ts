@@ -8,6 +8,9 @@ import { detectDatabaseCapabilities } from "./database-capabilities.js";
 import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
+import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
+
+installBaileysRejectionGuard();
 
 async function prepareDatabaseRuntime(readiness: ServiceReadiness) {
   let attempt = 0;
