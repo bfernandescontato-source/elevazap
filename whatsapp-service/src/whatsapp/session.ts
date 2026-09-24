@@ -18,6 +18,10 @@ export type WhatsAppSession = {
   stop: () => Promise<void>;
 };
 
+const CREDS_SAVE_ERROR = "Falha ao salvar a conexão do WhatsApp.";
+const CREDS_SAVE_ATTEMPTS = 3;
+const CREDS_SAVE_RETRY_MS = 3_000;
+
 type MessageHandler = (messages: any[], upsertType?: string) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 type StatusHandler = (status: ReturnType<WhatsAppSession["getStatus"]>, error: string | null) => Promise<void>;
@@ -31,9 +35,41 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   let starting = false;
   let lastError: string | null = null;
 
+  let socketOpen = false;
+
   const reportStatus = () => onStatus?.(status, lastError).catch((error) =>
     console.error({ event: "whatsapp.status_persist_failed", component: "managed-session", ...errorFields(error) })
   );
+
+  /**
+   * A slow database used to turn one failed credentials write into a
+   * permanent "failed" status: the socket kept working (offers were still
+   * captured) but the queue stopped sending through the number until someone
+   * restarted it. The write is retried, and a later successful write brings a
+   * still-open socket back to "connected".
+   */
+  async function saveCredsWithRetry() {
+    for (let attempt = 1; attempt <= CREDS_SAVE_ATTEMPTS; attempt++) {
+      try {
+        await auth.saveCreds();
+        if (status === "failed" && lastError === CREDS_SAVE_ERROR && socketOpen && !stopped) {
+          status = "connected";
+          lastError = null;
+          void reportStatus();
+        }
+        return;
+      } catch (error) {
+        console.error({ event: "whatsapp.credentials_save_failed", component: "managed-session", attempt, ...errorFields(error) });
+        if (attempt === CREDS_SAVE_ATTEMPTS) {
+          status = "failed";
+          lastError = CREDS_SAVE_ERROR;
+          void reportStatus();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, CREDS_SAVE_RETRY_MS * attempt));
+      }
+    }
+  }
 
   async function finishLogout() {
     if (!sock) return;
@@ -67,18 +103,14 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         generateHighQualityLinkPreview: true
       });
 
-      sock.ev.on("creds.update", () => auth.saveCreds().catch((error) => {
-        status = "failed";
-        lastError = "Falha ao salvar a conexão do WhatsApp.";
-        void reportStatus();
-        console.error({ event: "whatsapp.credentials_save_failed", component: "managed-session", ...errorFields(error) });
-      }));
+      sock.ev.on("creds.update", () => void saveCredsWithRetry());
 
       sock.ev.on("connection.update", async (update: any) => {
         if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; void reportStatus(); }
-        if (update.connection === "open") { status = "connected"; currentQr = ""; lastError = null; void reportStatus(); }
+        if (update.connection === "open") { socketOpen = true; status = "connected"; currentQr = ""; lastError = null; void reportStatus(); }
         if (update.connection === "connecting" && status !== "waiting_qr") { status = "starting"; void reportStatus(); }
         if (update.connection === "close") {
+          socketOpen = false;
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
           if (!stopped) {
             if (code === DisconnectReason.loggedOut) {
