@@ -11,13 +11,37 @@ export async function requireAdmin() {
   return null;
 }
 
+// auth.getUser() vai até o servidor de autenticação do Supabase (EUA) em toda
+// chamada de API. O mesmo token confirmado há menos de 30 s não precisa ir de
+// novo: uma tela abre várias APIs de uma vez, e cada ida custa ~100 ms.
+const VERIFIED_TOKEN_TTL_MS = 30_000;
+const verifiedTokens = new Map<string, { userId: string; expires: number }>();
+
+async function verifiedAuthUserId(database: Awaited<ReturnType<typeof supabaseAuth>>) {
+  const { data: sessionData } = await database.auth.getSession();
+  const token = sessionData.session?.access_token;
+  const hit = token ? verifiedTokens.get(token) : undefined;
+  if (hit && hit.expires > Date.now()) return hit.userId;
+  const { data, error } = await database.auth.getUser();
+  if (error || !data.user?.id) return null;
+  if (token) {
+    verifiedTokens.set(token, { userId: data.user.id, expires: Date.now() + VERIFIED_TOKEN_TTL_MS });
+    if (verifiedTokens.size > 2000) for (const [key, entry] of verifiedTokens) if (entry.expires <= Date.now()) verifiedTokens.delete(key);
+  }
+  return data.user.id;
+}
+
 export async function requireAccountContext() {
   const session = await getSession();
   if (!session?.userId || !session.accountId) return { error: NextResponse.json({ error: "Não autorizado." }, { status: 401 }) };
   const database = await supabaseAuth();
-  const { data: authData, error: authError } = await database.auth.getUser();
-  if (authError || authData.user?.id !== session.userId) return { error: NextResponse.json({ error: "Sessão de autenticação inválida." }, { status: 401 }) };
-  const { data } = await database.from("app_users").select("account_id,status,accounts(status,plan,name)").eq("id", session.userId).eq("account_id", session.accountId).maybeSingle();
+  // A conferência do login e a leitura da conta seguem em paralelo; a conta só é
+  // usada se o login for confirmado.
+  const [authUserId, { data }] = await Promise.all([
+    verifiedAuthUserId(database),
+    database.from("app_users").select("account_id,status,accounts(status,plan,name)").eq("id", session.userId).eq("account_id", session.accountId).maybeSingle()
+  ]);
+  if (authUserId !== session.userId) return { error: NextResponse.json({ error: "Sessão de autenticação inválida." }, { status: 401 }) };
   const account = Array.isArray(data?.accounts) ? data.accounts[0] : data?.accounts;
   if (!data || data.status !== "active" || account?.status !== "active") return { error: NextResponse.json({ error: "Assinatura inativa.", code: account?.status || data?.status || "authentication_error" }, { status: 403 }) };
   return { accountId: data.account_id as string, account, session, database };

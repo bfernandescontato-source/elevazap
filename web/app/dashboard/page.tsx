@@ -10,8 +10,11 @@ type DashboardData = {
   queue: { pendente: number; enfileirado: number; processando: number; sucesso: number; erro: number; incerto: number };
 };
 
+// Ao voltar para o Início, mostra na hora o último resumo e atualiza por trás.
+let lastSummary: DashboardData | null = null;
+
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<DashboardData | null>(lastSummary);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -19,9 +22,10 @@ export default function DashboardPage() {
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Não foi possível carregar o início.");
+        lastSummary = body;
         setData(body);
       })
-      .catch((currentError) => setError(currentError.message));
+      .catch((currentError) => { if (!lastSummary) setError(currentError.message); });
   }, []);
 
   return <DashboardView data={data} error={error} />;

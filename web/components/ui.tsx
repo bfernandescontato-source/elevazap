@@ -16,6 +16,8 @@ import {
   Cog,
   FolderOpen,
   Inbox,
+  Info,
+  LayoutGrid,
   Loader2,
   LogOut,
   Menu,
@@ -69,124 +71,146 @@ const officialNavSection = { label: "WhatsApp API oficial", items: [
   { href: "/admin/whatsapp-oficial/configuracoes", label: "Configurações da API", icon: Cog }
 ] };
 
+// Barra de baixo do celular: as 4 funções mais usadas + "Mais" (todas as outras).
 const mobilePrimaryNav = [
   { href: "/dashboard", label: "Início", icon: BarChart3 },
-  { href: "/campanhas", label: "Campanhas", icon: Megaphone },
+  { href: "/catalogo", label: "Catálogo", icon: ShoppingBag },
   { href: "/disparos", label: "Disparos", icon: Send },
-  { href: "/catalogo", label: "Catálogo", icon: ShoppingBag }
+  { href: "/piloto-automatico", label: "Piloto", icon: Zap }
 ];
 
-const mobileTopNav = [
-  { href: "/grupos/numeros", label: "Conectar número", icon: Smartphone },
-  { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
-  { href: "/comunidade", label: "Comunidade", icon: MessageCircle },
-  { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
-  { href: "/integracoes", label: "Integrações", icon: Cable },
-  { href: "/configuracoes", label: "Configurações", icon: Cog }
-];
+type NavMeta = { communityUnread: number; internalAdmin: boolean };
+// O AppShell remonta a cada tela; guardar aqui evita buscar notificações e
+// permissão de admin de novo em toda navegação. Atualiza no máximo a cada 60 s
+// e só com a aba visível.
+let navMetaCache: (NavMeta & { fetchedAt: number }) | null = null;
+const NAV_META_TTL_MS = 60_000;
+
+function useNavMeta(pathname: string): NavMeta {
+  const [meta, setMeta] = useState<NavMeta>(() => navMetaCache ?? { communityUnread: 0, internalAdmin: pathname.startsWith("/admin") });
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (navMetaCache && Date.now() - navMetaCache.fetchedAt < NAV_META_TTL_MS) { setMeta(navMetaCache); return; }
+      const [notifications, access] = await Promise.all([
+        fetch("/api/comunidade/notifications", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+        navMetaCache ? Promise.resolve({ admin: navMetaCache.internalAdmin }) : fetch("/api/admin/access", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ]);
+      navMetaCache = { communityUnread: notifications?.unread_count || 0, internalAdmin: Boolean(access?.admin), fetchedAt: Date.now() };
+      if (alive) setMeta(navMetaCache);
+    };
+    void load();
+    const interval = setInterval(load, NAV_META_TTL_MS);
+    document.addEventListener("visibilitychange", load);
+    return () => { alive = false; clearInterval(interval); document.removeEventListener("visibilitychange", load); };
+  }, []);
+  return meta;
+}
+
+function navSectionsFor(pathname: string, internalAdmin: boolean) {
+  if (!internalAdmin) return navSections;
+  return pathname.startsWith("/admin/whatsapp-oficial")
+    ? [officialNavSection, adminNavSection, ...navSections]
+    : [...navSections, adminNavSection, officialNavSection];
+}
+
+function isActive(pathname: string, item: { href: string; exact?: boolean }) {
+  return pathname === item.href || (!item.exact && pathname.startsWith(`${item.href}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
+}
 
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const meta = useNavMeta(pathname);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   useEffect(() => {
-    if (!mobileMenuOpen) return;
+    if (!moreOpen) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previous; };
-  }, [mobileMenuOpen]);
-  useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMoreOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", onKey); };
+  }, [moreOpen]);
+  useEffect(() => { setMoreOpen(false); setInfoOpen(false); }, [pathname]);
+  const sections = navSectionsFor(pathname, meta.internalAdmin);
+  const primaryActive = mobilePrimaryNav.some(item => isActive(pathname, item));
   return (
     <div className="min-h-dvh min-w-0 lg:flex">
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 overflow-y-auto border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
         </div>
-        <SidebarNav pathname={pathname} />
+        <SidebarNav pathname={pathname} sections={sections} communityUnread={meta.communityUnread} />
       </aside>
-      {mobileMenuOpen ? <div className="fixed inset-0 z-40 bg-black/35 lg:hidden" role="presentation" onClick={() => setMobileMenuOpen(false)}>
-        <aside aria-label="Menu principal" className="app-safe-bottom h-dvh w-[min(88vw,340px)] overflow-y-auto overscroll-contain bg-white px-4 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] shadow-soft" onClick={(event) => event.stopPropagation()}>
-          <div className="mb-7 flex items-center justify-between gap-3 px-2"><BrandLogo className="h-11 min-w-0 flex-1" imageClassName="w-[220px] max-w-full" /><button type="button" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)} className="touch-target grid shrink-0 place-items-center rounded-lg border border-line text-muted"><X size={20} /></button></div>
-          <SidebarNav pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
-        </aside>
-      </div> : null}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-3 pt-[max(.75rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
-            <div className="contents sm:flex sm:min-w-0 sm:items-start sm:gap-3">
-              <button type="button" aria-label="Abrir menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)} className="touch-target grid shrink-0 place-items-center rounded-lg border border-line bg-white text-ink lg:hidden"><Menu size={20} /></button>
-              <div className="min-w-0 sm:flex-1">
-              <h1 className="break-words text-lg font-semibold leading-tight tracking-normal text-ink sm:text-xl">{title}</h1>
-              {subtitle ? <p className="mt-1 break-words text-xs leading-5 text-muted sm:text-sm">{subtitle}</p> : null}
-              </div>
+        <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-2 pt-[max(.5rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
+          <div className="flex min-h-11 min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl">{title}</h1>
+              {subtitle ? <button type="button" aria-label="Sobre esta tela" aria-expanded={infoOpen} onClick={() => setInfoOpen(open => !open)} className="touch-target grid shrink-0 place-items-center rounded-full text-muted lg:hidden"><Info size={18}/></button> : null}
             </div>
-            <div className="col-start-3 row-start-1 flex items-center justify-end gap-2">
+            <div className="flex shrink-0 items-center justify-end gap-2">
               <div className="hidden items-center gap-2 sm:flex">{action}</div>
-              {!hideLogout ? <form action="/api/auth/logout" method="post">
+              {!hideLogout ? <form action="/api/auth/logout" method="post" className="hidden lg:block">
                 <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
-                  <LogOut size={16} /> <span className="hidden sm:inline">Sair</span>
+                  <LogOut size={16} /> <span>Sair</span>
                 </button>
               </form> : null}
             </div>
-            {action ? <div className="col-span-3 flex min-w-0 justify-stretch pl-14 [&>*]:w-full sm:hidden">{action}</div> : null}
           </div>
-          <nav aria-label="Atalhos das funções" className="scrollbar-subtle -mx-[var(--app-gutter)] mt-3 flex gap-2 overflow-x-auto border-t border-line px-[var(--app-gutter)] pt-3 lg:hidden">
-            {mobileTopNav.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              const Icon = item.icon;
-              return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-medium ${active ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}><Icon size={15}/>{item.label}</Link>;
-            })}
-          </nav>
+          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted ${infoOpen ? "" : "hidden lg:block"}`}>{subtitle}</p> : null}
+          {action ? <div className="mt-2 flex min-w-0 [&>*]:w-full [&>*]:justify-center sm:hidden">{action}</div> : null}
         </header>
-        <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-28 pt-5 sm:py-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:py-6 lg:pb-6">{children}</main>
       </div>
-      <nav aria-label="Navegação rápida" className="app-safe-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white/95 px-1 pt-1 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
-        {mobilePrimaryNav.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const Icon = item.icon;
-          return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium ${active ? "text-ink" : "text-muted"}`}><Icon size={20} strokeWidth={active ? 2.5 : 2}/><span className="max-w-full truncate">{item.label}</span></Link>;
-        })}
-        <button type="button" aria-label="Abrir todas as funções" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium ${mobileMenuOpen ? "text-ink" : "text-muted"}`}><Menu size={20}/><span>Mais</span></button>
-      </nav>
+      <>
+        <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white/95 px-1 pb-[max(.25rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+          {mobilePrimaryNav.map((item) => {
+            const active = isActive(pathname, item);
+            const Icon = item.icon;
+            return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${active ? "text-ink" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${active ? "bg-zinc-100" : ""}`}><Icon size={22} strokeWidth={active ? 2.4 : 2}/></span><span className="max-w-full truncate">{item.label}</span></Link>;
+          })}
+          <button type="button" aria-label="Todas as funções" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${moreOpen || !primaryActive ? "text-ink" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${moreOpen || !primaryActive ? "bg-zinc-100" : ""}`}><LayoutGrid size={22}/></span><span>Mais</span>{meta.communityUnread > 0 ? <span className="absolute right-[22%] top-1 h-2.5 w-2.5 rounded-full bg-red-500"/> : null}</button>
+        </nav>
+        {moreOpen ? <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" role="presentation" onClick={() => setMoreOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Todas as funções" onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between px-5 pb-2 pt-3">
+              <span className="mx-auto h-1.5 w-12 rounded-full bg-zinc-200" aria-hidden="true"/>
+            </div>
+            <div className="flex items-center justify-between px-5 pb-3"><BrandLogo className="h-9 min-w-0 flex-1" imageClassName="w-[170px] max-w-full" /><button type="button" aria-label="Fechar" onClick={() => setMoreOpen(false)} className="touch-target grid shrink-0 place-items-center rounded-full border border-line text-muted"><X size={20} /></button></div>
+            <div className="overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              {sections.map(section => <section key={section.label} className="mb-4">
+                <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{section.label}</h2>
+                <div className="grid grid-cols-3 gap-2">{section.items.map(item => {
+                  const active = isActive(pathname, item);
+                  const Icon = item.icon;
+                  const unread = item.href === "/comunidade" && meta.communityUnread > 0;
+                  return <Link key={item.href} href={item.href} onClick={() => setMoreOpen(false)} aria-current={active ? "page" : undefined} className={`relative flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center text-xs font-medium leading-tight ${active ? "border-black bg-black text-white" : "border-line bg-white text-ink"}`}><Icon size={22}/><span className="line-clamp-2">{item.label}</span>{unread ? <span className="absolute right-2 top-2 rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{meta.communityUnread > 9 ? "9+" : meta.communityUnread}</span> : null}</Link>;
+                })}</div>
+              </section>)}
+              {/* "Sair" fica sempre no Mais: no celular não há botão de sair no cabeçalho. */}
+              <form action="/api/auth/logout" method="post" className="mt-2">
+                <button className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-line text-sm font-medium text-muted"><LogOut size={18}/> Sair da conta</button>
+              </form>
+            </div>
+          </div>
+        </div> : null}
+      </>
     </div>
   );
 }
 
-function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
-  const [communityUnread, setCommunityUnread] = useState(0);
-  const [internalAdmin, setInternalAdmin] = useState(pathname.startsWith("/admin"));
-  useEffect(() => {
-    let alive = true;
-    const load = () => fetch("/api/comunidade/notifications", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body) => { if (alive && body) setCommunityUnread(body.unread_count || 0); })
-      .catch(() => {});
-    load();
-    const interval = setInterval(load, 60_000);
-    return () => { alive = false; clearInterval(interval); };
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/admin/access", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : null)
-      .then((body) => { if (alive && body?.admin) setInternalAdmin(true); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  const sections = internalAdmin
-    ? pathname.startsWith("/admin/whatsapp-oficial")
-      ? [officialNavSection, adminNavSection, ...navSections]
-      : [...navSections, adminNavSection, officialNavSection]
-    : navSections;
+function SidebarNav({ pathname, sections, communityUnread }: { pathname: string; sections: typeof navSections; communityUnread: number }) {
   return <nav className="space-y-6" aria-label="Navegação principal">
     {sections.map((section) => <div key={section.label}>
       <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{section.label}</div>
       <div className="space-y-1">{section.items.map((item) => {
-        const match = "match" in item ? item.match : item.href;
-        const active = pathname === match || (!("exact" in item && item.exact) && pathname.startsWith(`${match}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
+        const active = isActive(pathname, item);
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
         const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);
-        return <Link key={item.href} href={item.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white shadow-[inset_3px_0_0_0_#2563EB]" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{badge}</span> : null}</Link>;
+        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white shadow-[inset_3px_0_0_0_#2563EB]" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;

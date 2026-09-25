@@ -51,6 +51,21 @@ img, video, canvas, svg {
   }
 }
 
+/* Toque no celular: botões e seletores compactos (h-8/h-9) viram 44 px, o mínimo
+   da Apple; caixas de marcar ficam com 20 px. No computador nada muda. */
+@media (pointer: coarse) and (max-width: 1023px) {
+  button.h-8, button.h-9, a.h-8, a.h-9, select.h-8, select.h-9, input.h-9 {
+    min-height: 44px;
+  }
+  button.w-8, button.w-9, a.w-8, a.w-9 {
+    min-width: 44px;
+  }
+  input[type="checkbox"], input[type="radio"] {
+    min-width: 20px;
+    min-height: 20px;
+  }
+}
+
 @layer utilities {
   .app-safe-bottom {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));

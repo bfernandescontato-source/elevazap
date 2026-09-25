@@ -125,7 +125,7 @@ export function ScheduledDispatches() {
 
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 10000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 10000);
     return () => window.clearInterval(timer);
   }, []);
 

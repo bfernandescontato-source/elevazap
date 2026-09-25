@@ -64,7 +64,8 @@ export default function NumerosPage() {
 
   useEffect(() => {
     load().catch((error) => setToast(error.message)).finally(() => setLoading(false));
-    const timer = window.setInterval(() => load().catch(() => undefined), 6000);
+    // Só consulta com a aba visível: no celular, a aba em segundo plano gastava bateria e dados.
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") load().catch(() => undefined); }, 6000);
     return () => window.clearInterval(timer);
   }, []);
 

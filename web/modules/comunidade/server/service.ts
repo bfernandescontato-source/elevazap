@@ -15,12 +15,13 @@ export async function attachAuthors(database: SupabaseClient, rows: Array<{ user
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("app_users").select("id,name,email").in("id", userIds);
   if (error) throw error;
-  for (const user of data || []) {
-    const authUser = await admin.auth.admin.getUserById(user.id);
-    const avatarPath = typeof authUser.data.user?.user_metadata?.avatar_path === "string" ? authUser.data.user.user_metadata.avatar_path : null;
-    const avatarUrls = await signedImageUrls(admin, avatarPath ? [avatarPath] : []);
-    authors.set(user.id, { name: user.name, email: null, avatar_url: avatarUrls[0] || null });
-  }
+  const users = data || [];
+  const avatarPaths = await Promise.all(users.map((user) => avatarPathFor(admin, user.id)));
+  const signed = await signedUrlMap(admin, avatarPaths.filter((path): path is string => Boolean(path)));
+  users.forEach((user, index) => {
+    const path = avatarPaths[index];
+    authors.set(user.id, { name: user.name, email: null, avatar_url: path ? signed.get(path) || null : null });
+  });
   return authors;
 }
 
@@ -28,13 +29,33 @@ function authorFor(userId: string | null, authors: Map<string, { name: string | 
   return { user_id: userId, ...(authors.get(userId || "") || { name: null, email: null, avatar_url: null }) };
 }
 
+// Uma chamada ao Storage para todas as imagens, em vez de uma por imagem.
+async function signedUrlMap(admin: SupabaseClient, paths: string[]) {
+  const unique = Array.from(new Set(paths.filter(Boolean)));
+  const map = new Map<string, string>();
+  if (!unique.length) return map;
+  const { data } = await admin.storage.from("community-media").createSignedUrls(unique, 3600);
+  for (const item of data || []) if (item.path && item.signedUrl) map.set(item.path, item.signedUrl);
+  return map;
+}
+
 async function signedImageUrls(admin: SupabaseClient, paths: string[]) {
-  if (!paths.length) return [] as string[];
-  const urls = await Promise.all(paths.map(async (path) => {
-    const { data } = await admin.storage.from("community-media").createSignedUrl(path, 3600);
-    return data?.signedUrl || null;
-  }));
-  return urls.filter((url): url is string => Boolean(url));
+  const map = await signedUrlMap(admin, paths);
+  return paths.map((path) => map.get(path)).filter((url): url is string => Boolean(url));
+}
+
+// O caminho da foto de perfil fica nos metadados do Auth; buscar um autor por vez
+// custava ~300 ms cada (20 autores ≈ 5 s por página). Guardado por 10 minutos.
+const AVATAR_TTL_MS = 10 * 60_000;
+const avatarPathCache = new Map<string, { path: string | null; expires: number }>();
+async function avatarPathFor(admin: SupabaseClient, userId: string) {
+  const hit = avatarPathCache.get(userId);
+  if (hit && hit.expires > Date.now()) return hit.path;
+  const authUser = await admin.auth.admin.getUserById(userId);
+  const path = typeof authUser.data.user?.user_metadata?.avatar_path === "string" ? authUser.data.user.user_metadata.avatar_path : null;
+  avatarPathCache.set(userId, { path, expires: Date.now() + AVATAR_TTL_MS });
+  if (avatarPathCache.size > 5000) avatarPathCache.clear();
+  return path;
 }
 
 function withCounts<T extends { likes?: { count: number }[]; comments?: { count: number }[] }>(post: T) {
@@ -62,13 +83,14 @@ export async function listPosts(database: SupabaseClient, params: { page: number
       : Promise.resolve({ data: [] as { post_id: string }[] })
   ]);
   const likedSet = new Set((viewerLikes.data || []).map((row) => row.post_id));
-  const enriched = await Promise.all(posts.map(async (post) => ({
+  const images = await signedUrlMap(admin, posts.flatMap((post) => post.image_paths || []));
+  const enriched = posts.map((post) => ({
     ...post,
-    image_urls: await signedImageUrls(admin, post.image_paths || []),
+    image_urls: (post.image_paths || []).map((path: string) => images.get(path)).filter((url: string | undefined): url is string => Boolean(url)),
     author: authorFor(post.user_id, authors),
     ...withCounts(post),
     viewer_has_liked: likedSet.has(post.id)
-  })));
+  }));
   return { posts: enriched, pageInfo: { page: params.page, limit, hasNextPage: (count || 0) > from + limit } };
 }
 
