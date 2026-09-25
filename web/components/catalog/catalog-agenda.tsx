@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, Loader2, MessageSquareText, RefreshCw, Send, ShoppingBag, Trash2 } from "lucide-react";
-import { addDays, brasiliaDate, brasiliaInstant, brasiliaTime, sameTimeTomorrow, spreadAcrossDays, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Loader2, MessageSquareText, RefreshCw, Send, ShoppingBag, Shuffle, Trash2, X } from "lucide-react";
+import { addDays, brasiliaDate, brasiliaInstant, brasiliaTime, sameTimeTomorrow, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
 
 type Status = "programado" | "enviando" | "enviado" | "parcial" | "erro" | "incerto" | "pausado";
 type Item = {
@@ -32,7 +32,7 @@ export function CatalogAgenda() {
   const [items, setItems] = useState<Item[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [filter, setFilter] = useState<typeof FILTERS[number][0]>("all"); const [provider, setProvider] = useState("ALL");
   const [busy, setBusy] = useState<string | null>(null); const [notice, setNotice] = useState("");
-  const [spreadDays, setSpreadDays] = useState(2); const [keepTimes, setKeepTimes] = useState(false);
+  const [showRedistribute, setShowRedistribute] = useState(false);
   const [openMessage, setOpenMessage] = useState<string | null>(null);
   const loadingRef = useRef(false);
 
@@ -83,14 +83,6 @@ export function CatalogAgenda() {
   // Ações em massa valem só para as ofertas que ainda não saíram, na ordem atual.
   const startNow = () => { const slots = spreadInDay(upcoming.length, today); if (!slots) return setNotice("Hoje já passou das 22h."); void apply("start", upcoming.map((item, i) => ({ id: item.id, scheduledAt: slots[i].toISOString() }))); };
   const spreadDay = () => { const slots = spreadInDay(upcoming.length, day); if (!slots) return setNotice("Não sobra horário entre 07h e 22h neste dia."); void apply("spread", upcoming.map((item, i) => ({ id: item.id, scheduledAt: slots[i].toISOString() }))); };
-  const redistribute = () => {
-    if (keepTimes) {
-      const perDay = Math.ceil(upcoming.length / spreadDays);
-      return void apply("days", upcoming.map((item, i) => { const at = new Date(item.scheduledAt); at.setTime(at.getTime() + Math.floor(i / perDay) * 86_400_000); return { id: item.id, scheduledAt: at.toISOString() }; }));
-    }
-    const slots = spreadAcrossDays(upcoming.length, day, spreadDays); if (!slots) return setNotice("Não sobra horário entre 07h e 22h no primeiro dia.");
-    void apply("days", upcoming.map((item, i) => ({ id: item.id, scheduledAt: slots[i].toISOString() })));
-  };
 
   const dayTitle = day === today ? "Hoje" : day === addDays(today, 1) ? "Amanhã" : new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
 
@@ -112,9 +104,10 @@ export function CatalogAgenda() {
       {upcoming.length ? <div className="flex flex-wrap items-center gap-2 text-sm">
         {day === today ? <button disabled={!!busy} onClick={startNow} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><Clock size={15}/> Começar agora</button> : null}
         <button disabled={!!busy} onClick={spreadDay} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><CalendarDays size={15}/> Espalhar 07h–22h</button>
-        <span className="inline-flex items-center gap-2 rounded-lg border border-line bg-white px-2 py-1"><select value={spreadDays} onChange={e => setSpreadDays(Number(e.target.value))} className="h-7 bg-transparent">{[2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} dias</option>)}</select><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={keepTimes} onChange={e => setKeepTimes(e.target.checked)}/> manter horários</label><button disabled={!!busy} onClick={redistribute} className="h-7 rounded-md bg-black px-3 text-xs font-medium text-white disabled:opacity-40">Redistribuir</button></span>
+        <button disabled={!!busy} onClick={() => setShowRedistribute(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 disabled:opacity-40 ${showRedistribute ? "border-black bg-black text-white" : "border-line bg-white"}`}><Shuffle size={15}/> Redistribuir</button>
       </div> : null}
     </div>
+    {showRedistribute && upcoming.length ? <RedistributePanel day={day} today={today} items={upcoming} busy={!!busy} onClose={() => setShowRedistribute(false)} onApply={async changes => { await apply("days", changes); setShowRedistribute(false); }}/> : null}
 
     {notice ? <p className="rounded-lg bg-zinc-100 p-3 text-sm">{notice}</p> : null}
     {error ? <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-muted"/></div>
@@ -167,4 +160,84 @@ function AgendaRow({ item, busy, disabled, messageOpen, onToggleMessage, onTime,
     </div>
     {messageOpen ? <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-[#e9f7ee] p-4 font-sans text-sm leading-6">{item.message}</pre> : null}
   </li>;
+}
+
+// Painel "Redistribuir" como o do Motor Mercado: um card por dia (até 7), com
+// quantas já estão agendadas nele e quantas das ofertas deste dia vão para lá.
+// As ofertas saem na ordem atual: as primeiras ficam no primeiro dia.
+function RedistributePanel({ day, today, items, busy, onClose, onApply }: {
+  day: string; today: string; items: Item[]; busy: boolean; onClose: () => void; onApply: (changes: Change[]) => Promise<void>;
+}) {
+  const [days, setDays] = useState(2);
+  const [counts, setCounts] = useState<number[]>([]);
+  const [existing, setExisting] = useState<Record<string, number>>({});
+  const [keepTimes, setKeepTimes] = useState(true);
+  const [error, setError] = useState("");
+  const dayList = useMemo(() => Array.from({ length: days }, (_, index) => addDays(day, index)), [day, days]);
+
+  // Divide igualmente ao mudar a quantidade de dias; o que sobrar vai para os primeiros.
+  useEffect(() => {
+    const base = Math.floor(items.length / days); const extra = items.length % days;
+    setCounts(Array.from({ length: days }, (_, index) => base + (index < extra ? 1 : 0)));
+  }, [days, items.length]);
+  useEffect(() => {
+    let cancelled = false;
+    dayList.slice(1).filter(value => existing[value] === undefined).forEach(value => {
+      fetch(`/api/catalogo/agenda?day=${value}`, { cache: "no-store" }).then(r => r.ok ? r.json() : { items: [] })
+        .then(body => { if (!cancelled) setExisting(old => ({ ...old, [value]: (body.items || []).length })); }).catch(() => undefined);
+    });
+    return () => { cancelled = true; };
+  }, [dayList, existing]);
+
+  const total = counts.reduce((sum, value) => sum + value, 0);
+  const label = (value: string) => value === today ? "Hoje" : value === addDays(today, 1) ? "Amanhã" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+  const setCount = (index: number, value: string) => setCounts(old => old.map((current, i) => i === index ? Math.max(0, Math.floor(Number(value) || 0)) : current));
+
+  const submit = async () => {
+    setError("");
+    if (total !== items.length) return setError(`A soma dos dias (${total}) precisa ser igual a ${items.length} ofertas.`);
+    const changes: Change[] = [];
+    let cursor = 0;
+    for (let index = 0; index < days; index++) {
+      const group = items.slice(cursor, cursor + counts[index]); cursor += counts[index];
+      if (!group.length) continue;
+      if (keepTimes) {
+        // Só troca o dia; quem já está no dia de hoje não muda.
+        group.forEach(item => {
+          const at = brasiliaInstant(dayList[index], brasiliaTime(new Date(item.scheduledAt)));
+          if (at.getTime() !== new Date(item.scheduledAt).getTime()) changes.push({ id: item.id, scheduledAt: at.toISOString() });
+        });
+      } else {
+        const slots = spreadInDay(group.length, dayList[index]);
+        if (!slots) return setError(`Não sobra horário entre 07h e 22h em ${label(dayList[index])}.`);
+        group.forEach((item, i) => changes.push({ id: item.id, scheduledAt: slots[i].toISOString() }));
+      }
+    }
+    if (!changes.length) return onClose();
+    await onApply(changes);
+  };
+
+  return <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
+    <div className="flex items-start justify-between gap-3">
+      <div><h3 className="font-semibold">Redistribuir agendamentos</h3><p className="mt-1 text-sm text-muted">{items.length} ofertas programadas em {label(day).toLowerCase() === "hoje" ? "hoje" : label(day)}. Defina quantas ficam em cada dia.</p></div>
+      <div className="flex items-center gap-2"><label className="text-sm text-muted">Dias</label><select value={days} onChange={e => setDays(Number(e.target.value))} className="focus-ring h-9 rounded-lg border border-line bg-white px-2 text-sm">{[2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} dias</option>)}</select><button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-line" aria-label="Fechar"><X size={16}/></button></div>
+    </div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{dayList.map((value, index) => {
+      const already = index === 0 ? items.length : existing[value];
+      const willHave = index === 0 ? counts[index] ?? 0 : already === undefined ? undefined : already + (counts[index] ?? 0);
+      return <div key={value} className="rounded-lg border border-line bg-wash p-3">
+        <p className="text-sm font-medium">{label(value)}</p>
+        <p className="text-xs text-muted">já agendadas: <strong className="text-ink">{already ?? "…"}</strong></p>
+        <input type="number" min={0} max={items.length} value={counts[index] ?? 0} onChange={e => setCount(index, e.target.value)} className="focus-ring mt-2 h-10 w-full rounded-lg border border-line bg-white px-3 text-sm"/>
+        <p className="mt-2 text-xs text-muted">ficará com {willHave ?? "…"}</p>
+      </div>;
+    })}</div>
+    <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={keepTimes} onChange={e => setKeepTimes(e.target.checked)} className="accent-black"/> Manter horários originais (só trocar o dia)</label>
+    {!keepTimes ? <p className="mt-1 text-xs text-muted">Sem essa opção, cada dia é espalhado de novo entre 07h e 22h.</p> : null}
+    {error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <p className={`text-sm ${total === items.length ? "text-muted" : "font-medium text-red-700"}`}>{total} de {items.length} ofertas redistribuídas</p>
+      <button disabled={busy || total !== items.length} onClick={() => void submit()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={16}/> : null} Aplicar redistribuição</button>
+    </div>
+  </section>;
 }
