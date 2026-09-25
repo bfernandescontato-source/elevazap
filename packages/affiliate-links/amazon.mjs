@@ -1,11 +1,12 @@
 const AMAZON_BR_HOSTS = new Set(["amazon.com.br", "www.amazon.com.br"]);
-// amzlink.me e amzlinks.in não são operados pela Amazon, mas foram verificados
+// amzlink.me, amzlinks.in e amzn.divulgador.link não são operados pela Amazon, mas foram verificados
 // manualmente: cada um redireciona em um único salto direto para amazon.com.br (às
 // vezes já com a tag de afiliado de outra conta, que addAmazonPartnerTag substitui).
 // Confiados explicitamente a pedido do usuário, um de cada vez — não adicione outros
 // domínios de terceiros aqui sem antes confirmar o mesmo comportamento (deve ir direto
 // pra AMAZON_BR_HOSTS, sem saltos intermediários para domínios desconhecidos).
-const AMAZON_SHORT_HOSTS = new Set(["amzn.to", "a.co", "link.amazon", "amzlink.me", "amzlinks.in"]);
+// amzn.divulgador.link: verificado em 24/09/2026 (grupo "Viih Promos"), 1 salto direto para amazon.com.br.
+const AMAZON_SHORT_HOSTS = new Set(["amzn.to", "a.co", "link.amazon", "amzlink.me", "amzlinks.in", "amzn.divulgador.link"]);
 const MAX_REDIRECTS = 5;
 const REQUEST_TIMEOUT_MS = 7_000;
 

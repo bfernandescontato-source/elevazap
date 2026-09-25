@@ -62,6 +62,14 @@ describe("OfferParser", () => {
     expect(result.amazonLinks).toEqual(["https://amzlink.me/5afajz0"]);
   });
 
+  it("identifica amzn.divulgador.link, encurtador de terceiro verificado (1 salto para amazon.com.br)", () => {
+    const result = parseOffer({
+      sourceType: "whatsapp", sourceMessageId: "message-8", sourceGroupId: "120363000000@g.us",
+      text: "BALINHA 🍬 POR 27,45 https://amzn.divulgador.link/iQwWUDBq", timestamp: new Date()
+    });
+    expect(result.amazonLinks).toEqual(["https://amzn.divulgador.link/iQwWUDBq"]);
+  });
+
   it("identifica amzlinks.in, segundo salto verificado da cadeia link.amazon", () => {
     const result = parseOffer({
       sourceType: "whatsapp", sourceMessageId: "message-7", sourceGroupId: "120363000000@g.us",
