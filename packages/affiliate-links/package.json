@@ -7,10 +7,14 @@
     "./amazon": {
       "types": "./amazon.d.mts",
       "import": "./amazon.mjs"
+    },
+    "./offer-copy": {
+      "types": "./offer-copy.d.mts",
+      "import": "./offer-copy.mjs"
     }
   },
   "scripts": {
-    "build": "node --check amazon.mjs",
+    "build": "node --check amazon.mjs && node --check offer-copy.mjs",
     "test": "node --test"
   }
 }

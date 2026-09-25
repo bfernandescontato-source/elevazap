@@ -23,6 +23,25 @@ export const dispatchOfferSchema = z.object({
 
 export const affiliateLinkSchema = z.object({ offer: offerSchema });
 
+const agendaDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.");
+
+// O navegador manda poucas ofertas por vez para mostrar o progresso e o resultado de cada uma.
+export const bulkScheduleSchema = z.object({
+  items: z.array(z.object({ offer: offerSchema, scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(10),
+  senderId: z.string().uuid(), groupJids: z.array(z.string()).min(1).max(500),
+  imageMode: z.enum(["original_image", "product_link_preview"]).default("original_image")
+});
+
+export const agendaQuerySchema = z.object({ day: agendaDaySchema });
+export const agendaDuplicatesSchema = z.object({
+  day: agendaDaySchema,
+  items: z.array(z.object({ provider: z.string().min(1).max(40), externalItemId: z.string().min(1).max(120) })).min(1).max(300)
+});
+export const agendaRescheduleSchema = z.object({
+  changes: z.array(z.object({ id: z.string().uuid(), scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(200)
+});
+export const agendaCancelSchema = z.object({ id: z.string().uuid() });
+
 export function isConfirmedAffiliateUrl(provider: "SHOPEE" | "MERCADO_LIVRE", value?: string) {
   if (!value) return false;
   try {
