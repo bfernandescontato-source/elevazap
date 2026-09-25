@@ -107,7 +107,7 @@ export function CatalogAgenda() {
     </div>
 
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap gap-2">{FILTERS.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} className={`rounded-full border px-3 py-1.5 text-sm ${filter === id ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}>{label}</button>)}
+      <div className="flex flex-wrap gap-2"><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)} className="focus-ring h-9 rounded-full border border-line bg-white px-3 text-sm">{FILTERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
         <select value={provider} onChange={e => setProvider(e.target.value)} className="focus-ring h-9 rounded-full border border-line bg-white px-3 text-sm"><option value="ALL">Todos os marketplaces</option><option value="SHOPEE">Shopee</option><option value="MERCADO_LIVRE">Mercado Livre</option></select></div>
       {upcoming.length ? <div className="flex flex-wrap items-center gap-2 text-sm">
         {day === today ? <button disabled={!!busy} onClick={startNow} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><Clock size={15}/> Começar agora</button> : null}
