@@ -91,12 +91,12 @@ export function ComunidadePostCard({
       </div>
     </div> : null}
 
-    <div className="mt-4 flex items-center gap-4 border-t border-line pt-3 text-sm text-muted">
-      <button type="button" onClick={() => currentUser && onToggleLike(post)} disabled={!currentUser} className={`inline-flex items-center gap-1.5 ${post.viewer_has_liked ? "text-red-600" : "hover:text-ink"}`}>
+    <div className="mt-3 flex items-center gap-2 border-t border-line pt-2 text-sm text-muted sm:mt-4 sm:gap-4 sm:pt-3">
+      <button type="button" onClick={() => currentUser && onToggleLike(post)} disabled={!currentUser} className={`inline-flex min-h-11 min-w-11 items-center gap-1.5 rounded-lg px-2 sm:min-h-0 sm:min-w-0 sm:px-0 ${post.viewer_has_liked ? "text-red-600" : "hover:text-ink"}`}>
         <Heart size={16} fill={post.viewer_has_liked ? "currentColor" : "none"} /> {post.likes_count}
       </button>
       {href
-        ? <Link href={href} className="inline-flex items-center gap-1.5 hover:text-ink"><MessageCircle size={16} /> {post.comments_count}</Link>
+        ? <Link href={href} className="inline-flex min-h-11 min-w-11 items-center gap-1.5 rounded-lg px-2 hover:text-ink sm:min-h-0 sm:min-w-0 sm:px-0"><MessageCircle size={16} /> {post.comments_count}</Link>
         : <span className="inline-flex items-center gap-1.5"><MessageCircle size={16} /> {post.comments_count}</span>}
     </div>
 

@@ -64,6 +64,25 @@ img, video, canvas, svg {
     min-width: 20px;
     min-height: 20px;
   }
+  /* Botões de texto e seletores sem altura definida (py-2) ficavam com 36–38 px. */
+  button, select {
+    min-height: 44px;
+  }
+}
+
+/* Barra de ação fixa no fim das janelas grandes, na zona do polegar (só celular). */
+@media (max-width: 1023px) {
+  .mobile-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-left: calc(-1 * var(--bar-gutter, 1.25rem));
+    margin-right: calc(-1 * var(--bar-gutter, 1.25rem));
+    padding: .75rem var(--bar-gutter, 1.25rem) max(.75rem, env(safe-area-inset-bottom));
+    background: #fff;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, .06);
+  }
 }
 
 @layer utilities {

@@ -496,7 +496,10 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
               <span className="block text-muted">Quando ativado, cada grupo do disparo recebe a mensagem mencionando seus membros.</span>
             </span>
           </label>
-          <ActionButton icon={<Send size={16} />} disabled={!selectedCampaignId || !selected.length || (messageSource === "modelo" && !selectedModeloId)} onClick={() => setConfirm(true)} className="mt-4 w-full bg-accent text-white">Criar disparo</ActionButton>
+          {/* No celular o botão fica logo acima da barra de navegação, sem rolar até o fim. */}
+          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-4 rounded-xl bg-white py-2 lg:static lg:py-0">
+            <ActionButton icon={<Send size={16} />} disabled={!selectedCampaignId || !selected.length || (messageSource === "modelo" && !selectedModeloId)} onClick={() => setConfirm(true)} className="w-full bg-accent text-white">Criar disparo</ActionButton>
+          </div>
         </div>
       </section>
 
