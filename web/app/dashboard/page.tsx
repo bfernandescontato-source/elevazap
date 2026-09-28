@@ -46,7 +46,7 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
         <Link href="/grupos/numeros" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
       </section>}
 
-      {!data.connection.connected && data.counts.campaigns === 0 ? <Onboarding data={data} /> : <div className="grid gap-4 sm:grid-cols-3">
+      {!data.connection.connected && data.counts.campaigns === 0 ? <Onboarding data={data} /> : <div className="grid gap-4 sm:grid-cols-3 terra:grid-cols-3 terra:gap-2.5 terra:sm:gap-4">
         <Metric label="Números conectados" value={data.connection.count} icon={<Smartphone size={22}/>} tone="olive" />
         <Metric label="Campanhas" value={data.counts.campaigns} icon={<Megaphone size={22}/>} tone="coral" />
         <Metric label="Grupos" value={data.counts.groups} icon={<Users size={22}/>} tone="teal" />
@@ -77,14 +77,14 @@ function QueueMetric({ label, value, icon, tone }: { label: string; value: numbe
 }
 
 const metricTones = {
-  olive: "terra:border-emerald-100 terra:bg-emerald-50 [&_.metric-icon]:bg-emerald-100 [&_.metric-icon]:text-emerald-700",
-  coral: "terra:border-orange-100 terra:bg-orange-50 [&_.metric-icon]:bg-orange-100 [&_.metric-icon]:text-orange-700",
-  teal: "terra:border-teal-100 terra:bg-teal-50 [&_.metric-icon]:bg-teal-100 [&_.metric-icon]:text-teal-700"
+  olive: "terra:border-emerald-200/70 terra:bg-emerald-100/70 [&_.metric-icon]:bg-emerald-200/80 [&_.metric-icon]:text-emerald-700",
+  coral: "terra:border-orange-200/70 terra:bg-orange-100/70 [&_.metric-icon]:bg-orange-200/80 [&_.metric-icon]:text-orange-700",
+  teal: "terra:border-teal-200/70 terra:bg-teal-100/70 [&_.metric-icon]:bg-teal-200/80 [&_.metric-icon]:text-teal-700"
 };
 function Metric({ label, value, icon, tone }: { label: string; value: number; icon: ReactNode; tone: keyof typeof metricTones }) {
-  return <div className={`rounded-lg border border-line bg-white p-5 terra:flex terra:items-center terra:gap-4 terra:rounded-2xl ${metricTones[tone]}`}>
-    <span className="metric-icon hidden h-14 w-14 shrink-0 place-items-center rounded-full terra:grid">{icon}</span>
-    <div><div className="text-sm text-muted">{label}</div><div className="mt-2 text-3xl font-semibold text-ink terra:mt-1">{value}</div></div>
+  return <div className={`rounded-lg border border-line bg-white p-5 terra:flex terra:flex-col terra:items-start terra:gap-2 terra:rounded-2xl terra:p-3 terra:sm:flex-row terra:sm:items-center terra:sm:gap-4 terra:sm:p-5 ${metricTones[tone]}`}>
+    <span className="metric-icon hidden h-10 w-10 shrink-0 place-items-center rounded-full terra:grid sm:h-14 sm:w-14">{icon}</span>
+    <div className="min-w-0"><div className="text-sm text-muted terra:text-xs terra:sm:text-sm">{label}</div><div className="mt-2 text-3xl font-semibold text-ink terra:mt-1 terra:text-2xl terra:sm:text-3xl">{value}</div></div>
   </div>;
 }
 
