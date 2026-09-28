@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { BrandLogo } from "./brand-logo";
+import { SupportBubble } from "./support-bubble";
 import {
   AlertTriangle,
   BarChart3,
@@ -228,6 +229,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
           {action ? <div className="mt-2 flex min-w-0 [&>*]:w-full [&>*]:justify-center sm:hidden">{action}</div> : null}
         </header>
         <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:py-6 lg:pb-6">{children}</main>
+        <SupportBubble />
       </div>
       <>
         <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white/95 px-1 pb-[max(.25rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">

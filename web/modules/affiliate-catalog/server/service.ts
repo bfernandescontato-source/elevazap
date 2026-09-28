@@ -1,9 +1,10 @@
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
-import { catalogCategories } from "../categories";
 import type { CatalogCategory, CatalogListing, CatalogPage, CatalogProviderFilter } from "../types";
 import { getStoredMercadoLivreCatalog } from "./mercado-livre-catalog-service";
 import { ShopeeAffiliateProvider } from "./shopee-provider";
 import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
+import { supabaseAdmin } from "@/lib/supabase";
+import { listNiches, shopeeCategoryIdsFor } from "./niches";
 
 type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE", string>> };
 const cache = new Map<string, { expires: number; value: CatalogPage | CatalogCategory[] }>();
@@ -26,38 +27,80 @@ async function shopeeProvider(database: any, accountId: string) {
 
 function codeOf(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback; }
 
+// Ofertas que a conta já agendou/enviou nos últimos 7 dias (mesmo anúncio) não
+// voltam ao Catálogo. Ver catalog_used_offer_keys no banco.
+const USED_OFFER_DAYS = 7;
+async function usedOfferKeys(accountId: string) {
+  const since = new Date(Date.now() - USED_OFFER_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabaseAdmin().rpc("catalog_used_offer_keys", { p_account_id: accountId, p_since: since });
+  if (error) return new Set<string>();
+  return new Set((data || []).map((row: { provider: string; external_item_id: string }) => `${row.provider}:${row.external_item_id}`));
+}
+
+// Nicho com mais de uma categoria (ex.: Eletrônicos): busca cada uma e junta.
+async function shopeePage(adapter: ShopeeAffiliateProvider, key: string, input: { keyword?: string; listing: CatalogListing; limit: number }, categoryIds: number[], page: number): Promise<CatalogPage> {
+  const ttl = (input.keyword ? 5 : 10) * 60_000;
+  const ids = categoryIds.length ? categoryIds : [undefined];
+  const pages = await Promise.all(ids.map(id => cached(JSON.stringify([key, id, page]), ttl, () => adapter.searchProducts({ ...input, page, categoryId: id === undefined ? undefined : String(id) }))));
+  if (pages.length === 1) return pages[0];
+  // Intercala as categorias (1ª de cada, 2ª de cada…) para a lista ficar variada.
+  const seen = new Set<string>();
+  const longest = Math.max(...pages.map(current => current.offers.length));
+  const offers = Array.from({ length: longest }, (_, index) => pages.map(current => current.offers[index])).flat()
+    .filter((offer): offer is NonNullable<typeof offer> => Boolean(offer) && !seen.has(offer!.externalItemId) && Boolean(seen.add(offer!.externalItemId)));
+  return { offers, pageInfo: { page, limit: input.limit, hasNextPage: pages.some(current => current.pageInfo.hasNextPage) } };
+}
+
+const MIN_VISIBLE_OFFERS = 8;
+const MAX_EXTRA_PAGES = 3;
+
 export async function getCatalog(database: any, accountId: string, input: { provider: CatalogProviderFilter; keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogResult> {
   const providers: Array<"SHOPEE" | "MERCADO_LIVRE"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE"] : [input.provider];
-  const settled = await Promise.allSettled(providers.map(async provider => {
-    const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
-    const key = JSON.stringify([provider, accountId, { ...input, categoryId }]);
-    const ttl = (input.keyword ? 5 : 10) * 60_000;
-    if (provider === "SHOPEE") {
-      const adapter = await shopeeProvider(database, accountId);
-      return cached(key, ttl, () => adapter.searchProducts({ ...input, categoryId }));
-    }
-    return cached(key, ttl, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page: input.page, limit: input.limit }));
-  }));
+  const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
+  const [used, shopeeCategoryIds, niches] = await Promise.all([
+    usedOfferKeys(accountId),
+    categoryId && input.provider === "SHOPEE" ? shopeeCategoryIdsFor(categoryId) : Promise.resolve([] as number[]),
+    listNiches().catch(() => [])
+  ]);
   const providerErrors: CatalogResult["providerErrors"] = {};
-  const pages: CatalogPage[] = [];
-  settled.forEach((result, index) => {
-    const provider = providers[index];
-    if (result.status === "fulfilled") pages.push(result.value);
-    else providerErrors[provider] = codeOf(result.reason, `${provider}_UNAVAILABLE`);
-  });
-  if (!pages.length) throw new Error(providerErrors[input.provider === "ALL" ? "SHOPEE" : input.provider] || Object.values(providerErrors)[0] || "CATALOG_UNAVAILABLE");
-  const offers = pages.flatMap(page => page.offers).sort((a, b) => {
+  const offers: CatalogPage["offers"] = [];
+  let page = input.page;
+  let hasNextPage = false;
+  let loadedAny = false;
+  let mlCategories: CatalogCategory[] | undefined;
+  // Ofertas já usadas saem da página; se sobrar pouco, busca as próximas
+  // páginas (até 3 extras). A tela continua de pageInfo.page + 1.
+  for (let extra = 0; extra <= MAX_EXTRA_PAGES; extra++) {
+    const settled = await Promise.allSettled(providers.map(async provider => {
+      const key = JSON.stringify([provider, accountId, { ...input, categoryId, page: undefined }]);
+      if (provider === "SHOPEE") return shopeePage(await shopeeProvider(database, accountId), key, input, shopeeCategoryIds, page);
+      return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
+    }));
+    hasNextPage = false;
+    settled.forEach((result, index) => {
+      const provider = providers[index];
+      if (result.status === "fulfilled") {
+        loadedAny = true;
+        hasNextPage ||= result.value.pageInfo.hasNextPage;
+        if (provider === "MERCADO_LIVRE") mlCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
+        offers.push(...result.value.offers.filter(offer => !used.has(`${offer.provider}:${offer.externalItemId}`)));
+      } else providerErrors[provider] = codeOf(result.reason, `${provider}_UNAVAILABLE`);
+    });
+    if (!loadedAny || offers.length >= MIN_VISIBLE_OFFERS || !hasNextPage) break;
+    page += 1;
+  }
+  if (!loadedAny) throw new Error(providerErrors[input.provider === "ALL" ? "SHOPEE" : input.provider] || Object.values(providerErrors)[0] || "CATALOG_UNAVAILABLE");
+  offers.sort((a, b) => {
     if (input.listing === "commission") return (b.commissionAmount ?? -1) - (a.commissionAmount ?? -1);
     if (input.listing === "sold") return (b.sales ?? -1) - (a.sales ?? -1);
     return 0;
   });
   let categories: CatalogCategory[] = [{ id: null, label: "Todas" }];
-  // As categorias são da Shopee. Mantê-las também na visão "Todos" preserva
-  // a navegação por categoria da vitrine, mesmo quando há mais de um marketplace.
-  if (input.provider === "SHOPEE" || input.provider === "ALL") categories = catalogCategories.map(category => ({ ...category, id: category.id === null ? null : String(category.id) }));
+  // Os nichos são da Shopee. Mantê-los também na visão "Todos" preserva a
+  // navegação por nicho da vitrine, mesmo quando há mais de um marketplace.
+  if (input.provider === "SHOPEE" || input.provider === "ALL") categories = [{ id: null, label: "Todas" }, ...niches.map(niche => ({ id: niche.id, label: niche.label, featured: niche.featured }))];
   if (input.provider === "MERCADO_LIVRE") {
-    const mlPage = pages[0] as (CatalogPage & { categories?: CatalogCategory[] }) | undefined;
-    if (mlPage?.categories?.length) categories = mlPage.categories;
+    if (mlCategories?.length) categories = mlCategories;
   }
-  return { offers, pageInfo: { page: input.page, limit: input.limit, hasNextPage: pages.some(page => page.pageInfo.hasNextPage) }, categories, providerErrors };
+  return { offers, pageInfo: { page, limit: input.limit, hasNextPage }, categories, providerErrors };
 }

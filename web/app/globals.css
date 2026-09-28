@@ -460,3 +460,6 @@ html[data-theme="terra"] input[type="checkbox"].switch:disabled { opacity: .5; c
 /* Cantos mais suaves no terra (cards, campos e botões de todas as telas). */
 html[data-theme="terra"] .rounded-lg { border-radius: .75rem; }
 html[data-theme="terra"] .rounded-xl { border-radius: 1rem; }
+
+/* A bolinha de suporte sobe quando há uma barra flutuante de ação na tela. */
+body:has([data-floating-bar]) .support-bubble { transform: translateY(-4.75rem); }

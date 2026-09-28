@@ -24,7 +24,7 @@ export type AffiliateOffer = {
 
 export type CatalogPage = { offers: AffiliateOffer[]; pageInfo: { page: number; limit: number; hasNextPage: boolean } };
 export type CatalogListing = "top" | "sold" | "commission";
-export type CatalogCategory = { id: string | null; label: string };
+export type CatalogCategory = { id: string | null; label: string; featured?: boolean };
 export type CatalogProviderFilter = "ALL" | Extract<MarketplaceProvider, "SHOPEE" | "MERCADO_LIVRE">;
 
 export interface AffiliateMarketplaceProvider {
