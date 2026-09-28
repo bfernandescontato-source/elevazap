@@ -38,7 +38,7 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
   const action = <Link href="/campanhas" className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition hover:bg-primary-hover terra:bg-coral terra:shadow-[0_8px_18px_-8px_rgb(var(--c-coral)/0.8)] terra:hover:bg-coral/90"><Plus size={16} className="hidden terra:block"/>Nova campanha</Link>;
   const attention = Boolean(data && (data.queue.erro || data.queue.incerto));
 
-  return <AppShell title="Início" subtitle="Sua operação num olhar só" terraTitle="Olá! 👋" action={action} hideLogout>
+  return <AppShell title="Início" subtitle="Sua operação num olhar só" greeting action={action} hideLogout>
     {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6 terra:space-y-5">
       {data.connection.connected ? <div className="border-l-2 border-emerald-500 pl-3 text-sm font-medium text-emerald-700 terra:flex terra:items-center terra:gap-3 terra:rounded-xl terra:border terra:border-emerald-200/70 terra:bg-emerald-100/60 terra:px-4 terra:py-2.5">
         <WhatsAppGlyph className="hidden h-7 w-7 shrink-0 terra:block"/>

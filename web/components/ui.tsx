@@ -177,10 +177,12 @@ function isActive(pathname: string, item: { href: string; exact?: boolean }) {
   return pathname === item.href || (!item.exact && pathname.startsWith(`${item.href}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
 }
 
-export function AppShell({ children, title, subtitle, action, hideLogout = false, terraTitle }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean; terraTitle?: string }) {
+export function AppShell({ children, title, subtitle, action, hideLogout = false, greeting = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean; greeting?: boolean }) {
   const pathname = usePathname();
   const meta = useNavMeta(pathname);
   const profile = useAccountUiTheme();
+  // Tema terra: o Início troca o título por uma saudação com o primeiro nome.
+  const hello = `Olá${profile ? `, ${profile.name.trim().split(/\s+/)[0]}` : ""}! 👋`;
   const [moreOpen, setMoreOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   useEffect(() => {
@@ -206,9 +208,9 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
         <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-2 pt-[max(.5rem,env(safe-area-inset-top))] backdrop-blur terra:border-transparent terra:bg-[rgb(var(--c-app-bg)/0.95)] lg:py-4 terra:lg:pb-2 terra:lg:pt-5">
           <div className="flex min-h-11 min-w-0 items-center gap-2 terra:lg:items-start">
             <div className="flex min-w-0 flex-1 items-center gap-1 terra:lg:flex-wrap">
-              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl terra:lg:text-2xl">{terraTitle ? <><span className="terra:hidden">{title}</span><span className="hidden terra:inline">{terraTitle}</span></> : title}</h1>
-              {subtitle ? <button type="button" aria-label="Sobre esta tela" aria-expanded={infoOpen} onClick={() => setInfoOpen(open => !open)} className="touch-target grid shrink-0 place-items-center rounded-full text-muted lg:hidden"><Info size={18}/></button> : null}
-              {subtitle ? <p className="hidden basis-full text-sm leading-5 text-muted terra:lg:block">{subtitle}</p> : null}
+              <h1 className={`truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl terra:lg:text-2xl ${greeting ? "terra:text-xl terra:lg:-mt-1 terra:lg:text-[1.75rem]" : ""}`}>{greeting ? <><span className="terra:hidden">{title}</span><span className="hidden terra:inline">{hello}</span></> : title}</h1>
+              {subtitle ? <button type="button" aria-label="Sobre esta tela" aria-expanded={infoOpen} onClick={() => setInfoOpen(open => !open)} className={`touch-target grid shrink-0 place-items-center rounded-full text-muted lg:hidden ${greeting ? "terra:hidden" : ""}`}><Info size={18}/></button> : null}
+              {subtitle && !greeting ? <p className="hidden basis-full text-sm leading-5 text-muted terra:lg:block">{subtitle}</p> : null}
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2 terra:lg:flex-col-reverse terra:lg:items-end">
               <div className="flex items-center justify-end gap-2">
@@ -222,7 +224,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
               <div className="hidden items-center gap-2 terra:flex"><HeaderExtras profile={profile} unread={meta.communityUnread}/></div>
             </div>
           </div>
-          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted terra:lg:hidden ${infoOpen ? "" : "hidden lg:block"}`}>{subtitle}</p> : null}
+          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted terra:lg:hidden ${greeting ? "terra:hidden" : ""} ${infoOpen ? "" : "hidden lg:block"}`}>{subtitle}</p> : null}
           {action ? <div className="mt-2 flex min-w-0 [&>*]:w-full [&>*]:justify-center sm:hidden">{action}</div> : null}
         </header>
         <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:py-6 lg:pb-6">{children}</main>
