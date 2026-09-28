@@ -325,7 +325,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
           <ActionButton
             icon={<Plus size={16} />}
             onClick={openCreate}
-            className="bg-black text-white hover:bg-zinc-800"
+            className="bg-primary text-white hover:bg-primary-hover"
           >
             Novo modelo
           </ActionButton>
@@ -364,7 +364,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
           <ActionButton
             icon={<Plus size={16} />}
             onClick={openCreate}
-            className="mt-6 bg-black text-white hover:bg-zinc-800"
+            className="mt-6 bg-primary text-white hover:bg-primary-hover"
           >
             Criar primeiro modelo
           </ActionButton>
@@ -423,7 +423,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       {/* ── Create / Edit model modal ─────────────────────────────────────────── */}
       {showModelModal && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-black/45 sm:items-center sm:justify-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-end bg-overlay/45 sm:items-center sm:justify-center sm:p-4"
           onClick={closeModal}
         >
           <div
@@ -514,7 +514,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                 disabled={!modelName.trim() || saving}
                 icon={saving ? <Loader2 size={16} className="animate-spin" /> : undefined}
                 onClick={handleSaveModel}
-                className="bg-black text-white hover:bg-zinc-800"
+                className="bg-primary text-white hover:bg-primary-hover"
               >
                 {editingModel ? "Salvar alterações" : "Salvar modelo"}
               </ActionButton>
@@ -526,7 +526,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
       {/* ── Import modal ──────────────────────────────────────────────────────── */}
       {importOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-black/45 sm:items-center sm:justify-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-end bg-overlay/45 sm:items-center sm:justify-center sm:p-4"
           onClick={() => importStep !== "importing" && closeImport()}
         >
           <div
@@ -671,7 +671,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-wash">
                     <div
-                      className="h-full rounded-full bg-black transition-all duration-300"
+                      className="h-full rounded-full bg-primary transition-all duration-300"
                       style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
                     />
                   </div>
@@ -727,7 +727,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                     disabled={!importDocxFile}
                     icon={<Download size={15} />}
                     onClick={handleProcessDocx}
-                    className="bg-black text-white hover:bg-zinc-800"
+                    className="bg-primary text-white hover:bg-primary-hover"
                   >
                     Processar arquivo
                   </ActionButton>
@@ -742,7 +742,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                   <ActionButton
                     disabled={parsedModels.length === 0}
                     onClick={handleImportAll}
-                    className="bg-black text-white hover:bg-zinc-800"
+                    className="bg-primary text-white hover:bg-primary-hover"
                   >
                     Importar {parsedModels.length} {parsedModels.length === 1 ? "modelo" : "modelos"}
                   </ActionButton>
@@ -750,7 +750,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               )}
 
               {importStep === "done" && (
-                <ActionButton onClick={closeImport} className="bg-black text-white hover:bg-zinc-800">
+                <ActionButton onClick={closeImport} className="bg-primary text-white hover:bg-primary-hover">
                   Fechar
                 </ActionButton>
               )}

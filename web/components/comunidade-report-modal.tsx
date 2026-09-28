@@ -26,7 +26,7 @@ export function ComunidadeReportModal({ postId, onClose, onDone }: { postId: str
     } finally { setLoading(false); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4">
+  return <div className="fixed inset-0 z-50 flex items-end bg-overlay/45 sm:grid sm:place-items-center sm:p-4">
     <div role="dialog" aria-modal="true" className="app-safe-bottom max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-panel p-5 shadow-soft sm:rounded-xl">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-ink">Denunciar publicação</h3>

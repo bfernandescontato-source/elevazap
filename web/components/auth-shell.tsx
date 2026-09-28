@@ -14,8 +14,8 @@ export function AuthShell({ title, description, children, footer }: { title: str
   </main>;
 }
 
-export const authInputClass = "mt-1 h-11 w-full rounded-lg border border-line px-3 focus:outline-none focus:ring-2 focus:ring-black/20";
-export const authButtonClass = "mt-5 h-11 w-full rounded-lg bg-black text-sm font-medium text-white transition hover:bg-zinc-800";
+export const authInputClass = "mt-1 h-11 w-full rounded-lg border border-line px-3 focus:outline-none focus:ring-2 focus:ring-primary/20";
+export const authButtonClass = "mt-5 h-11 w-full rounded-lg bg-primary text-sm font-medium text-white transition hover:bg-primary-hover";
 export const authLinkClass = "font-medium text-ink underline underline-offset-4";
 
 export function AuthNotice({ children, error = false }: { children: ReactNode; error?: boolean }) {

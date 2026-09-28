@@ -170,7 +170,7 @@ export default function CampanhasPage() {
       title="Campanhas"
       subtitle="Organize grupos por campanha para facilitar os disparos"
       action={
-        <ActionButton icon={<Plus size={16} />} onClick={openCreate} className="bg-black text-white hover:bg-zinc-800">
+        <ActionButton icon={<Plus size={16} />} onClick={openCreate} className="bg-primary text-white hover:bg-primary-hover">
           Nova campanha
         </ActionButton>
       }
@@ -198,7 +198,7 @@ export default function CampanhasPage() {
                 {filterSenderId ? "Sem campanhas para este número." : "Crie a primeira campanha para começar."}
               </p>
               {!filterSenderId && (
-                <ActionButton icon={<Plus size={16} />} onClick={openCreate} className="mt-6 bg-black text-white hover:bg-zinc-800">
+                <ActionButton icon={<Plus size={16} />} onClick={openCreate} className="mt-6 bg-primary text-white hover:bg-primary-hover">
                   Criar primeira campanha
                 </ActionButton>
               )}
@@ -276,7 +276,7 @@ export default function CampanhasPage() {
       {/* Create modal */}
       {showCreate && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/45 p-4"
           onClick={() => !creating && setShowCreate(false)}
         >
           <div
@@ -360,7 +360,7 @@ export default function CampanhasPage() {
                 disabled={!newName.trim() || !newGroupJids.length || creating}
                 icon={creating ? <Loader2 size={16} className="animate-spin" /> : undefined}
                 onClick={handleCreate}
-                className="bg-black text-white hover:bg-zinc-800"
+                className="bg-primary text-white hover:bg-primary-hover"
               >
                 Criar campanha
               </ActionButton>
@@ -372,7 +372,7 @@ export default function CampanhasPage() {
       {/* Rename modal */}
       {renameTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/45 p-4"
           onClick={() => !renaming && setRenameTarget(null)}
         >
           <div
@@ -407,7 +407,7 @@ export default function CampanhasPage() {
                 disabled={!renameName.trim() || renaming}
                 icon={renaming ? <Loader2 size={16} className="animate-spin" /> : undefined}
                 onClick={handleRename}
-                className="bg-black text-white hover:bg-zinc-800"
+                className="bg-primary text-white hover:bg-primary-hover"
               >
                 Salvar
               </ActionButton>

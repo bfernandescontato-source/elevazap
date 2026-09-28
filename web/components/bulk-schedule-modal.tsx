@@ -252,7 +252,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" onClick={handleClose}>
+    <div className="fixed inset-0 z-50 flex items-end bg-overlay/50 sm:items-center sm:justify-center sm:p-4" onClick={handleClose}>
       <div className="flex h-dvh w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-line px-4 py-4 sm:px-6">
@@ -285,7 +285,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
               <CheckCircle2 size={48} className="text-emerald-500" />
               <h3 className="mt-4 text-lg font-semibold text-ink">{doneCount} agendamentos criados!</h3>
               <p className="mt-2 text-sm text-muted">Os disparos entrarão na fila automaticamente nos horários programados.</p>
-              <button type="button" onClick={handleClose} className="mt-6 rounded-lg bg-black px-6 py-2.5 text-sm font-medium text-white hover:bg-zinc-800">Fechar</button>
+              <button type="button" onClick={handleClose} className="mt-6 rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-hover">Fechar</button>
             </div>
           ) : step === 1 ? (
             <div className="space-y-5">
@@ -512,7 +512,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                 type="button"
                 disabled={step === 1 ? !step1Valid : step === 2 ? !step2Valid : !step3Valid}
                 onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3 | 4)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 sm:px-5"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-40 sm:px-5"
               >
                 Próximo <ChevronRight size={15} />
               </button>
@@ -521,7 +521,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                 type="button"
                 disabled={!step4Valid || saving}
                 onClick={confirm}
-                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 sm:px-5"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-40 sm:px-5"
               >
                 {saving ? <><Loader2 size={15} className="animate-spin" /> Criando…</> : `Confirmar ${scheduled.length} agendamentos`}
               </button>

@@ -75,7 +75,7 @@ export function ComunidadePostCard({
       <textarea value={content} onChange={(event) => setContent(event.target.value)} maxLength={5000} rows={4} className="focus-ring w-full resize-none rounded-lg border border-line bg-white p-3 text-sm" />
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" className="rounded-lg border border-line px-3 py-1.5 text-sm" onClick={() => { setEditing(false); setContent(post.content); }}>Cancelar</button>
-        <button type="button" disabled={busy} className="rounded-lg bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50" onClick={async () => { await run({ action: "edit", content }); setEditing(false); }}>Salvar</button>
+        <button type="button" disabled={busy} className="rounded-lg bg-primary px-3 py-1.5 text-sm text-white disabled:opacity-50" onClick={async () => { await run({ action: "edit", content }); setEditing(false); }}>Salvar</button>
       </div>
     </div> : <p className={`mt-3 whitespace-pre-wrap text-sm text-ink ${truncate ? "line-clamp-6" : ""}`}>{linkify(post.content)}</p>}
 

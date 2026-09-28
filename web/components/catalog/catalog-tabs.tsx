@@ -19,7 +19,7 @@ export function useCatalogAgendaEnabled() {
 
 export function CatalogTabs({ active }: { active: "catalogo" | "agenda" }) {
   const tab = (href: string, id: typeof active, label: string) => (
-    <Link href={href} className={`border-b-2 px-4 py-3 text-sm font-medium ${active === id ? "border-black text-ink" : "border-transparent text-muted hover:text-ink"}`}>{label}</Link>
+    <Link href={href} className={`border-b-2 px-4 py-3 text-sm font-medium ${active === id ? "border-primary text-ink" : "border-transparent text-muted hover:text-ink"}`}>{label}</Link>
   );
   return <nav className="flex gap-2 border-b border-line">{tab("/catalogo", "catalogo", "Catálogo")}{tab("/catalogo/agenda", "agenda", "Agenda")}</nav>;
 }

@@ -42,6 +42,6 @@ export default function RootPage() {
   }, []);
 
   return <AuthShell title="Validando acesso" description={error || "Aguarde enquanto verificamos seu link seguro."}>
-    {error ? <a href="/recuperar-senha" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white">Solicitar novo link</a> : <div className="h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full w-1/2 animate-pulse rounded-full bg-black" /></div>}
+    {error ? <a href="/recuperar-senha" className="inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white">Solicitar novo link</a> : <div className="h-2 overflow-hidden rounded-full bg-zinc-200"><div className="h-full w-1/2 animate-pulse rounded-full bg-primary" /></div>}
   </AuthShell>;
 }

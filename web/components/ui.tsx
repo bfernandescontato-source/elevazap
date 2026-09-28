@@ -36,6 +36,7 @@ import {
   X
 } from "lucide-react";
 import { ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { applyUiTheme, UI_THEMES, type UiTheme } from "@/lib/ui-theme-shared";
 
 const navSections = [
   { label: "Principal", items: [
@@ -108,6 +109,19 @@ function useNavMeta(pathname: string): NavMeta {
   return meta;
 }
 
+// Confere o tema da conta uma vez por carregamento da página (o cookie pode ser
+// de outra conta ou estar desatualizado) e aplica na hora.
+let uiThemeChecked = false;
+function useAccountUiTheme() {
+  useEffect(() => {
+    if (uiThemeChecked) return;
+    uiThemeChecked = true;
+    fetch("/api/ui-theme", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then((data: { theme?: UiTheme } | null) => {
+      if (data?.theme && UI_THEMES.includes(data.theme)) applyUiTheme(data.theme);
+    }).catch(() => { uiThemeChecked = false; });
+  }, []);
+}
+
 function navSectionsFor(pathname: string, internalAdmin: boolean) {
   if (!internalAdmin) return navSections;
   return pathname.startsWith("/admin/whatsapp-oficial")
@@ -122,6 +136,7 @@ function isActive(pathname: string, item: { href: string; exact?: boolean }) {
 export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
   const pathname = usePathname();
   const meta = useNavMeta(pathname);
+  useAccountUiTheme();
   const [moreOpen, setMoreOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   useEffect(() => {
@@ -169,11 +184,11 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
           {mobilePrimaryNav.map((item) => {
             const active = isActive(pathname, item);
             const Icon = item.icon;
-            return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${active ? "text-ink" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${active ? "bg-zinc-100" : ""}`}><Icon size={22} strokeWidth={active ? 2.4 : 2}/></span><span className="max-w-full truncate">{item.label}</span></Link>;
+            return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${active ? "text-nav" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${active ? "bg-nav-soft" : ""}`}><Icon size={22} strokeWidth={active ? 2.4 : 2}/></span><span className="max-w-full truncate">{item.label}</span></Link>;
           })}
-          <button type="button" aria-label="Todas as funções" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${moreOpen || !primaryActive ? "text-ink" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${moreOpen || !primaryActive ? "bg-zinc-100" : ""}`}><LayoutGrid size={22}/></span><span>Mais</span>{meta.communityUnread > 0 ? <span className="absolute right-[22%] top-1 h-2.5 w-2.5 rounded-full bg-red-500"/> : null}</button>
+          <button type="button" aria-label="Todas as funções" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${moreOpen || !primaryActive ? "text-nav" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${moreOpen || !primaryActive ? "bg-nav-soft" : ""}`}><LayoutGrid size={22}/></span><span>Mais</span>{meta.communityUnread > 0 ? <span className="absolute right-[22%] top-1 h-2.5 w-2.5 rounded-full bg-red-500"/> : null}</button>
         </nav>
-        {moreOpen ? <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" role="presentation" onClick={() => setMoreOpen(false)}>
+        {moreOpen ? <div className="fixed inset-0 z-40 bg-overlay/40 lg:hidden" role="presentation" onClick={() => setMoreOpen(false)}>
           <div role="dialog" aria-modal="true" aria-label="Todas as funções" onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-3xl bg-white shadow-2xl">
             <div className="flex items-center justify-between px-5 pb-2 pt-3">
               <span className="mx-auto h-1.5 w-12 rounded-full bg-zinc-200" aria-hidden="true"/>
@@ -186,7 +201,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
                   const active = isActive(pathname, item);
                   const Icon = item.icon;
                   const unread = item.href === "/comunidade" && meta.communityUnread > 0;
-                  return <Link key={item.href} href={item.href} onClick={() => setMoreOpen(false)} aria-current={active ? "page" : undefined} className={`relative flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center text-xs font-medium leading-tight ${active ? "border-black bg-black text-white" : "border-line bg-white text-ink"}`}><Icon size={22}/><span className="line-clamp-2">{item.label}</span>{unread ? <span className="absolute right-2 top-2 rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{meta.communityUnread > 9 ? "9+" : meta.communityUnread}</span> : null}</Link>;
+                  return <Link key={item.href} href={item.href} onClick={() => setMoreOpen(false)} aria-current={active ? "page" : undefined} className={`relative flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center text-xs font-medium leading-tight ${active ? "border-primary bg-primary text-white" : "border-line bg-white text-ink"}`}><Icon size={22}/><span className="line-clamp-2">{item.label}</span>{unread ? <span className="absolute right-2 top-2 rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{meta.communityUnread > 9 ? "9+" : meta.communityUnread}</span> : null}</Link>;
                 })}</div>
               </section>)}
               {/* "Sair" fica sempre no Mais: no celular não há botão de sair no cabeçalho. */}
@@ -210,7 +225,7 @@ function SidebarNav({ pathname, sections, communityUnread }: { pathname: string;
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
         const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);
-        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-black text-white shadow-[inset_3px_0_0_0_#2563EB]" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{badge}</span> : null}</Link>;
+        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-primary text-white shadow-[inset_3px_0_0_0_rgb(var(--c-focus,37_99_235))]" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-badge text-badge-fg"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;
@@ -320,7 +335,7 @@ export function ConfirmModal({ open, title, children, onCancel, onConfirm, confi
     return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", onKeyDown); };
   }, [open, loading, onCancel]);
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !loading) onCancel(); }}><div role="dialog" aria-modal="true" aria-labelledby={titleId} className="app-safe-bottom max-h-[min(90dvh,720px)] w-full overflow-y-auto rounded-t-2xl bg-panel p-5 shadow-soft sm:max-w-md sm:rounded-xl"><div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-300 sm:hidden"/><h3 id={titleId} className="break-words font-semibold text-ink">{title}</h3><div className="mt-2 break-words text-sm text-muted">{children}</div><div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end"><button type="button" disabled={loading} className="touch-target rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onCancel}>Voltar</button><button type="button" disabled={loading} className={`touch-target inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${destructive ? "bg-red-600 hover:bg-red-700" : "bg-black hover:bg-zinc-800"}`} onClick={onConfirm}>{loading ? <Loader2 size={15} className="animate-spin" /> : null}{confirmLabel}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-end bg-overlay/45 sm:grid sm:place-items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !loading) onCancel(); }}><div role="dialog" aria-modal="true" aria-labelledby={titleId} className="app-safe-bottom max-h-[min(90dvh,720px)] w-full overflow-y-auto rounded-t-2xl bg-panel p-5 shadow-soft sm:max-w-md sm:rounded-xl"><div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-300 sm:hidden"/><h3 id={titleId} className="break-words font-semibold text-ink">{title}</h3><div className="mt-2 break-words text-sm text-muted">{children}</div><div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end"><button type="button" disabled={loading} className="touch-target rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onCancel}>Voltar</button><button type="button" disabled={loading} className={`touch-target inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${destructive ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-primary-hover"}`} onClick={onConfirm}>{loading ? <Loader2 size={15} className="animate-spin" /> : null}{confirmLabel}</button></div></div></div>;
 }
 
 export function Toast({ message }: { message: string }) {

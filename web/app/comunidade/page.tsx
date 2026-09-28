@@ -70,7 +70,7 @@ export default function ComunidadePage() {
   return <AppShell
     title="Comunidade"
     subtitle="Aprenda, compartilhe e cresça junto com quem também está construindo operações de achadinhos."
-    action={currentUser ? <button type="button" onClick={() => setShowNewPost(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800"><Plus size={16} /> Nova publicação</button> : undefined}
+    action={currentUser ? <button type="button" onClick={() => setShowNewPost(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary-hover"><Plus size={16} /> Nova publicação</button> : undefined}
   >
     <div className="mx-auto max-w-2xl space-y-4">
       {currentUser ? <button type="button" onClick={() => setShowNewPost(true)} className="flex w-full items-center gap-3 rounded-lg border border-line bg-panel p-4 text-left shadow-soft hover:bg-wash">
@@ -79,14 +79,14 @@ export default function ComunidadePage() {
       </button> : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <button onClick={() => setCategory(undefined)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${!category ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}>Todos</button>
-        {communityCategories.map((value) => <button key={value} onClick={() => setCategory(value)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${category === value ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}>{CATEGORY_LABELS[value]}</button>)}
+        <button onClick={() => setCategory(undefined)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${!category ? "border-primary bg-primary text-white" : "border-line bg-white text-muted"}`}>Todos</button>
+        {communityCategories.map((value) => <button key={value} onClick={() => setCategory(value)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${category === value ? "border-primary bg-primary text-white" : "border-line bg-white text-muted"}`}>{CATEGORY_LABELS[value]}</button>)}
       </div>
 
       {notice ? <div className="rounded-lg bg-zinc-100 p-3 text-sm text-ink">{notice}</div> : null}
 
       {error
-        ? <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center"><p className="font-medium text-red-800">{error}</p><button onClick={() => load()} className="mt-4 rounded-lg bg-black px-4 py-2 text-sm text-white">Tentar novamente</button></div>
+        ? <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center"><p className="font-medium text-red-800">{error}</p><button onClick={() => load()} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm text-white">Tentar novamente</button></div>
         : loading
         ? <FeedSkeleton />
         : !posts.length
@@ -94,7 +94,7 @@ export default function ComunidadePage() {
             <MessageCircle className="mx-auto text-muted" />
             <h2 className="mt-3 font-semibold text-ink">A comunidade está começando agora 🚀</h2>
             <p className="mt-1 text-sm text-muted">Seja uma das primeiras pessoas a compartilhar uma estratégia, dúvida ou resultado.</p>
-            {currentUser ? <button onClick={() => setShowNewPost(true)} className="mt-4 rounded-lg bg-black px-4 py-2 text-sm text-white">Criar publicação</button> : null}
+            {currentUser ? <button onClick={() => setShowNewPost(true)} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm text-white">Criar publicação</button> : null}
           </div>
         : <>
             <div className="space-y-4">

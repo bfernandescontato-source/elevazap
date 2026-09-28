@@ -90,7 +90,7 @@ export function CatalogAgenda() {
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setDay(addDays(day, -1))} className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-white" aria-label="Dia anterior"><ChevronLeft size={18}/></button>
-        {[[today, "Hoje"], [addDays(today, 1), "Amanhã"]].map(([value, label]) => <button key={value} onClick={() => setDay(value)} className={`h-10 rounded-lg border px-4 text-sm ${day === value ? "border-black bg-black text-white" : "border-line bg-white"}`}>{label}</button>)}
+        {[[today, "Hoje"], [addDays(today, 1), "Amanhã"]].map(([value, label]) => <button key={value} onClick={() => setDay(value)} className={`h-10 rounded-lg border px-4 text-sm ${day === value ? "border-primary bg-primary text-white" : "border-line bg-white"}`}>{label}</button>)}
         <input type="date" value={day} onChange={e => e.target.value && setDay(e.target.value)} className="focus-ring h-10 rounded-lg border border-line bg-white px-3 text-sm"/>
         <button onClick={() => setDay(addDays(day, 1))} className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-white" aria-label="Próximo dia"><ChevronRight size={18}/></button>
         <button onClick={() => load()} className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-white" aria-label="Recarregar"><RefreshCw size={16}/></button>
@@ -104,7 +104,7 @@ export function CatalogAgenda() {
       {upcoming.length ? <div className="flex flex-wrap items-center gap-2 text-sm">
         {day === today ? <button disabled={!!busy} onClick={startNow} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><Clock size={15}/> Começar agora</button> : null}
         <button disabled={!!busy} onClick={spreadDay} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><CalendarDays size={15}/> Espalhar 07h–22h</button>
-        <button disabled={!!busy} onClick={() => setShowRedistribute(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 disabled:opacity-40 ${showRedistribute ? "border-black bg-black text-white" : "border-line bg-white"}`}><Shuffle size={15}/> Redistribuir</button>
+        <button disabled={!!busy} onClick={() => setShowRedistribute(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 disabled:opacity-40 ${showRedistribute ? "border-primary bg-primary text-white" : "border-line bg-white"}`}><Shuffle size={15}/> Redistribuir</button>
       </div> : null}
     </div>
     {showRedistribute && upcoming.length ? <RedistributePanel day={day} today={today} items={upcoming} busy={!!busy} onClose={() => setShowRedistribute(false)} onApply={async changes => { await apply("days", changes); setShowRedistribute(false); }}/> : null}
@@ -232,12 +232,12 @@ function RedistributePanel({ day, today, items, busy, onClose, onApply }: {
         <p className="mt-2 text-xs text-muted">ficará com {willHave ?? "…"}</p>
       </div>;
     })}</div>
-    <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={keepTimes} onChange={e => setKeepTimes(e.target.checked)} className="accent-black"/> Manter horários originais (só trocar o dia)</label>
+    <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={keepTimes} onChange={e => setKeepTimes(e.target.checked)} className="accent-primary"/> Manter horários originais (só trocar o dia)</label>
     {!keepTimes ? <p className="mt-1 text-xs text-muted">Sem essa opção, cada dia é espalhado de novo entre 07h e 22h.</p> : null}
     {error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
       <p className={`text-sm ${total === items.length ? "text-muted" : "font-medium text-red-700"}`}>{total} de {items.length} ofertas redistribuídas</p>
-      <button disabled={busy || total !== items.length} onClick={() => void submit()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={16}/> : null} Aplicar redistribuição</button>
+      <button disabled={busy || total !== items.length} onClick={() => void submit()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={16}/> : null} Aplicar redistribuição</button>
     </div>
   </section>;
 }

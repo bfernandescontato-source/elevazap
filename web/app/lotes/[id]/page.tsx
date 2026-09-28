@@ -76,7 +76,7 @@ export default function LoteDetailPage({ params }: { params: Promise<{ id: strin
       item.nome_grupo || "—",
       item.erro || "O WhatsApp não confirmou este envio.",
       <div key="actions" className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => resolveUnconfirmed("mark-success", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg bg-black px-3 text-xs font-medium text-white">Marcar como enviado</button>
+        <button type="button" onClick={() => resolveUnconfirmed("mark-success", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-white">Marcar como enviado</button>
         <button type="button" onClick={() => resolveUnconfirmed("retry", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg border border-line px-3 text-xs font-medium">Tentar novamente</button>
         <button type="button" onClick={() => resolveUnconfirmed("mark-error", item.id).catch((error) => setToast(error.message))} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700">Marcar como falha</button>
       </div>
@@ -86,7 +86,7 @@ export default function LoteDetailPage({ params }: { params: Promise<{ id: strin
 }
 
 function TabButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-lg px-4 text-sm font-medium transition ${active ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>{children}</button>;
+  return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-lg px-4 text-sm font-medium transition ${active ? "bg-primary text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>{children}</button>;
 }
 
 function Info({ label, children }: { label: string; children: ReactNode }) {

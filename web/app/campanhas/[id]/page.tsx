@@ -712,7 +712,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
       {/* ── Modal: Adicionar grupos ───────────────────────────────────── */}
       {showAdd ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4" onClick={() => saving !== "add" && setShowAdd(false)}>
+        <div className="fixed inset-0 z-50 flex items-end bg-overlay/45 sm:grid sm:place-items-center sm:p-4" onClick={() => saving !== "add" && setShowAdd(false)}>
           <div className="flex h-dvh w-full max-w-lg flex-col overflow-hidden bg-white sm:h-auto sm:max-h-[88dvh] sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
             <div className="border-b border-line p-5"><h2 className="font-semibold text-ink">Adicionar grupos</h2></div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
@@ -720,7 +720,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
                 <label className="text-sm font-medium text-ink">Buscar pelo link do grupo</label>
                 <div className="mt-2 flex gap-2">
                   <input value={inviteLink} onChange={(e) => setInviteLink(e.target.value)} placeholder="https://chat.whatsapp.com/..." className="focus-ring h-10 min-w-0 flex-1 rounded-lg border border-line bg-white px-3 text-sm" />
-                  <button type="button" disabled={!inviteLink.trim() || saving === "resolve-invite"} onClick={resolveInvite} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-black text-white disabled:opacity-40">
+                  <button type="button" disabled={!inviteLink.trim() || saving === "resolve-invite"} onClick={resolveInvite} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary text-white disabled:opacity-40">
                     {saving === "resolve-invite" ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
                   </button>
                 </div>

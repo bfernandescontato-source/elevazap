@@ -15,7 +15,7 @@ export function BrandLogo({
         width={1450}
         height={1086}
         priority
-        className={`absolute left-1/2 top-1/2 h-auto max-w-none -translate-x-1/2 -translate-y-1/2 ${imageClassName}`}
+        className={`brand-logo absolute left-1/2 top-1/2 h-auto max-w-none -translate-x-1/2 -translate-y-1/2 ${imageClassName}`}
       />
     </div>
   );

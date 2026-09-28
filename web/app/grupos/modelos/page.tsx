@@ -130,7 +130,7 @@ export default function ModelosPage() {
         <ActionButton
           icon={<FolderPlus size={16} />}
           onClick={openCreate}
-          className="bg-black text-white hover:bg-zinc-800"
+          className="bg-primary text-white hover:bg-primary-hover"
         >
           Nova pasta
         </ActionButton>
@@ -150,7 +150,7 @@ export default function ModelosPage() {
               <ActionButton
                 icon={<FolderPlus size={16} />}
                 onClick={openCreate}
-                className="mt-6 bg-black text-white hover:bg-zinc-800"
+                className="mt-6 bg-primary text-white hover:bg-primary-hover"
               >
                 Criar primeira pasta
               </ActionButton>
@@ -164,7 +164,7 @@ export default function ModelosPage() {
                     key={pasta.id}
                     role="button"
                     tabIndex={0}
-                    className="relative cursor-pointer rounded-lg border border-line bg-panel p-5 shadow-soft transition hover:border-zinc-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-black/10"
+                    className="relative cursor-pointer rounded-lg border border-line bg-panel p-5 shadow-soft transition hover:border-zinc-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/10"
                     onClick={() => router.push(`/grupos/modelos/${pasta.id}`)}
                     onKeyDown={(e) => e.key === "Enter" && router.push(`/grupos/modelos/${pasta.id}`)}
                   >
@@ -231,7 +231,7 @@ export default function ModelosPage() {
       {/* Create / Rename modal */}
       {showFolderModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/45 p-4"
           onClick={() => !saving && closeModal()}
         >
           <div
@@ -269,7 +269,7 @@ export default function ModelosPage() {
                 disabled={!modalFolderName.trim() || saving}
                 icon={saving ? <Loader2 size={16} className="animate-spin" /> : undefined}
                 onClick={handleSaveFolder}
-                className="bg-black text-white hover:bg-zinc-800"
+                className="bg-primary text-white hover:bg-primary-hover"
               >
                 {renamingFolder ? "Salvar" : "Criar pasta"}
               </ActionButton>

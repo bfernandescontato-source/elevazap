@@ -59,7 +59,7 @@ export function ComunidadeNewPostModal({ onClose, onCreated }: { onClose: () => 
     } finally { setLoading(false); }
   };
 
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4">
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-overlay/45 p-4">
     <div role="dialog" aria-modal="true" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-panel p-5 shadow-soft">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-ink">Nova publicação</h3>
@@ -69,7 +69,7 @@ export function ComunidadeNewPostModal({ onClose, onCreated }: { onClose: () => 
         placeholder="O que você quer compartilhar?" className="focus-ring mt-4 w-full resize-none rounded-lg border border-line bg-white p-3 text-sm" />
       <div className="mt-3 flex flex-wrap gap-2">
         {communityCategories.map((value) => <button key={value} type="button" onClick={() => setCategory(value)}
-          className={`rounded-full border px-3 py-1.5 text-xs font-medium ${category === value ? "border-black bg-black text-white" : "border-line bg-white text-muted"}`}>{CATEGORY_LABELS[value]}</button>)}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium ${category === value ? "border-primary bg-primary text-white" : "border-line bg-white text-muted"}`}>{CATEGORY_LABELS[value]}</button>)}
       </div>
       {category === "resultado" ? <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-line bg-wash p-3">
         <div>
@@ -87,7 +87,7 @@ export function ComunidadeNewPostModal({ onClose, onCreated }: { onClose: () => 
       <div className="mt-3 flex flex-wrap gap-2">
         {images.map((image, index) => <div key={index} className="relative h-20 w-20 overflow-hidden rounded-lg border border-line">
           <img src={image.preview} alt="" className="h-full w-full object-cover" />
-          <button type="button" onClick={() => removeImage(index)} className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white"><X size={12} /></button>
+          <button type="button" onClick={() => removeImage(index)} className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-overlay/70 text-white"><X size={12} /></button>
         </div>)}
         {images.length < 4 ? <label className="grid h-20 w-20 cursor-pointer place-items-center rounded-lg border border-dashed border-line bg-wash text-muted hover:bg-white">
           <ImageIcon size={20} />
@@ -97,7 +97,7 @@ export function ComunidadeNewPostModal({ onClose, onCreated }: { onClose: () => 
       {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
       <div className="mt-5 flex justify-end gap-2">
         <button type="button" disabled={loading} className="rounded-lg border border-line px-4 py-2 text-sm disabled:opacity-50" onClick={onClose}>Cancelar</button>
-        <button type="button" disabled={loading || !content.trim()} className="inline-flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50" onClick={submit}>
+        <button type="button" disabled={loading || !content.trim()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50" onClick={submit}>
           {loading ? <Loader2 size={15} className="animate-spin" /> : null} {loading && uploadingCount > 0 ? `Enviando imagem (${uploadingCount})...` : "Publicar"}
         </button>
       </div>

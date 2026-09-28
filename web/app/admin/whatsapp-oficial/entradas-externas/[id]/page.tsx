@@ -41,7 +41,7 @@ export default function EntradaExternaLeadsPage() {
 
       <section>
         <div className="mb-3 flex gap-2">
-          {FILTERS.map((item) => <button key={item.value} type="button" onClick={() => setFilter(item.value)} className={`rounded-lg px-3 py-2 text-sm font-medium ${filter === item.value ? "bg-black text-white" : "border border-line bg-white text-ink hover:bg-wash"}`}>{item.label}</button>)}
+          {FILTERS.map((item) => <button key={item.value} type="button" onClick={() => setFilter(item.value)} className={`rounded-lg px-3 py-2 text-sm font-medium ${filter === item.value ? "bg-primary text-white" : "border border-line bg-white text-ink hover:bg-wash"}`}>{item.label}</button>)}
         </div>
 
         {!leads.length ? <EmptyState title="Nenhum lead ainda" description="Sem leads para esse filtro." /> : <DataTable

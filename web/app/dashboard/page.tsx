@@ -32,7 +32,7 @@ export default function DashboardPage() {
 }
 
 function DashboardView({ data, error = "" }: { data: DashboardData | null; error?: string }) {
-  const action = <Link href="/campanhas" className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white transition hover:bg-zinc-800">Nova campanha</Link>;
+  const action = <Link href="/campanhas" className="inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white transition hover:bg-primary-hover">Nova campanha</Link>;
 
   return <AppShell title="Início" subtitle="Sua operação num olhar só" action={action} hideLogout>
     {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6">

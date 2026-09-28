@@ -125,7 +125,7 @@ export default function ConfiguracoesPage() {
       <nav aria-label="Configurações da conta" className="flex gap-2 overflow-x-auto xl:flex-col">
         {tabs.map((item) => {
           const Icon = item.icon;
-          return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition ${tab === item.id ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}><Icon size={17} />{item.label}</button>;
+          return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition ${tab === item.id ? "bg-primary text-white" : "border border-line bg-white text-muted hover:text-ink"}`}><Icon size={17} />{item.label}</button>;
         })}
       </nav>
 
@@ -161,7 +161,7 @@ export default function ConfiguracoesPage() {
           </div>
           {profileError ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{profileError}</div> : null}
           {profileMessage ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{profileMessage}</div> : null}
-          <button type="button" onClick={saveProfile} disabled={profileSaving || profileName.trim().length < 2} className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white disabled:opacity-50">
+          <button type="button" onClick={saveProfile} disabled={profileSaving || profileName.trim().length < 2} className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white disabled:opacity-50">
             {profileSaving ? <Loader2 size={16} className="animate-spin" /> : null} Salvar perfil
           </button>
           <div className="mt-6 rounded-lg border border-line bg-wash p-4 text-sm text-muted">O e-mail, o plano e o nível de acesso continuam protegidos e não podem ser alterados aqui.</div>
@@ -175,18 +175,18 @@ export default function ConfiguracoesPage() {
               <div><div className="font-medium text-ink">{user.name || user.email}</div><div className="mt-1 text-sm text-muted">{user.email}</div></div>
               <span className="w-fit rounded-full border border-line bg-wash px-2.5 py-1 text-xs font-medium">{user.status === "active" ? "Ativo" : user.status === "pending" ? "Pendente" : "Desativado"}</span>
               <select value={user.role} onChange={(e) => updateUser(user.id, { role: e.target.value as ManagedUser["role"] })} className="h-10 rounded-lg border border-line bg-white px-3 text-sm"><option value="operator">Operador</option><option value="admin">Administrador</option></select>
-              <button type="button" onClick={() => updateUser(user.id, { status: user.status === "active" ? "disabled" : "active" })} className={`h-10 rounded-lg px-3 text-sm font-medium ${user.status === "active" ? "border border-red-200 text-red-700" : "bg-black text-white"}`}>{user.status === "active" ? "Desativar" : "Aprovar"}</button>
+              <button type="button" onClick={() => updateUser(user.id, { status: user.status === "active" ? "disabled" : "active" })} className={`h-10 rounded-lg px-3 text-sm font-medium ${user.status === "active" ? "border border-red-200 text-red-700" : "bg-primary text-white"}`}>{user.status === "active" ? "Desativar" : "Aprovar"}</button>
             </div>)}
             {!users.length ? <div className="p-5 text-sm text-muted">Nenhum usuário cadastrado.</div> : null}
           </div>}
         </section> : null}
 
         {account && tab === "security" ? <section className="max-w-2xl rounded-lg border border-line bg-panel p-6 shadow-soft">
-          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-black text-white"><KeyRound size={18} /></div><div><h2 className="text-lg font-semibold text-ink">Alterar senha</h2><p className="text-sm text-muted">Proteja seu acesso com uma senha exclusiva.</p></div></div>
+          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-primary text-white"><KeyRound size={18} /></div><div><h2 className="text-lg font-semibold text-ink">Alterar senha</h2><p className="text-sm text-muted">Proteja seu acesso com uma senha exclusiva.</p></div></div>
           <form action="/api/auth/update-password" method="post" className="mt-6 max-w-md">
             <label className="text-sm font-medium text-ink">Nova senha<input name="password" type="password" minLength={8} required className="mt-1 h-11 w-full rounded-lg border border-line px-3" /></label>
             <label className="mt-4 block text-sm font-medium text-ink">Confirmar senha<input name="confirmation" type="password" minLength={8} required className="mt-1 h-11 w-full rounded-lg border border-line px-3" /></label>
-            <button className="mt-5 h-10 rounded-lg bg-black px-4 text-sm font-medium text-white">Salvar nova senha</button>
+            <button className="mt-5 h-10 rounded-lg bg-primary px-4 text-sm font-medium text-white">Salvar nova senha</button>
           </form>
           {!capabilities.passwordChange ? <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Este acesso ainda usa a credencial administrativa legada. Cadastre o mesmo e-mail no novo sistema para habilitar recuperação e magic link.</div> : null}
         </section> : null}
@@ -223,7 +223,7 @@ export default function ConfiguracoesPage() {
                 {limits && !limits.unlimitedSenders && usage && (
                   <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-wash">
                     <div
-                      className={`h-2 rounded-full transition-all ${senderAtLimit ? "bg-amber-500" : "bg-black"}`}
+                      className={`h-2 rounded-full transition-all ${senderAtLimit ? "bg-amber-500" : "bg-primary"}`}
                       style={{ width: `${Math.min(100, (usage.senders / limits.maxSenders) * 100)}%` }}
                     />
                   </div>
@@ -246,7 +246,7 @@ export default function ConfiguracoesPage() {
                 href="https://hub.la/products"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-black px-4 text-sm font-medium text-white transition hover:bg-zinc-800"
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-white transition hover:bg-primary-hover"
               >
                 Fazer upgrade do plano
               </a>

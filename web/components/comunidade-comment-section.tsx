@@ -77,7 +77,7 @@ export function ComunidadeCommentSection({ postId, currentUser, onCountChange }:
       <input value={text} onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }}
         maxLength={2000} placeholder="Escreva um comentário..." className="focus-ring h-10 flex-1 rounded-lg border border-line bg-white px-3 text-sm" />
-      <button type="button" disabled={sending || !text.trim()} onClick={submit} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-black text-white disabled:opacity-50">
+      <button type="button" disabled={sending || !text.trim()} onClick={submit} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary text-white disabled:opacity-50">
         {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
       </button>
     </div> : null}

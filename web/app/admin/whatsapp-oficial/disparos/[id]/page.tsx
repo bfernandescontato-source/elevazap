@@ -136,7 +136,7 @@ export default function BroadcastDetailPage() {
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2">
-            {FILTERS.map((item) => <button key={item.value} type="button" onClick={() => setFilter(item.value)} className={`rounded-lg px-3 py-2 text-sm font-medium ${filter === item.value ? "bg-black text-white" : "border border-line bg-white text-ink hover:bg-wash"}`}>{item.label}</button>)}
+            {FILTERS.map((item) => <button key={item.value} type="button" onClick={() => setFilter(item.value)} className={`rounded-lg px-3 py-2 text-sm font-medium ${filter === item.value ? "bg-primary text-white" : "border border-line bg-white text-ink hover:bg-wash"}`}>{item.label}</button>)}
           </div>
           <a href={`/api/admin/official/broadcasts/${id}/export-failures`} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-medium text-ink hover:bg-wash"><Download size={15} /> Baixar falhas CSV</a>
         </div>

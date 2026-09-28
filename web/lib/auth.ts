@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { env } from "./env";
+import { UI_THEME_COOKIE } from "./ui-theme-shared";
 
 const cookieName = "elevazap_admin";
 
@@ -52,7 +53,9 @@ export async function createSession(session?: Partial<AppSession>) {
 }
 
 export async function clearSession() {
-  (await cookies()).delete(cookieName);
+  const jar = await cookies();
+  jar.delete(cookieName);
+  jar.delete(UI_THEME_COOKIE);
 }
 
 export async function getSession() {

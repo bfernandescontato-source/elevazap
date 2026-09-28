@@ -420,8 +420,8 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
     </div> : null}
 
     {tab === "disparo" ? <div className="mb-6 flex flex-wrap gap-2 border-b border-line pb-3" role="tablist" aria-label="Áreas de disparos">
-      <button type="button" role="tab" aria-selected={dispatchSection === "novo"} onClick={() => setDispatchSection("novo")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "novo" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Novo disparo</button>
-      <button type="button" role="tab" aria-selected={dispatchSection === "programados"} onClick={() => setDispatchSection("programados")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "programados" ? "bg-black text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Programados</button>
+      <button type="button" role="tab" aria-selected={dispatchSection === "novo"} onClick={() => setDispatchSection("novo")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "novo" ? "bg-primary text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Novo disparo</button>
+      <button type="button" role="tab" aria-selected={dispatchSection === "programados"} onClick={() => setDispatchSection("programados")} className={`h-10 rounded-lg px-4 text-sm font-medium ${dispatchSection === "programados" ? "bg-primary text-white" : "border border-line bg-white text-muted hover:text-ink"}`}>Programados</button>
       <button type="button" onClick={() => setBulkScheduleOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-muted hover:text-ink"><CalendarPlus size={15} /> Agendar em massa</button>
     </div> : null}
 

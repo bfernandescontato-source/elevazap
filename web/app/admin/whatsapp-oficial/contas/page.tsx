@@ -7,7 +7,7 @@ import { ActionButton, AppShell, ConfirmModal, CopyButton, ErrorState, LoadingSt
 import type { ConnectionSummary } from "../connection-select";
 
 const emptyForm = { label: "", appId: "", businessPortfolioId: "", wabaId: "", phoneNumberId: "", accessToken: "", appSecret: "", graphVersion: "v25.0" };
-const inputClass = "mt-1.5 h-11 w-full rounded-xl border border-line bg-white px-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/5 disabled:bg-wash";
+const inputClass = "mt-1.5 h-11 w-full rounded-xl border border-line bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/5 disabled:bg-wash";
 
 export default function OfficialAccountsPage() {
   const [accounts, setAccounts] = useState<ConnectionSummary[]>([]);
