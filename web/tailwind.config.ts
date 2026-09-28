@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import colors from "tailwindcss/colors";
+import plugin from "tailwindcss/plugin";
 
 // Cores do painel vêm de variáveis CSS (canais RGB) definidas em app/globals.css.
 // O valor depois da vírgula é o tema clássico: sem a variável, a cor é a de sempre.
@@ -70,7 +71,11 @@ const config: Config = {
       }
     }
   },
-  plugins: []
+  plugins: [
+    // terra:… só vale com html[data-theme="terra"]: elementos e estilos extras da
+    // nova identidade que não existem no visual clássico.
+    plugin(({ addVariant }) => { addVariant("terra", 'html[data-theme="terra"] &'); })
+  ]
 };
 
 export default config;

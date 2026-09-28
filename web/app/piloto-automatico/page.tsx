@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell, ErrorState, LoadingState } from "@/components/ui";
-import { Clock3, ExternalLink, Eye, ImageIcon, Zap } from "lucide-react";
+import { Clock3, ExternalLink, Eye, ImageIcon, Inbox, Send, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -102,12 +102,12 @@ export default function AutopilotPage() {
     {error ? <div className="mb-4"><ErrorState message={error} /></div> : null}
     {notice ? <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div> : null}
     {!data ? <LoadingState /> : <div className="space-y-6">
-      <section className="flex flex-col gap-5 rounded-xl border border-line bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700"><Zap size={22} /></div><div><h2 className="font-semibold text-ink">Piloto Automático</h2><p className="mt-1 max-w-lg text-sm text-muted">Escolha de onde pegar, para onde enviar e deixe o Disparei organizar a fila.</p><div className={`mt-3 text-sm font-medium ${form.enabled ? "text-emerald-700" : "text-muted"}`}>{form.enabled ? "● Ativo" : "○ Desativado"}</div></div></div>
-        <label className="flex cursor-pointer items-center gap-3 text-sm font-medium"><span>Ativar Piloto Automático</span><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} className="h-5 w-5 accent-primary" /></label>
+      <section className="flex flex-col gap-5 rounded-xl border border-line bg-white p-5 terra:rounded-2xl terra:shadow-soft sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700"><Zap size={22} /></div><div><h2 className="font-semibold text-ink">Piloto Automático</h2><p className="mt-1 max-w-lg text-sm text-muted">Escolha de onde pegar, para onde enviar e deixe o Disparei organizar a fila.</p><div className={`mt-3 text-sm font-medium terra:inline-flex terra:rounded-full terra:px-3 terra:py-1 terra:text-xs ${form.enabled ? "text-emerald-700 terra:bg-emerald-50" : "text-muted terra:bg-wash"}`}>{form.enabled ? "● Ativo" : "○ Desativado"}</div></div></div>
+        <label className="flex cursor-pointer items-center gap-3 text-sm font-medium"><span>Ativar Piloto Automático</span><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} className="switch h-5 w-5 accent-primary" /></label>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4"><Metric label="Capturadas hoje" value={data.metrics.captured_today} /><Metric label="Enviadas hoje" value={data.metrics.sent_today} /></div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4"><Metric label="Capturadas hoje" value={data.metrics.captured_today} icon={<Inbox size={22} />} tone="bg-orange-100 text-orange-700" /><Metric label="Enviadas hoje" value={data.metrics.sent_today} icon={<Send size={22} />} tone="bg-teal-100 text-teal-700" /></div>
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Número responsável" description="O número precisa participar dos grupos fonte e destino." /><select value={form.whatsapp_sender_id} onChange={(event) => void changeSender(event.target.value)} className="focus-ring mt-4 h-11 w-full max-w-md rounded-lg border border-line bg-white px-3 text-sm"><option value="">Selecionar número</option>{data.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select></section>
 
       {(form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected") || (form.mercado_livre_conversion_enabled && data.mercado_livre_integration?.status !== "connected") ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold text-amber-900">Integração necessária</h2><p className="mt-1 text-sm text-amber-800">{form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected" ? "Shopee não conectada" : "Mercado Livre não conectado"}</p><Link href="/integracoes" className="mt-4 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white">Configurar integração</Link></section> : null}
@@ -130,9 +130,10 @@ export default function AutopilotPage() {
 }
 
 function Heading({ title, description }: { title: string; description: string }) { return <div><h2 className="font-semibold text-ink">{title}</h2><p className="mt-1 text-sm text-muted">{description}</p></div>; }
-function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-xl border border-line bg-white p-4"><div className="text-2xl font-semibold text-ink">{value}</div><div className="mt-1 text-sm text-muted">{label}</div></div>; }
+// Ícone redondo só no tema terra.
+function Metric({ label, value, icon, tone }: { label: string; value: React.ReactNode; icon?: React.ReactNode; tone?: string }) { return <div className="rounded-xl border border-line bg-white p-4 terra:flex terra:items-center terra:gap-4 terra:rounded-2xl">{icon ? <span className={`hidden h-12 w-12 shrink-0 place-items-center rounded-full terra:grid ${tone}`}>{icon}</span> : null}<div><div className="text-2xl font-semibold text-ink">{value}</div><div className="mt-1 text-sm text-muted">{label}</div></div></div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span className="mb-2 block text-sm font-medium text-ink">{label}</span>{children}</label>; }
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) { return <label className="flex items-center gap-3 rounded-lg border border-line p-3 text-sm"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-primary" />{label}</label>; }
+function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) { return <label className="flex items-center gap-3 rounded-lg border border-line p-3 text-sm terra:cursor-pointer terra:flex-row-reverse terra:justify-between terra:rounded-xl terra:bg-panel"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="switch h-4 w-4 accent-primary" />{label}</label>; }
 function Disabled({ label }: { label: string }) { return <div className="flex items-center justify-between rounded-lg border border-dashed border-line bg-wash p-3 text-sm text-muted"><span>{label}</span><span className="rounded-full bg-zinc-200 px-2 py-1 text-[11px] font-semibold">Em breve</span></div>; }
 function GroupPicker({ title, description, groups, selected, onToggle, source = false }: { title: string; description: string; groups: Group[]; selected: string[]; onToggle: (id: string) => void; source?: boolean }) {
   const [query, setQuery] = useState("");

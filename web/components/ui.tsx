@@ -7,6 +7,7 @@ import { BrandLogo } from "./brand-logo";
 import {
   AlertTriangle,
   BarChart3,
+  Bell,
   Check,
   ChevronRight,
   Clipboard,
@@ -111,15 +112,37 @@ function useNavMeta(pathname: string): NavMeta {
 
 // Confere o tema da conta uma vez por carregamento da página (o cookie pode ser
 // de outra conta ou estar desatualizado) e aplica na hora.
+// No tema terra vem junto o perfil do cabeçalho (nome, plano e foto).
+type HeaderProfile = { name: string; planLabel: string; avatarUrl: string | null };
 let uiThemeChecked = false;
+let headerProfileCache: HeaderProfile | null = null;
 function useAccountUiTheme() {
+  const [profile, setProfile] = useState<HeaderProfile | null>(headerProfileCache);
   useEffect(() => {
     if (uiThemeChecked) return;
     uiThemeChecked = true;
-    fetch("/api/ui-theme", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then((data: { theme?: UiTheme } | null) => {
+    fetch("/api/ui-theme", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then((data: { theme?: UiTheme; profile?: HeaderProfile | null } | null) => {
       if (data?.theme && UI_THEMES.includes(data.theme)) applyUiTheme(data.theme);
+      headerProfileCache = data?.profile || null;
+      setProfile(headerProfileCache);
     }).catch(() => { uiThemeChecked = false; });
   }, []);
+  return profile;
+}
+
+const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "?";
+
+// Sino (notificações da Comunidade) e perfil: só no tema terra.
+function HeaderExtras({ profile, unread }: { profile: HeaderProfile | null; unread: number }) {
+  return <>
+    <Link href="/comunidade" aria-label={unread ? `Comunidade: ${unread} novidades` : "Comunidade"} className="touch-target relative hidden place-items-center rounded-full text-muted transition hover:bg-wash hover:text-ink terra:grid">
+      <Bell size={20}/>{unread ? <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-coral px-1 text-[10px] font-bold text-white">{unread > 9 ? "9+" : unread}</span> : null}
+    </Link>
+    {profile ? <Link href="/configuracoes" className="hidden items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition hover:bg-wash terra:lg:flex">
+      {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover"/> : <span className="grid h-9 w-9 place-items-center rounded-full bg-primary text-sm font-semibold text-white">{initials(profile.name)}</span>}
+      <span className="leading-tight"><span className="block max-w-40 truncate text-sm font-semibold text-ink">{profile.name}</span><span className="block text-xs text-muted">Plano {profile.planLabel}</span></span>
+    </Link> : null}
+  </>;
 }
 
 function navSectionsFor(pathname: string, internalAdmin: boolean) {
@@ -133,10 +156,11 @@ function isActive(pathname: string, item: { href: string; exact?: boolean }) {
   return pathname === item.href || (!item.exact && pathname.startsWith(`${item.href}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
 }
 
-export function AppShell({ children, title, subtitle, action, hideLogout = false }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean }) {
+export function AppShell({ children, title, subtitle, action, hideLogout = false, greeting }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean; greeting?: string }) {
   const pathname = usePathname();
   const meta = useNavMeta(pathname);
-  useAccountUiTheme();
+  const profile = useAccountUiTheme();
+  const hello = `Olá${profile ? `, ${profile.name.split(/\s+/)[0]}` : ""}! 👋`;
   const [moreOpen, setMoreOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   useEffect(() => {
@@ -155,6 +179,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 overflow-y-auto border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
+          <span className="ml-5 mt-1 hidden h-1 w-9 rounded-full bg-coral terra:block" aria-hidden="true"/>
         </div>
         <SidebarNav pathname={pathname} sections={sections} communityUnread={meta.communityUnread} />
       </aside>
@@ -162,11 +187,12 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
         <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-2 pt-[max(.5rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
           <div className="flex min-h-11 min-w-0 items-center gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1">
-              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl">{title}</h1>
+              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl terra:lg:text-2xl">{greeting ? <><span className="terra:hidden">{title}</span><span className="hidden terra:inline">{hello}</span></> : title}</h1>
               {subtitle ? <button type="button" aria-label="Sobre esta tela" aria-expanded={infoOpen} onClick={() => setInfoOpen(open => !open)} className="touch-target grid shrink-0 place-items-center rounded-full text-muted lg:hidden"><Info size={18}/></button> : null}
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2">
               <div className="hidden items-center gap-2 sm:flex">{action}</div>
+              <HeaderExtras profile={profile} unread={meta.communityUnread}/>
               {!hideLogout ? <form action="/api/auth/logout" method="post" className="hidden lg:block">
                 <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
                   <LogOut size={16} /> <span>Sair</span>
@@ -174,7 +200,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
               </form> : null}
             </div>
           </div>
-          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted ${infoOpen ? "" : "hidden lg:block"}`}>{subtitle}</p> : null}
+          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted ${infoOpen ? "" : "hidden lg:block"}`}>{greeting ? <><span className="terra:hidden">{subtitle}</span><span className="hidden terra:inline">{greeting}</span></> : subtitle}</p> : null}
           {action ? <div className="mt-2 flex min-w-0 [&>*]:w-full [&>*]:justify-center sm:hidden">{action}</div> : null}
         </header>
         <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:py-6 lg:pb-6">{children}</main>
@@ -225,7 +251,7 @@ function SidebarNav({ pathname, sections, communityUnread }: { pathname: string;
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
         const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);
-        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-primary text-white shadow-[inset_3px_0_0_0_rgb(var(--c-focus,37_99_235))]" : "text-muted hover:bg-wash hover:text-ink"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-badge text-badge-fg"}`}>{badge}</span> : null}</Link>;
+        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-primary text-white shadow-[inset_3px_0_0_0_rgb(var(--c-focus,37_99_235))] terra:font-medium terra:shadow-[0_6px_16px_-6px_rgb(var(--c-primary)/0.55)]" : "text-muted hover:bg-wash hover:text-ink terra:text-ink/80 terra:hover:bg-primary/10"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-badge text-badge-fg"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;
