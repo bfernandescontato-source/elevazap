@@ -2,6 +2,7 @@
 
 import { AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { BarChart3, Clock3, ExternalLink, Eye, ImageIcon, Send, Zap } from "lucide-react";
+import { PilotRoutes } from "@/components/pilot-routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -116,6 +117,8 @@ export default function AutopilotPage() {
         <GroupPicker title="Grupos Fonte" description="Escolha os grupos onde o Disparei irá buscar novas ofertas automaticamente." groups={data.groups} selected={form.source_group_ids} onToggle={(id) => toggle("source_group_ids", id)} source />
         <GroupPicker title="Grupos de destino" description="Escolha os grupos que receberão as ofertas automaticamente." groups={data.groups} selected={form.destination_group_ids} onToggle={(id) => toggle("destination_group_ids", id)} />
       </div>
+
+      <PilotRoutes groupNames={new Map(data.groups.map((group) => [group.group_jid, group.nome || group.group_jid]))} />
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Configuração da automação" description="Defina o ritmo e o horário em que as ofertas podem ser enviadas." /><div className="mt-5 grid gap-5 md:grid-cols-3"><Field label="Enviar 1 oferta a cada"><div className="flex items-center gap-2"><input type="number" min={5} max={1440} value={form.interval_minutes} onChange={(event) => setForm({ ...form, interval_minutes: Number(event.target.value) })} className="focus-ring h-11 w-24 rounded-lg border border-line px-3" /><span className="text-sm text-muted">minutos</span></div></Field><Field label="Início"><input type="time" value={form.operating_start} onChange={(event) => setForm({ ...form, operating_start: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field><Field label="Fim"><input type="time" value={form.operating_end} onChange={(event) => setForm({ ...form, operating_end: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field></div>
         <div className="mt-6 grid gap-3 sm:grid-cols-2"><Check label="Manter texto da oferta" checked={form.keep_original_text} onChange={(checked) => setForm({ ...form, keep_original_text: checked, ai_rewrite_enabled: checked ? form.ai_rewrite_enabled : false })} /><Check label="Trocar link Shopee automaticamente" checked={form.shopee_conversion_enabled} onChange={(checked) => setForm({ ...form, shopee_conversion_enabled: checked })} /><Check label="Trocar link Mercado Livre automaticamente" checked={form.mercado_livre_conversion_enabled} onChange={(checked) => setForm({ ...form, mercado_livre_conversion_enabled: checked })} /><Check label="Reescrever mensagem com IA" checked={form.ai_rewrite_enabled} onChange={(checked) => setForm({ ...form, ai_rewrite_enabled: checked, keep_original_text: checked ? true : form.keep_original_text })} /></div>

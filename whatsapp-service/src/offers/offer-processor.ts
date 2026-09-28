@@ -9,6 +9,7 @@ import { MercadoLivreOfferConverter } from "./mercado-livre-conversion.js";
 import { AmazonOfferConverter } from "./amazon-conversion.js";
 import { env } from "../env.js";
 import { sharedMediaCache } from "../utils/media.js";
+import { OfferNicheResolver } from "./offer-niche-resolver.js";
 
 type Automation = {
   id: string;
@@ -33,7 +34,7 @@ function log(event: string, fields: Record<string, unknown>) {
 }
 
 export class OfferProcessor {
-  constructor(private database: SupabaseClient, private amazonConverter = new AmazonOfferConverter(database)) {}
+  constructor(private database: SupabaseClient, private amazonConverter = new AmazonOfferConverter(database), private nicheResolver = new OfferNicheResolver(database)) {}
 
   private processingLease() {
     return {
@@ -395,6 +396,11 @@ export class OfferProcessor {
       }).eq("id", offer.id).eq("account_id", automation.account_id).eq("status", "processing")
         .eq("processing_worker_id", env.INSTANCE_ID);
       if (persistError) throw persistError;
+
+      // Rotas por nicho: classifica a oferta antes de escolher os destinos.
+      if (await this.nicheResolver.automationUsesNiches(automation.account_id, automation.id).catch(() => false)) {
+        await this.nicheResolver.resolveAndStore(offer.id, automation.account_id);
+      }
 
       const { data: scheduling, error: schedulingError } = await this.database.rpc("schedule_pilot_offer", {
         p_offer_id: offer.id,
