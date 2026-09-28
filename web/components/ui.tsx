@@ -9,6 +9,7 @@ import {
   BarChart3,
   Bell,
   Check,
+  ChevronDown,
   ChevronRight,
   Clipboard,
   ShoppingBag,
@@ -16,6 +17,7 @@ import {
   Cable,
   Cog,
   FolderOpen,
+  Home,
   Inbox,
   Info,
   LayoutGrid,
@@ -41,7 +43,7 @@ import { applyUiTheme, UI_THEMES, type UiTheme } from "@/lib/ui-theme-shared";
 
 const navSections = [
   { label: "Principal", items: [
-    { href: "/dashboard", label: "Início", icon: BarChart3 },
+    { href: "/dashboard", label: "Início", icon: BarChart3, terraIcon: Home },
     { href: "/grupos/numeros", label: "Números", icon: Smartphone },
     { href: "/campanhas", label: "Campanhas", icon: Megaphone },
     { href: "/catalogo", label: "Catálogo", icon: ShoppingBag, badge: "NOVO" },
@@ -75,7 +77,7 @@ const officialNavSection = { label: "WhatsApp API oficial", items: [
 
 // Barra de baixo do celular: as 4 funções mais usadas + "Mais" (todas as outras).
 const mobilePrimaryNav = [
-  { href: "/dashboard", label: "Início", icon: BarChart3 },
+  { href: "/dashboard", label: "Início", icon: BarChart3, terraIcon: Home },
   { href: "/catalogo", label: "Catálogo", icon: ShoppingBag },
   { href: "/disparos", label: "Disparos", icon: Send },
   { href: "/piloto-automatico", label: "Piloto", icon: Zap }
@@ -113,7 +115,7 @@ function useNavMeta(pathname: string): NavMeta {
 // Confere o tema da conta uma vez por carregamento da página (o cookie pode ser
 // de outra conta ou estar desatualizado) e aplica na hora.
 // No tema terra vem junto o perfil do cabeçalho (nome, plano e foto).
-type HeaderProfile = { name: string; planLabel: string; avatarUrl: string | null };
+type HeaderProfile = { name: string; planLabel: string; roleLabel: string; avatarUrl: string | null };
 let uiThemeChecked = false;
 let headerProfileCache: HeaderProfile | null = null;
 function useAccountUiTheme() {
@@ -138,11 +140,30 @@ function HeaderExtras({ profile, unread }: { profile: HeaderProfile | null; unre
     <Link href="/comunidade" aria-label={unread ? `Comunidade: ${unread} novidades` : "Comunidade"} className="touch-target relative hidden place-items-center rounded-full text-muted transition hover:bg-wash hover:text-ink terra:grid">
       <Bell size={20}/>{unread ? <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-coral px-1 text-[10px] font-bold text-white">{unread > 9 ? "9+" : unread}</span> : null}
     </Link>
-    {profile ? <Link href="/configuracoes" className="hidden items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition hover:bg-wash terra:lg:flex">
-      {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover"/> : <span className="grid h-9 w-9 place-items-center rounded-full bg-primary text-sm font-semibold text-white">{initials(profile.name)}</span>}
-      <span className="leading-tight"><span className="block max-w-40 truncate text-sm font-semibold text-ink">{profile.name}</span><span className="block text-xs text-muted">Plano {profile.planLabel}</span></span>
-    </Link> : null}
+    {profile ? <ProfileMenu profile={profile}/> : null}
   </>;
+}
+
+function ProfileMenu({ profile }: { profile: HeaderProfile }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+  return <div className="relative hidden terra:lg:block">
+    <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={(event) => { event.stopPropagation(); setOpen(value => !value); }} className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2 transition hover:bg-wash">
+      {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover"/> : <span className="grid h-9 w-9 place-items-center rounded-full bg-primary text-sm font-semibold text-white">{initials(profile.name)}</span>}
+      <span className="text-left leading-tight"><span className="block max-w-40 truncate text-sm font-semibold text-ink">{profile.name}</span><span className="block text-xs text-muted">{profile.roleLabel}</span></span>
+      <ChevronDown size={16} className="text-muted"/>
+    </button>
+    {open ? <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-soft">
+      <div className="border-b border-line px-4 py-2.5 text-xs text-muted">Plano {profile.planLabel}</div>
+      <Link role="menuitem" href="/configuracoes" className="flex items-center gap-2 px-4 py-2.5 text-sm text-ink hover:bg-wash"><Cog size={16}/> Configurações</Link>
+      <form action="/api/auth/logout" method="post"><button role="menuitem" className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-ink hover:bg-wash"><LogOut size={16}/> Sair</button></form>
+    </div> : null}
+  </div>;
 }
 
 function navSectionsFor(pathname: string, internalAdmin: boolean) {
@@ -156,11 +177,10 @@ function isActive(pathname: string, item: { href: string; exact?: boolean }) {
   return pathname === item.href || (!item.exact && pathname.startsWith(`${item.href}/`)) || (item.href === "/admin/whatsapp-oficial" && pathname === "/admin/whatsapp-oficial/operacao");
 }
 
-export function AppShell({ children, title, subtitle, action, hideLogout = false, greeting }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean; greeting?: string }) {
+export function AppShell({ children, title, subtitle, action, hideLogout = false, terraTitle }: { children: ReactNode; title: string; subtitle?: string; action?: ReactNode; hideLogout?: boolean; terraTitle?: string }) {
   const pathname = usePathname();
   const meta = useNavMeta(pathname);
   const profile = useAccountUiTheme();
-  const hello = `Olá${profile ? `, ${profile.name.split(/\s+/)[0]}` : ""}! 👋`;
   const [moreOpen, setMoreOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   useEffect(() => {
@@ -179,28 +199,30 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 overflow-y-auto border-r border-line bg-white px-4 py-5 lg:block">
         <div className="mb-8 px-2">
           <BrandLogo className="h-12 w-full" imageClassName="w-[250px]" />
-          <span className="ml-5 mt-1 hidden h-1 w-9 rounded-full bg-coral terra:block" aria-hidden="true"/>
         </div>
         <SidebarNav pathname={pathname} sections={sections} communityUnread={meta.communityUnread} />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-2 pt-[max(.5rem,env(safe-area-inset-top))] backdrop-blur lg:py-4">
-          <div className="flex min-h-11 min-w-0 items-center gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1">
-              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl terra:lg:text-2xl">{greeting ? <><span className="terra:hidden">{title}</span><span className="hidden terra:inline">{hello}</span></> : title}</h1>
+        <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-[var(--app-gutter)] pb-2 pt-[max(.5rem,env(safe-area-inset-top))] backdrop-blur terra:border-transparent terra:bg-[rgb(var(--c-app-bg)/0.95)] lg:py-4 terra:lg:pb-2 terra:lg:pt-5">
+          <div className="flex min-h-11 min-w-0 items-center gap-2 terra:lg:items-start">
+            <div className="flex min-w-0 flex-1 items-center gap-1 terra:lg:flex-wrap">
+              <h1 className="truncate text-lg font-semibold leading-tight tracking-normal text-ink lg:whitespace-normal lg:text-xl terra:lg:text-2xl">{terraTitle ? <><span className="terra:hidden">{title}</span><span className="hidden terra:inline">{terraTitle}</span></> : title}</h1>
               {subtitle ? <button type="button" aria-label="Sobre esta tela" aria-expanded={infoOpen} onClick={() => setInfoOpen(open => !open)} className="touch-target grid shrink-0 place-items-center rounded-full text-muted lg:hidden"><Info size={18}/></button> : null}
+              {subtitle ? <p className="hidden basis-full text-sm leading-5 text-muted terra:lg:block">{subtitle}</p> : null}
             </div>
-            <div className="flex shrink-0 items-center justify-end gap-2">
-              <div className="hidden items-center gap-2 sm:flex">{action}</div>
-              <HeaderExtras profile={profile} unread={meta.communityUnread}/>
-              {!hideLogout ? <form action="/api/auth/logout" method="post" className="hidden lg:block">
-                <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
-                  <LogOut size={16} /> <span>Sair</span>
-                </button>
-              </form> : null}
+            <div className="flex shrink-0 items-center justify-end gap-2 terra:lg:flex-col-reverse terra:lg:items-end">
+              <div className="flex items-center justify-end gap-2">
+                <div className="hidden items-center gap-2 sm:flex">{action}</div>
+                {!hideLogout ? <form action="/api/auth/logout" method="post" className="hidden lg:block">
+                  <button className="touch-target inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-muted hover:text-ink" title="Sair">
+                    <LogOut size={16} /> <span>Sair</span>
+                  </button>
+                </form> : null}
+              </div>
+              <div className="hidden items-center gap-2 terra:flex"><HeaderExtras profile={profile} unread={meta.communityUnread}/></div>
             </div>
           </div>
-          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted ${infoOpen ? "" : "hidden lg:block"}`}>{greeting ? <><span className="terra:hidden">{subtitle}</span><span className="hidden terra:inline">{greeting}</span></> : subtitle}</p> : null}
+          {subtitle ? <p className={`mt-1 break-words text-sm leading-5 text-muted terra:lg:hidden ${infoOpen ? "" : "hidden lg:block"}`}>{subtitle}</p> : null}
           {action ? <div className="mt-2 flex min-w-0 [&>*]:w-full [&>*]:justify-center sm:hidden">{action}</div> : null}
         </header>
         <main className="min-w-0 flex-1 overflow-x-clip px-[var(--app-gutter)] pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:py-6 lg:pb-6">{children}</main>
@@ -210,7 +232,7 @@ export function AppShell({ children, title, subtitle, action, hideLogout = false
           {mobilePrimaryNav.map((item) => {
             const active = isActive(pathname, item);
             const Icon = item.icon;
-            return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${active ? "text-nav" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${active ? "bg-nav-soft" : ""}`}><Icon size={22} strokeWidth={active ? 2.4 : 2}/></span><span className="max-w-full truncate">{item.label}</span></Link>;
+            return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${active ? "text-nav" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${active ? "bg-nav-soft" : ""}`}>{"terraIcon" in item && item.terraIcon ? <><Icon size={22} strokeWidth={active ? 2.4 : 2} className="terra:hidden"/><item.terraIcon size={22} strokeWidth={active ? 2.4 : 2} className="hidden terra:block"/></> : <Icon size={22} strokeWidth={active ? 2.4 : 2}/>}</span><span className="max-w-full truncate">{item.label}</span></Link>;
           })}
           <button type="button" aria-label="Todas as funções" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-xs font-medium ${moreOpen || !primaryActive ? "text-nav" : "text-muted"}`}><span className={`grid h-8 w-12 place-items-center rounded-full ${moreOpen || !primaryActive ? "bg-nav-soft" : ""}`}><LayoutGrid size={22}/></span><span>Mais</span>{meta.communityUnread > 0 ? <span className="absolute right-[22%] top-1 h-2.5 w-2.5 rounded-full bg-red-500"/> : null}</button>
         </nav>
@@ -251,7 +273,7 @@ function SidebarNav({ pathname, sections, communityUnread }: { pathname: string;
         const Icon = item.icon;
         const dynamicBadge = item.href === "/comunidade" && communityUnread > 0 ? (communityUnread > 9 ? "9+" : String(communityUnread)) : null;
         const badge = dynamicBadge || ("badge" in item && item.badge ? String(item.badge) : null);
-        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-primary text-white shadow-[inset_3px_0_0_0_rgb(var(--c-focus,37_99_235))] terra:font-medium terra:shadow-[0_6px_16px_-6px_rgb(var(--c-primary)/0.55)]" : "text-muted hover:bg-wash hover:text-ink terra:text-ink/80 terra:hover:bg-primary/10"}`}><Icon size={18} /><span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-badge text-badge-fg"}`}>{badge}</span> : null}</Link>;
+        return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? "bg-primary text-white shadow-[inset_3px_0_0_0_rgb(var(--c-focus,37_99_235))] terra:font-medium terra:shadow-none" : "text-muted hover:bg-wash hover:text-ink terra:text-ink/80 terra:hover:bg-primary/10"}`}>{"terraIcon" in item && item.terraIcon ? <><Icon size={18} className="terra:hidden" /><item.terraIcon size={18} className="hidden terra:block" /></> : <Icon size={18} />}<span className="whitespace-nowrap">{item.label}</span>{badge ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide ${active ? "bg-white/20" : dynamicBadge ? "bg-red-100 text-red-700" : "bg-badge text-badge-fg"}`}>{badge}</span> : null}</Link>;
       })}</div>
     </div>)}
   </nav>;

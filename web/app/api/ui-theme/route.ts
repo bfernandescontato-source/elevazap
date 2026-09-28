@@ -24,6 +24,7 @@ async function headerProfile(context: Exclude<Awaited<ReturnType<typeof requireA
   return {
     name: user?.name || context.session.name || (user?.email || context.session.email).split("@")[0],
     planLabel: getPlanLabel(context.account?.plan || "default"),
+    roleLabel: context.session.role === "admin" ? "Administrador" : "Operador",
     avatarUrl: avatar?.data?.signedUrl || null
   };
 }

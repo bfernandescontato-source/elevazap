@@ -47,6 +47,11 @@ const config: Config = {
           DEFAULT: token("nav", "#111111"),
           soft: token("nav-soft", "#f4f4f5")
         },
+        // Lilás suave de apoio (card Grupos, Incertos) — usado só no tema terra.
+        lilac: {
+          DEFAULT: token("lilac", "#8e7cc3"),
+          soft: token("lilac-soft", "#f1eef8")
+        },
         // Selo "NOVO" do menu lateral.
         badge: {
           DEFAULT: token("badge", "#d1fae5"),

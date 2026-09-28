@@ -128,6 +128,8 @@ html[data-theme="terra"] {
   --c-primary-fg: 255 253 252;
   --c-overlay: 42 36 32;
   --c-focus: 47 127 136;
+  --c-lilac: 142 124 195;
+  --c-lilac-soft: 241 238 248;
   --c-nav: 47 127 136;
   --c-nav-soft: 234 242 243;
   --c-badge: 251 236 232;
@@ -422,9 +424,6 @@ html[data-theme="terra"] .border-amber-300 { border-color: rgb(var(--c-amber-300
 html[data-theme="terra"] .fill-amber-400 { fill: rgb(var(--c-amber-400)); }
 html[data-theme="terra"] .via-amber-50 { --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--c-amber-50)) var(--tw-gradient-via-position), var(--tw-gradient-to); }
 html[data-theme="terra"] .to-amber-400 { --tw-gradient-to: rgb(var(--c-amber-400)) var(--tw-gradient-to-position); }
-
-/* O logo é um PNG com fundo branco: no terra ele se mistura ao marfim/areia. */
-html[data-theme="terra"] .brand-logo { mix-blend-mode: multiply; }
 
 /* Chave liga/desliga no lugar da caixa de marcar (input.switch), só no terra. */
 html[data-theme="terra"] input[type="checkbox"].switch {
