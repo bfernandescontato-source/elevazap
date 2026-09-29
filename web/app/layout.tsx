@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { UI_THEME_COOKIE } from "@/lib/ui-theme-shared";
 import { FetchResiliente } from "@/components/fetch-resiliente";
+import { NovaVersao } from "@/components/nova-versao";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,5 +18,5 @@ export const metadata: Metadata = {
 const themeScript = `try{var m=document.cookie.match(/(?:^|; )${UI_THEME_COOKIE}=([a-z]+)/);if(m){if(m[1]==="classic")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=m[1]}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="pt-BR" data-theme="terra" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head><body><FetchResiliente />{children}</body></html>;
+  return <html lang="pt-BR" data-theme="terra" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head><body><FetchResiliente />{children}<NovaVersao /></body></html>;
 }
