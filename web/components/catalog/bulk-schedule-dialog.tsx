@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, Check, Loader2, Search, X } from "lucide-react";
+import { LinkGenerating } from "@/components/catalog/link-generating";
 import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
 import { addDays, brasiliaDate, brasiliaTime, everyInterval, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
 
@@ -111,6 +112,8 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
 
   const doneCount = Object.values(rows).filter(row => row.state === "done").length;
   const failedCount = Object.values(rows).filter(row => row.state === "failed").length;
+  const needLink = toSchedule.filter(offer => !offer.affiliateUrl).map(offerKey);
+  const linkIndex = needLink.findIndex(key => rows[key]?.state === "link");
   const canRun = !running && !finished && senderId && selectedGroups.length > 0 && slots && slots.length > 0;
   const dayLabel = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
 
@@ -131,6 +134,8 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
       <div className="flex flex-col p-5">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Prévia</h3>{duplicates.size > 0 && <label className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={running || finished} checked={skipDuplicates} onChange={e => setSkipDuplicates(e.target.checked)}/> Pular {duplicates.size} já agendada{duplicates.size > 1 ? "s" : ""} neste dia</label>}</div>
         {slots === null ? <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Hoje já passou das 22h. Escolha amanhã ou outra data.</p> : null}
+        {linkIndex >= 0 && <div className="mt-3"><LinkGenerating current={linkIndex + 1} total={needLink.length}/></div>}
+        {running && linkIndex < 0 && <p className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-wash p-3 text-sm"><Loader2 className="animate-spin" size={16}/> Salvando agendamentos... {doneCount} de {toSchedule.length} prontos.</p>}
         <ol className="mt-3 flex-1 space-y-2 overflow-y-auto">{offers.map(offer => { const key = offerKey(offer); const index = toSchedule.indexOf(offer); const row = rows[key]; const skipped = index < 0;
           return <li key={key} className={`flex items-center gap-3 rounded-lg border p-2 text-sm ${skipped ? "border-dashed border-line opacity-50" : "border-line"}`}>
             <span className="w-12 shrink-0 text-center font-semibold tabular-nums">{row?.state === "done" ? row.detail : skipped || !slots ? "—" : brasiliaTime(slots[index])}</span>
@@ -139,7 +144,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
             <span className="shrink-0">{row?.state === "done" ? <Check className="text-emerald-600" size={18}/> : row?.state === "failed" ? <X className="text-red-600" size={18}/> : row && row.state !== "waiting" ? <Loader2 className="animate-spin text-muted" size={18}/> : null}</span>
           </li>; })}</ol>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        {finished ? <div className="mobile-action-bar mt-4 space-y-2"><p className="rounded-lg bg-zinc-100 p-3 text-sm">{doneCount} agendada{doneCount === 1 ? "" : "s"}{failedCount ? ` · ${failedCount} com erro (veja acima)` : ""}. Acompanhe na aba Agenda.</p><button onClick={onClose} className="h-12 w-full rounded-lg bg-primary font-medium text-white">Fechar</button></div>
+        {finished ? <div className="mobile-action-bar mt-4 space-y-2"><div className={`rounded-xl border p-4 text-sm ${doneCount ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-800"}`}><p className="flex items-center gap-2 text-base font-semibold">{doneCount ? <Check size={20}/> : <X size={20}/>}{doneCount ? `${doneCount} ${doneCount === 1 ? "produto agendado" : "produtos agendados"}!` : "Nenhum produto foi agendado."}</p>{failedCount ? <p className="mt-1">{failedCount} com erro — veja o motivo na lista acima.</p> : null}{doneCount ? <p className="mt-1">Acompanhe e ajuste os horários na aba <a href="/catalogo/agenda" className="font-medium underline">Agenda</a>.</p> : null}</div><button onClick={onClose} className="h-12 w-full rounded-lg bg-primary font-medium text-white">Fechar</button></div>
           : <div className="mobile-action-bar mt-4"><button disabled={!canRun} onClick={run} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-white disabled:opacity-40">{running ? <Loader2 className="animate-spin" size={18}/> : <CalendarClock size={18}/>} {running ? "Agendando..." : `Agendar ${toSchedule.length} para ${dayChoice === "today" ? "hoje" : dayChoice === "tomorrow" ? "amanhã" : "o dia escolhido"}`}</button></div>}
       </div>
     </div>
