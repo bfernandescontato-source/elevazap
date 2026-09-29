@@ -3,6 +3,7 @@ import { requireAccountContext, requireValidOrigin } from "@/lib/security";
 import { automationConfigSchema } from "@/modules/offer-autopilot/schemas";
 import { loadAutopilot, saveAutopilot } from "@/modules/offer-autopilot/server/service";
 import { serverError } from "@/shared/http/responses";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
   const context = await requireAccountContext();
@@ -32,8 +33,10 @@ export async function PUT(request: NextRequest) {
     logRejected(400, message, { field: parsed.error.issues[0]?.path?.join(".") });
     return NextResponse.json({ error: message }, { status: 400 });
   }
-  const { data: account } = await context.database.from("accounts").select("max_source_groups").eq("id", context.accountId).maybeSingle();
-  const maxSourceGroups = account?.max_source_groups ?? 2;
+  // Conta vem da sessão (confiável); lida pelo admin para não depender da RLS.
+  // O banco (save_offer_autopilot_configuration) confere o mesmo limite.
+  const { data: account } = await supabaseAdmin().from("accounts").select("max_source_groups").eq("id", context.accountId).maybeSingle();
+  const maxSourceGroups = account?.max_source_groups ?? 5;
   if (parsed.data.source_group_ids.length > maxSourceGroups) {
     const message = `Máximo de ${maxSourceGroups} grupos fonte por automação.`;
     logRejected(400, message);
