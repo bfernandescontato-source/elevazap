@@ -43,13 +43,15 @@ export async function listRoutes(accountId: string) {
   const automationId = await automationOf(accountId);
   const { data: niches, error: nichesError } = await db.from("niches").select("id,label,parent_id,featured").eq("active", true).order("sort");
   if (nichesError) throw nichesError;
-  if (!automationId) return { automationId: null, routes: [], niches: niches || [], sources: [], destinations: [] };
+  const { data: account } = await db.from("accounts").select("max_source_groups").eq("id", accountId).maybeSingle();
+  const maxSourceGroups = account?.max_source_groups ?? 5;
+  if (!automationId) return { automationId: null, routes: [], niches: niches || [], sources: [], destinations: [], maxSourceGroups };
   const [{ data: routes, error }, groups] = await Promise.all([
     db.from("pilot_routes").select(COLUMNS).eq("account_id", accountId).eq("automation_id", automationId).order("sort").order("created_at"),
     pilotGroups(accountId, automationId)
   ]);
   if (error) throw error;
-  return { automationId, routes: routes || [], niches: niches || [], ...groups };
+  return { automationId, routes: routes || [], niches: niches || [], ...groups, maxSourceGroups };
 }
 
 async function validated(accountId: string, automationId: string, input: RouteInput) {
@@ -106,8 +108,9 @@ export async function duplicateRoute(accountId: string, id: string) {
   const { data: current, error } = await supabaseAdmin().from("pilot_routes").select(COLUMNS).eq("id", id).eq("account_id", accountId).eq("automation_id", automationId).maybeSingle();
   if (error) throw error;
   if (!current) throw new RouteError("Rota não encontrada.", 404);
-  // A cópia nasce pausada para não duplicar envios sem querer.
-  return createRoute(accountId, routeInputSchema.parse({ ...current, name: `${current.name} (cópia)`.slice(0, 80), enabled: false }));
+  // A cópia nasce ativa: a distribuição junta os destinos de todos os caminhos
+  // sem repetir grupo (pilot_offer_destinations), então não duplica envio.
+  return createRoute(accountId, routeInputSchema.parse({ ...current, name: `${current.name} (cópia)`.slice(0, 80), enabled: true }));
 }
 
 export async function deleteRoute(accountId: string, id: string) {

@@ -2,7 +2,7 @@
 
 import { AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { BarChart3, Clock3, ExternalLink, Eye, ImageIcon, Send, Zap } from "lucide-react";
-import { PilotRoutes } from "@/components/pilot-routes";
+import { PilotCaminhos } from "@/components/pilot-caminhos";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -24,6 +24,10 @@ function offerStatusLabel(offer: { status?: string }) { return statusLabel[offer
 export default function AutopilotPage() {
   const [data, setData] = useState<Data | null>(null);
   const [form, setForm] = useState(defaults);
+  // Configuração como está SALVA no servidor: é a base do que "Salvar alterações"
+  // de um caminho grava (só as listas de grupos mudam), sem levar junto edições
+  // ainda não salvas do resto da página.
+  const [serverForm, setServerForm] = useState(defaults);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -31,13 +35,13 @@ export default function AutopilotPage() {
   const [selectedOfferIds, setSelectedOfferIds] = useState<string[]>([]);
   const [cancellingOffers, setCancellingOffers] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manterEdicoes = false) => {
     try {
       const response = await fetch("/api/piloto-automatico", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Não foi possível carregar.");
       setData(body);
-      setForm({
+      const salvo = {
         ...defaults,
         ...(body.automation || {}),
         avoid_duplicates: false,
@@ -46,7 +50,10 @@ export default function AutopilotPage() {
         operating_end: String(body.automation?.operating_end || defaults.operating_end).slice(0, 5),
         source_group_ids: body.source_group_ids,
         destination_group_ids: body.destination_group_ids
-      });
+      };
+      setServerForm(salvo);
+      // Depois de salvar um caminho, só as listas de grupos mudam na página.
+      setForm((atual) => manterEdicoes ? { ...atual, source_group_ids: salvo.source_group_ids, destination_group_ids: salvo.destination_group_ids } : salvo);
     } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível carregar."); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -59,8 +66,12 @@ export default function AutopilotPage() {
       setData((current) => current ? { ...current, groups } : current);
     }
   }
-  function toggle(list: "source_group_ids" | "destination_group_ids", id: string) {
-    setForm((current) => ({ ...current, [list]: current[list].includes(id) ? current[list].filter((value) => value !== id) : [...current[list], id] }));
+  // Grava a lista geral de grupos do Piloto (soma dos caminhos) sobre a
+  // configuração salva, com o número escolhido na tela.
+  async function saveMaster(sources: string[], destinations: string[]) {
+    const response = await fetch("/api/piloto-automatico", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...serverForm, whatsapp_sender_id: form.whatsapp_sender_id, source_group_ids: sources, destination_group_ids: destinations }) });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Não foi possível salvar os grupos do Piloto.");
   }
   async function save() {
     setSaving(true); setError(""); setNotice("");
@@ -113,12 +124,7 @@ export default function AutopilotPage() {
 
       {(form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected") || (form.mercado_livre_conversion_enabled && data.mercado_livre_integration?.status !== "connected") ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold text-amber-900">Integração necessária</h2><p className="mt-1 text-sm text-amber-800">{form.shopee_conversion_enabled && data.shopee_integration?.status !== "connected" ? "Shopee não conectada" : "Mercado Livre não conectado"}</p><Link href="/integracoes" className="mt-4 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white">Configurar integração</Link></section> : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <GroupPicker title="Grupos Fonte" description="Escolha os grupos onde o Disparei irá buscar novas ofertas automaticamente." groups={data.groups} selected={form.source_group_ids} onToggle={(id) => toggle("source_group_ids", id)} source />
-        <GroupPicker title="Grupos de destino" description="Escolha os grupos que receberão as ofertas automaticamente." groups={data.groups} selected={form.destination_group_ids} onToggle={(id) => toggle("destination_group_ids", id)} />
-      </div>
-
-      <PilotRoutes groupNames={new Map(data.groups.map((group) => [group.group_jid, group.nome || group.group_jid]))} />
+      <PilotCaminhos groups={data.groups} saveMaster={saveMaster} onChanged={() => load(true)} Picker={GroupPicker} />
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Configuração da automação" description="Defina o ritmo e o horário em que as ofertas podem ser enviadas." /><div className="mt-5 grid gap-5 md:grid-cols-3"><Field label="Enviar 1 oferta a cada"><div className="flex items-center gap-2"><input type="number" min={5} max={1440} value={form.interval_minutes} onChange={(event) => setForm({ ...form, interval_minutes: Number(event.target.value) })} className="focus-ring h-11 w-24 rounded-lg border border-line px-3" /><span className="text-sm text-muted">minutos</span></div></Field><Field label="Início"><input type="time" value={form.operating_start} onChange={(event) => setForm({ ...form, operating_start: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field><Field label="Fim"><input type="time" value={form.operating_end} onChange={(event) => setForm({ ...form, operating_end: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field></div>
         <div className="mt-6 grid gap-3 sm:grid-cols-2"><Check label="Manter texto da oferta" checked={form.keep_original_text} onChange={(checked) => setForm({ ...form, keep_original_text: checked, ai_rewrite_enabled: checked ? form.ai_rewrite_enabled : false })} /><Check label="Trocar link Shopee automaticamente" checked={form.shopee_conversion_enabled} onChange={(checked) => setForm({ ...form, shopee_conversion_enabled: checked })} /><Check label="Trocar link Mercado Livre automaticamente" checked={form.mercado_livre_conversion_enabled} onChange={(checked) => setForm({ ...form, mercado_livre_conversion_enabled: checked })} /><Check label="Reescrever mensagem com IA" checked={form.ai_rewrite_enabled} onChange={(checked) => setForm({ ...form, ai_rewrite_enabled: checked, keep_original_text: checked ? true : form.keep_original_text })} /></div>
