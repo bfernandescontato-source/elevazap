@@ -2,7 +2,7 @@ import { env } from "./env.js";
 import { periodicReclaim, recoverStuckJobsOnBoot } from "./recovery.js";
 import { GlobalSendQueue } from "./queue/queue.js";
 import { createHttpServer, type ServiceReadiness } from "./routes/http.js";
-import { bootSenderSessions, renewOwnedSenderLeases, syncSenderSessionOwnership } from "./senders/runtime.js";
+import { bootSenderSessions, renewOwnedSenderLeases, restartDeafPilotSenders, syncSenderSessionOwnership } from "./senders/runtime.js";
 import { syncAllCampaignGroups } from "./groups/campaign-sync.js";
 import { detectDatabaseCapabilities } from "./database-capabilities.js";
 import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
@@ -94,6 +94,7 @@ async function main() {
         console.error({ event: "sender.supervisor_failed", error: readiness.lastError });
       }
     }, env.SESSION_SUPERVISOR_INTERVAL_MS);
+    setInterval(() => restartDeafPilotSenders().catch((error) => console.error({ event: "sender_deaf_watch_failed", error: error instanceof Error ? error.message : String(error) })), 5 * 60_000);
     setTimeout(() => syncAllCampaignGroups().catch((error) => console.error("[groups] initial sync error:", error)), 15_000);
     setInterval(() => syncAllCampaignGroups().catch((error) => console.error("[groups] periodic sync error:", error)), 5 * 60_000);
   } catch (error) {

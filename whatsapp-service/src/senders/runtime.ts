@@ -18,6 +18,12 @@ type SenderSession = {
 export type OwnedSenderLease = { whatsapp_session_id: string; account_id: string; lease_version: number };
 
 const senders = new Map<string, SenderSession>();
+// Última mensagem de grupo recebida e início de cada sessão: um número pode
+// ficar "conectado" sem receber nada (socket surdo). Visto em 29/09 na conta
+// Rosikelly: o Piloto parou quando o grupo fonte passou a depender só dele.
+const lastGroupMessageAt = new Map<string, number>();
+const sessionStartedAt = new Map<string, number>();
+const lastDeafRestartAt = new Map<string, number>();
 
 async function persistRuntimeStatus(senderId: string, leaseVersion: number, status: string, error: string | null) {
   const persistedStatus = status === "idle" ? "disconnected" : status;
@@ -44,6 +50,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
     async (messages, upsertType) => {
       const groupMessages = messages.filter((message) => String(message?.key?.remoteJid || "").endsWith("@g.us"));
       if (groupMessages.length) {
+        lastGroupMessageAt.set(sender.session_name, Date.now());
         console.info({
           event: "pilot_group_messages_observed",
           component: "offer-autopilot",
@@ -63,6 +70,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
   );
   const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session, accountId: sender.account_id, leaseVersion };
   senders.set(sender.session_name, managed);
+  sessionStartedAt.set(sender.session_name, Date.now());
   console.log(`[sender] Session started ${sender.label} (${sender.session_name})`);
   return managed;
 }
@@ -280,4 +288,39 @@ export async function listSenderGroupContacts(sessionName: string, groupJid: str
   });
 
   return { group_jid: groupJid, group_name: String(metadata.subject || groupJid), contacts };
+}
+
+/**
+ * Reinicia o número se ele está "conectado" mas não recebe mensagem de grupo há
+ * `quietMs` (reconexão sem QR, alguns segundos). Sessão recém-iniciada ou fora do
+ * ar fica como está. Devolve se reiniciou.
+ */
+export async function ensureSenderListening(sessionName: string, quietMs: number, reason: string) {
+  const managed = senders.get(sessionName);
+  if (!managed || managed.session.getStatus() !== "connected") return { restarted: false, reason: "not_connected" };
+  const now = Date.now();
+  const heard = Math.max(lastGroupMessageAt.get(sessionName) ?? 0, sessionStartedAt.get(sessionName) ?? 0);
+  if (now - heard < quietMs) return { restarted: false, reason: "listening" };
+  console.warn({ event: "sender_deaf_restart", component: "offer-autopilot", session_name: sessionName, account_id: managed.accountId, reason, quiet_minutes: Math.round((now - heard) / 60_000) });
+  lastDeafRestartAt.set(sessionName, now);
+  await restartSenderSessionByName(sessionName);
+  return { restarted: true, reason: "quiet" };
+}
+
+/**
+ * Vigia: números de Piloto ligado que estão conectados e sem ouvir grupo nenhum
+ * há 45 min são reiniciados (no máximo 1x a cada 3 h por número).
+ */
+export async function restartDeafPilotSenders() {
+  if (!senders.size) return;
+  const { data, error } = await supabase.from("offer_automations").select("whatsapp_sender_id").eq("enabled", true);
+  if (error) throw error;
+  const pilotSenderIds = new Set((data || []).map((row: any) => row.whatsapp_sender_id).filter(Boolean));
+  const now = Date.now();
+  for (const managed of Array.from(senders.values())) {
+    if (!pilotSenderIds.has(managed.id)) continue;
+    if (now - (lastDeafRestartAt.get(managed.sessionName) ?? 0) < 3 * 60 * 60_000) continue;
+    await ensureSenderListening(managed.sessionName, 45 * 60_000, "watchdog").catch((restartError) =>
+      console.error({ event: "sender_deaf_restart_failed", session_name: managed.sessionName, error: restartError instanceof Error ? restartError.message : String(restartError) }));
+  }
 }

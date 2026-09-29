@@ -3,6 +3,7 @@ import { execFile } from "child_process";
 import type { GlobalSendQueue } from "../queue/queue.js";
 import {
   disconnectSenderSession,
+  ensureSenderListening,
   getSenderStatus,
   refreshSenderGroups,
   regenerateSenderGroupInviteLinks,
@@ -101,6 +102,15 @@ export function createHttpServer(
       return res.status(result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
     } catch (e: any) {
       return res.status(503).json({ error: e.message });
+    }
+  });
+
+  // Chamado ao salvar o Piloto: número surdo há 10 min é reiniciado na hora.
+  app.post("/senders/:sessionName/ensure-listening", async (req, res) => {
+    try {
+      res.json(await ensureSenderListening(req.params.sessionName, 10 * 60_000, "pilot_saved"));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
