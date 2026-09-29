@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Check, Copy, Loader2, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 // Caminhos do Piloto: o mesmo painel Grupos Fonte | Grupos de Destino, repetido
-// em abas. Cada aba é uma rota em public.pilot_routes (fontes + nichos →
-// destinos); a distribuição acontece no banco (pilot_offer_destinations), que
+// em abas. Cada aba é uma rota em public.pilot_routes (fontes → destinos; toda
+// oferta daquelas fontes segue, sem filtro de nicho — decisão de produto em
+// 28/09/2026: nicho complicava para o aluno); a distribuição acontece no banco (pilot_offer_destinations), que
 // junta os destinos de todos os caminhos sem repetir grupo.
 // A lista geral do Piloto (automation_source_groups/destinations, que o serviço
 // de WhatsApp monitora) é sempre a SOMA dos caminhos — salva antes da rota.
@@ -85,7 +86,7 @@ export function PilotCaminhos({ groups, saveMaster, onChanged, Picker }: {
     if (sujo(ativa) && !window.confirm("Você tem alterações não salvas neste caminho. Descartar e criar um novo?")) return;
     descartar(ativa);
     const chave = `novo-${++novos.current}`;
-    const d: Draft = { id: null, name: `Caminho ${ordem.length + 1}`, enabled: true, sources: [], destinations: [], anyNiche: false, niches: [] };
+    const d: Draft = { id: null, name: `Caminho ${ordem.length + 1}`, enabled: true, sources: [], destinations: [], anyNiche: true, niches: [] };
     setOrdem((atual) => [...atual, chave]);
     setDrafts((atual) => ({ ...atual, [chave]: d }));
     setOriginais((atual) => ({ ...atual, [chave]: d }));
@@ -106,14 +107,13 @@ export function PilotCaminhos({ groups, saveMaster, onChanged, Picker }: {
     if (!d.name.trim()) return setErro("Dê um nome para o caminho.");
     if (!d.sources.length) return setErro("Escolha pelo menos um grupo fonte.");
     if (!d.destinations.length) return setErro("Escolha pelo menos um grupo de destino.");
-    if (!d.anyNiche && !d.niches.length) return setErro("Escolha pelo menos um nicho, ou \"Todos os nichos\".");
     const { fontes, destinos } = somaCom(ativa, d);
     const maximo = info?.maxSourceGroups ?? 5;
     if (fontes.length > maximo) return setErro(`O limite é de ${maximo} grupos fonte somando todos os caminhos (ficaria com ${fontes.length}).`);
     setBusy("salvar");
     try {
       await saveMaster(fontes, destinos);
-      const corpo = { name: d.name.trim(), enabled: d.enabled, all_sources: false, source_group_ids: d.sources, any_niche: d.anyNiche, niche_ids: d.anyNiche ? [] : d.niches, all_destinations: false, destination_group_ids: d.destinations };
+      const corpo = { name: d.name.trim(), enabled: d.enabled, all_sources: false, source_group_ids: d.sources, any_niche: true, niche_ids: [], all_destinations: false, destination_group_ids: d.destinations };
       const response = await fetch(d.id ? `/api/piloto-automatico/rotas/${d.id}` : "/api/piloto-automatico/rotas", { method: d.id ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Não foi possível salvar o caminho.");
@@ -220,7 +220,6 @@ export function PilotCaminhos({ groups, saveMaster, onChanged, Picker }: {
       <Picker title="Grupos de destino" description="Escolha os grupos que receberão as ofertas deste caminho." groups={groups} selected={draft.destinations} onToggle={(id) => alternar("destinations", id)} />
     </div>
 
-    <NichePicker niches={info.niches} anyNiche={draft.anyNiche} selected={draft.niches} onAny={(v) => editar({ anyNiche: v })} onToggle={(id) => alternar("niches", id)} />
 
     <div className="flex flex-col gap-3 rounded-xl border border-line bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
       <label className="flex cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="switch h-4 w-4 accent-primary" checked={draft.enabled} onChange={(e) => editar({ enabled: e.target.checked })} /> Caminho ativo</label>
@@ -231,27 +230,5 @@ export function PilotCaminhos({ groups, saveMaster, onChanged, Picker }: {
     </div>
     {erro ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{erro}</p> : null}
     {aviso ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{aviso}</p> : null}
-  </section>;
-}
-
-function NichePicker({ niches, anyNiche, selected, onAny, onToggle }: { niches: Niche[]; anyNiche: boolean; selected: string[]; onAny: (v: boolean) => void; onToggle: (id: string) => void }) {
-  const [busca, setBusca] = useState("");
-  const [todos, setTodos] = useState(false);
-  const normal = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const visiveis = niches.filter((n) => (busca ? normal(n.label).includes(normal(busca)) : todos || n.featured || selected.includes(n.id)));
-  const chip = (ativo: boolean) => `inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${ativo ? "border-primary bg-primary text-white" : "border-line bg-white text-muted hover:border-zinc-400"}`;
-  return <section className="rounded-xl border border-line bg-white p-5">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div><h2 className="font-semibold text-ink">Nichos</h2><p className="mt-1 text-sm text-muted">Quais tipos de produto seguem por este caminho.</p></div>
-      {!anyNiche ? <div className="relative sm:w-56"><Search size={15} className="pointer-events-none absolute left-3 top-3 text-muted" /><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar nicho" className="focus-ring h-10 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-sm" /></div> : null}
-    </div>
-    <div className="mt-4 flex flex-wrap gap-2">
-      <button type="button" aria-pressed={anyNiche} onClick={() => onAny(!anyNiche)} className={chip(anyNiche)}>{anyNiche ? <Check size={14} /> : null}Todos os nichos</button>
-      {!anyNiche ? <>
-        {visiveis.map((n) => <button key={n.id} type="button" aria-pressed={selected.includes(n.id)} onClick={() => onToggle(n.id)} className={chip(selected.includes(n.id))}>{selected.includes(n.id) ? <Check size={14} /> : null}{n.label}</button>)}
-        {!busca ? <button type="button" onClick={() => setTodos((v) => !v)} className="rounded-full px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10">{todos ? "Menos nichos" : "Mais nichos"}</button> : null}
-      </> : null}
-    </div>
-    {anyNiche ? <p className="mt-3 text-xs text-muted">Todas as ofertas destas fontes seguem por este caminho, de qualquer nicho — inclusive as que não têm nicho identificado.</p> : null}
   </section>;
 }
