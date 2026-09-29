@@ -24,6 +24,10 @@ export async function transitionLote(request: NextRequest, action: "pause" | "re
   const loteId = parsed.data.lote_id;
   const cfg = ACTION_STATUS[action];
 
+  // transition_lote_atomic não confere a conta: a posse do lote é verificada aqui antes.
+  const { data: lote } = await sb.from("envios_grupo_lotes").select("id,status").eq("id", loteId).eq("account_id", accountId).maybeSingle();
+  if (!lote) return NextResponse.json({ error: "Lote não encontrado." }, { status: 404 });
+
   // Try RPC first, fall back to direct queries if it doesn't exist
   const { data, error } = await sb.rpc("transition_lote_atomic", { p_lote_id: loteId, p_action: action });
   const rpcMissing = error && (
@@ -40,8 +44,6 @@ export async function transitionLote(request: NextRequest, action: "pause" | "re
   }
 
   // Fallback: direct queries
-  const { data: lote } = await sb.from("envios_grupo_lotes").select("id,status").eq("id", loteId).eq("account_id", accountId).maybeSingle();
-  if (!lote) return NextResponse.json({ error: "Lote não encontrado." }, { status: 404 });
   if (!cfg.allowedLote.includes(lote.status || "")) {
     return NextResponse.json({ error: `Não é possível ${action} um lote com status "${lote.status}".` }, { status: 409 });
   }
