@@ -25,6 +25,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     error_message: body.status === "failed" ? String(body.error_message || "Falha no Gerador.").slice(0, 500) : null,
     completed_at: now, updated_at: now
   }).eq("id", job.id).eq("account_id", integration.account_id);
+  // Link gerado com sucesso prova que a sessão voltou: reativa a conta que tinha
+  // sido marcada como expirada, sem o aluno precisar clicar em "Verificar conexão".
+  if (body.status === "completed" && job.kind !== "connection_test" && integration.status === "expired") {
+    await admin.from("affiliate_integrations").update({ status: "connected", last_error: null, updated_at: now })
+      .eq("id", integration.id).eq("account_id", integration.account_id).eq("status", "expired");
+  }
   if (job.kind === "connection_test") {
     await admin.from("affiliate_integrations").update({
       status: body.status === "completed" ? "connected" : "error",

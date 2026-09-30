@@ -14,6 +14,13 @@ function log(event: string, context: Context, fields: Record<string, unknown> = 
 export class MercadoLivreOfferConverter {
   constructor(private database: SupabaseClient, private service = new MercadoLivreAffiliateService(database)) {}
 
+  private async sessionFailedRepeatedly(accountId: string) {
+    const { data } = await this.database.from("affiliate_generation_jobs").select("status,error_message")
+      .eq("account_id", accountId).eq("provider", "mercado_livre").in("status", ["completed", "failed"])
+      .order("updated_at", { ascending: false }).limit(3);
+    return (data || []).length === 3 && data!.every((job) => job.status === "failed" && /sessão|session|login|reconect/i.test(job.error_message || ""));
+  }
+
   async convert(parsed: ParsedOffer, context: Context, initialText = parsed.text): Promise<MercadoLivreConversionResult> {
     const { data: integration, error } = await this.database.from("affiliate_integrations")
       .select("id,status,affiliate_tag,extension_token_hash").eq("account_id", context.accountId).eq("provider", "mercado_livre").maybeSingle();
@@ -47,7 +54,9 @@ export class MercadoLivreOfferConverter {
         try {
           affiliateLink = await this.service.generateAffiliateLink(product, { accountId: context.accountId, offerLinkId: offerLink.id, affiliateTag: integration.affiliate_tag });
         } catch (generationError) {
-          if (generationError instanceof MercadoLivreSessionExpiredError) {
+          // Uma falha de sessão isolada costuma ser a página do Gerador que ainda não
+          // carregou; só marca "expirada" (e para o Piloto) após 3 seguidas.
+          if (generationError instanceof MercadoLivreSessionExpiredError && await this.sessionFailedRepeatedly(context.accountId)) {
             await this.database.from("affiliate_integrations").update({ status: "expired", last_error: generationError.message, updated_at: new Date().toISOString() }).eq("id", integration.id).eq("account_id", context.accountId);
             log("mercado_livre_session_expired", context);
           }
