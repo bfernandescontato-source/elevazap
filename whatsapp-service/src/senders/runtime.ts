@@ -24,6 +24,9 @@ const senders = new Map<string, SenderSession>();
 const lastGroupMessageAt = new Map<string, number>();
 const sessionStartedAt = new Map<string, number>();
 const lastDeafRestartAt = new Map<string, number>();
+// Último momento em que QUALQUER número viu mensagem em cada grupo: separa
+// "grupo quieto" (madrugada) de "número surdo".
+const groupLastSeenAt = new Map<string, number>();
 
 async function persistRuntimeStatus(senderId: string, leaseVersion: number, status: string, error: string | null) {
   const persistedStatus = status === "idle" ? "disconnected" : status;
@@ -51,6 +54,7 @@ async function startSender(sender: { id: string; session_name: string; label: st
       const groupMessages = messages.filter((message) => String(message?.key?.remoteJid || "").endsWith("@g.us"));
       if (groupMessages.length) {
         lastGroupMessageAt.set(sender.session_name, Date.now());
+        for (const message of groupMessages) groupLastSeenAt.set(String(message.key.remoteJid), Date.now());
         console.info({
           event: "pilot_group_messages_observed",
           component: "offer-autopilot",
@@ -313,13 +317,24 @@ export async function ensureSenderListening(sessionName: string, quietMs: number
  */
 export async function restartDeafPilotSenders() {
   if (!senders.size) return;
-  const { data, error } = await supabase.from("offer_automations").select("whatsapp_sender_id").eq("enabled", true);
+  const { data, error } = await supabase.from("offer_automations").select("id,whatsapp_sender_id").eq("enabled", true);
   if (error) throw error;
-  const pilotSenderIds = new Set((data || []).map((row: any) => row.whatsapp_sender_id).filter(Boolean));
+  const automationBySender = new Map<string, string>((data || []).filter((row: any) => row.whatsapp_sender_id).map((row: any) => [row.whatsapp_sender_id, row.id]));
+  if (!automationBySender.size) return;
+  const { data: sourceRows, error: sourcesError } = await supabase.from("automation_source_groups").select("automation_id,whatsapp_group_id")
+    .eq("enabled", true).in("automation_id", Array.from(automationBySender.values()));
+  if (sourcesError) throw sourcesError;
+  const sourcesByAutomation = new Map<string, string[]>();
+  for (const row of sourceRows || []) sourcesByAutomation.set(row.automation_id, [...(sourcesByAutomation.get(row.automation_id) || []), row.whatsapp_group_id]);
   const now = Date.now();
   for (const managed of Array.from(senders.values())) {
-    if (!pilotSenderIds.has(managed.id)) continue;
+    const automationId = automationBySender.get(managed.id);
+    if (!automationId) continue;
     if (now - (lastDeafRestartAt.get(managed.sessionName) ?? 0) < 3 * 60 * 60_000) continue;
+    // Só é "surdo" se algum grupo fonte teve mensagem (vista por outro número) nos
+    // últimos 45 min. Grupo quieto não justifica derrubar a conexão.
+    const sources = sourcesByAutomation.get(automationId) || [];
+    if (!sources.some((group) => now - (groupLastSeenAt.get(group) ?? 0) < 45 * 60_000)) continue;
     await ensureSenderListening(managed.sessionName, 45 * 60_000, "watchdog").catch((restartError) =>
       console.error({ event: "sender_deaf_restart_failed", session_name: managed.sessionName, error: restartError instanceof Error ? restartError.message : String(restartError) }));
   }
