@@ -112,6 +112,8 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         if (update.connection === "close") {
           socketOpen = false;
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+          // Sem este registro não dá para saber por que um número "conecta e desconecta".
+          console.warn({ event: "whatsapp.connection_closed", component: "managed-session", session_name: sessionId, code: code ?? null, message: String(update.lastDisconnect?.error?.message || "").slice(0, 200), stopped });
           if (!stopped) {
             if (code === DisconnectReason.loggedOut) {
               status = "logged_out";
