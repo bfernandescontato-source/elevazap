@@ -19,6 +19,7 @@ declare const chrome: {
   tabs: {
     create(options: { url: string; active?: boolean }): Promise<{ id: number }>;
     get(id: number): Promise<{ status?: string }>;
+    update(id: number, options: { url: string }): Promise<{ id?: number }>;
     sendMessage(id: number, message: any): Promise<any>;
     remove(id: number): Promise<void>;
   };
