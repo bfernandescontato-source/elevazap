@@ -4,9 +4,19 @@ const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 async function generateLink(request) {
     if (!window.location.pathname.startsWith("/afiliados/linkbuilder"))
         throw new Error("Gerador oficial não está aberto.");
-    const input = document.querySelector('textarea[placeholder*="mercadolivre"]');
+    // A página do Gerador monta o campo depois do carregamento; acusar sessão
+    // antes disso marcava contas conectadas como desconectadas.
+    let input = null;
+    for (let attempt = 0; attempt < 40 && !input; attempt += 1) {
+        input = document.querySelector('textarea[placeholder*="mercadolivre"]');
+        if (!input)
+            await sleep(250);
+    }
     if (!input)
         throw new Error("Sua sessão Mercado Livre não está disponível. Reconecte sua conta.");
+    const meliLinks = () => Array.from(document.querySelectorAll("input,textarea"))
+        .map((element) => element.value.trim()).filter((value) => /^https:\/\/meli\.la\/[A-Za-z0-9_-]+$/i.test(value));
+    const previous = new Set(meliLinks()); // nunca devolver o link de um pedido anterior
     const tagControl = document.querySelector('[role="combobox"][aria-label*="etiqueta" i]');
     const currentTag = tagControl?.textContent?.trim() || null;
     if (request.affiliateTag && currentTag && currentTag !== request.affiliateTag)
@@ -21,8 +31,7 @@ async function generateLink(request) {
     button.click();
     for (let attempt = 0; attempt < 80; attempt += 1) {
         await sleep(250);
-        const affiliateLink = Array.from(document.querySelectorAll("input,textarea"))
-            .map((element) => element.value.trim()).find((value) => /^https:\/\/meli\.la\/[A-Za-z0-9_-]+$/i.test(value));
+        const affiliateLink = meliLinks().find((value) => !previous.has(value));
         if (affiliateLink)
             return { affiliateLink, affiliateTag: currentTag };
         if (/não pudemos|erro|inválid/i.test(document.querySelector('[role="alert"]')?.textContent || ""))

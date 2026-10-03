@@ -16,18 +16,61 @@ async function api(config: Config, path: string, init: RequestInit = {}) {
   if (!response.ok) throw new Error(body.error || "O Disparei recusou a operação.");
   return body;
 }
-async function execute(job: Job) {
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+// O Chrome só acorda a extensão a cada 30 s. Cada pedido de link vale 2 min no
+// Disparei, então ao acordar a extensão esvazia a fila inteira (antes fazia 1 por
+// vez e o resto vencia) e continua olhando a fila por mais um tempo enquanto há
+// movimento. O limite de 4 min fica abaixo do corte de 5 min do Chrome.
+const MAX_RUN_MS = 4 * 60_000;
+const IDLE_WATCH_MS = 25_000;
+const IDLE_POLL_MS = 3_000;
+
+// Uma única aba escondida do Gerador é reaproveitada para toda a fila.
+let builderTabId: number | undefined;
+async function openBuilder() {
+  if (builderTabId !== undefined) {
+    const reused = await chrome.tabs.update(builderTabId, { url: LINK_BUILDER }).catch(() => undefined);
+    if (reused?.id) return reused.id;
+    builderTabId = undefined;
+  }
   const tab = await chrome.tabs.create({ url: LINK_BUILDER, active: false });
   if (!tab.id) throw new Error("Não foi possível abrir o Gerador.");
+  builderTabId = tab.id;
+  return tab.id;
+}
+async function closeBuilder() {
+  if (builderTabId === undefined) return;
+  await chrome.tabs.remove(builderTabId).catch(() => undefined);
+  builderTabId = undefined;
+}
+async function execute(job: Job) {
+  const tabId = await openBuilder();
+  // Na aba reaproveitada o status pode ainda ser "complete" da página anterior:
+  // espera a recarga começar (até 1 s) antes de esperar ela terminar.
+  let sawLoading = false;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await sleep(250);
+    const status = (await chrome.tabs.get(tabId)).status;
+    if (status !== "complete") sawLoading = true;
+    else if (sawLoading || attempt >= 4) break;
+  }
+  const request = { type: GENERATE, inputUrl: job.input_url, affiliateTag: job.affiliate_tag };
+  let result: any;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try { result = await chrome.tabs.sendMessage(tabId, request); break; }
+    catch (error) { if (attempt === 7) throw error; await sleep(500); } // script da página ainda carregando
+  }
+  if (!result?.ok) throw new Error(result?.error || "Falha na geração.");
+  return result as { affiliateLink: string; affiliateTag: string | null };
+}
+async function runJob(config: Config, job: Job) {
   try {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      if ((await chrome.tabs.get(tab.id)).status === "complete") break;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    const result = await chrome.tabs.sendMessage(tab.id, { type: GENERATE, inputUrl: job.input_url, affiliateTag: job.affiliate_tag });
-    if (!result?.ok) throw new Error(result?.error || "Falha na geração.");
-    return result as { affiliateLink: string; affiliateTag: string | null };
-  } finally { await chrome.tabs.remove(tab.id).catch(() => undefined); }
+    const result = await execute(job);
+    await api(config, `/api/piloto-automatico/mercado-livre/extension/jobs/${job.id}`, { method: "POST", body: JSON.stringify({ status: "completed", affiliate_link: result.affiliateLink, affiliate_tag: result.affiliateTag }) });
+  } catch (error) {
+    await closeBuilder(); // aba em estado ruim não é reaproveitada
+    await api(config, `/api/piloto-automatico/mercado-livre/extension/jobs/${job.id}`, { method: "POST", body: JSON.stringify({ status: "failed", error_message: error instanceof Error ? error.message : "Falha no Mercado Livre." }) });
+  }
 }
 async function poll() {
   if (processing) return;
@@ -35,15 +78,22 @@ async function poll() {
   if (!config) return;
   processing = true;
   try {
-    const { job } = await api(config, "/api/piloto-automatico/mercado-livre/extension/jobs");
-    if (!job) return;
-    try {
-      const result = await execute(job);
-      await api(config, `/api/piloto-automatico/mercado-livre/extension/jobs/${job.id}`, { method: "POST", body: JSON.stringify({ status: "completed", affiliate_link: result.affiliateLink, affiliate_tag: result.affiliateTag }) });
-    } catch (error) {
-      await api(config, `/api/piloto-automatico/mercado-livre/extension/jobs/${job.id}`, { method: "POST", body: JSON.stringify({ status: "failed", error_message: error instanceof Error ? error.message : "Falha no Mercado Livre." }) });
+    const startedAt = Date.now();
+    let lastJobAt = 0;
+    while (Date.now() - startedAt < MAX_RUN_MS) {
+      const { job } = await api(config, "/api/piloto-automatico/mercado-livre/extension/jobs");
+      if (job) {
+        await runJob(config, job);
+        lastJobAt = Date.now();
+        continue;
+      }
+      if (!lastJobAt || Date.now() - lastJobAt > IDLE_WATCH_MS) break;
+      await sleep(IDLE_POLL_MS);
     }
-  } finally { processing = false; }
+  } finally {
+    await closeBuilder();
+    processing = false;
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
