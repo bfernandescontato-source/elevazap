@@ -7,6 +7,7 @@ import {
   getSenderStatus,
   refreshSenderGroups,
   regenerateSenderGroupInviteLinks,
+  updateSenderGroupProfiles,
   resolveSenderGroupInvite,
   syncSenderGroups,
   listSenderGroupContacts,
@@ -143,6 +144,20 @@ export function createHttpServer(
     try {
       const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
       res.json({ groups: await regenerateSenderGroupInviteLinks(req.params.sessionName, groupJids) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/senders/:sessionName/groups/update-profiles", async (req, res) => {
+    try {
+      const groupJids = Array.isArray(req.body?.groupJids) ? req.body.groupJids : [];
+      const update: { subject?: string; description?: string; photoUrl?: string } = {};
+      if (typeof req.body?.subject === "string") update.subject = req.body.subject;
+      if (typeof req.body?.description === "string") update.description = req.body.description;
+      if (typeof req.body?.photoUrl === "string") update.photoUrl = req.body.photoUrl;
+      if (!groupJids.length || !Object.keys(update).length) return res.status(400).json({ error: "Informe grupos e ao menos uma alteração." });
+      res.json({ groups: await updateSenderGroupProfiles(req.params.sessionName, groupJids, update) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

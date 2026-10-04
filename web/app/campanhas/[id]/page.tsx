@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
-import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, Link2, Loader2, Plus, RefreshCw, RotateCcw, Target, TrendingDown, TrendingUp, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, ImagePlus, Link2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Target, TrendingDown, TrendingUp, Users, X } from "lucide-react";
 
 type Group = {
   group_jid: string;
@@ -47,6 +47,7 @@ type Event = { id: string; group_jid?: string | null; result: string; reason?: s
 type ParticipantEvent = { id: string; group_jid: string; action: "add" | "remove"; occurred_at: string };
 type Sender = { id: string; label: string };
 type AvailableGroup = { group_jid: string; nome?: string };
+type UploadedImage = { bucket: string; storage_path: string; file_name: string; mime_type: string; file_size_bytes: number };
 type DetailData = { campaign: Campaign; events: Event[]; participant_events: ParticipantEvent[]; previous_participant_events: ParticipantEvent[]; metrics: { accesses: number; redirects: number; failures: number; daily: { date: string; count: number }[]; sources: { source: string; count: number }[] } };
 type Period = "hoje" | "ontem" | "7dias" | "30dias" | "este-mes" | "mes-passado" | "personalizado";
 
@@ -126,6 +127,13 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   const [customEnd, setCustomEnd] = useState("");
   const [downloadingGroup, setDownloadingGroup] = useState("");
   const [linkSyncFailures, setLinkSyncFailures] = useState<{ group_jid: string; error: string }[]>([]);
+  const [editGroupsOpen, setEditGroupsOpen] = useState(false);
+  const [applyGroupName, setApplyGroupName] = useState(false);
+  const [applyGroupDescription, setApplyGroupDescription] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupDescription, setGroupDescription] = useState("");
+  const [groupPhoto, setGroupPhoto] = useState<File | null>(null);
+  const [groupProfileFailures, setGroupProfileFailures] = useState<{ group_jid: string; error: string }[]>([]);
 
   const campaign = detail?.campaign;
   const groups = useMemo(() => campaign?.groups || [], [campaign?.groups]);
@@ -246,6 +254,45 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
       else showMessage(d.updated === 1 ? "Link de 1 grupo atualizado." : `Links de ${d.updated || 0} grupos atualizados.`);
       await load();
     } catch (e: any) { showMessage(e.message); } finally { setSaving(""); }
+  }
+
+  async function uploadGroupPhoto(file: File): Promise<UploadedImage> {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Use uma imagem JPG, PNG ou WebP.");
+    if (file.size > 5 * 1024 * 1024) throw new Error("A foto pode ter no máximo 5 MB.");
+    const signedResponse = await fetch("/api/upload/signed-url", {
+      method: "POST",
+      body: JSON.stringify({ tipo: "imagem", file_name: file.name, mime_type: file.type, file_size_bytes: file.size })
+    });
+    const signed = await signedResponse.json();
+    if (!signedResponse.ok) throw new Error(signed.error || "Não foi possível preparar o envio da foto.");
+    const uploaded = await fetch(signed.signedUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
+    if (!uploaded.ok) throw new Error("Não foi possível enviar a foto.");
+    await fetch("/api/upload/confirm", { method: "POST", body: JSON.stringify({ storage_path: signed.storage_path }) });
+    return { bucket: signed.bucket, storage_path: signed.storage_path, file_name: file.name, mime_type: file.type, file_size_bytes: file.size };
+  }
+
+  function openGroupProfileEditor() {
+    setApplyGroupName(false); setApplyGroupDescription(false); setGroupName(""); setGroupDescription(""); setGroupPhoto(null); setGroupProfileFailures([]); setEditGroupsOpen(true);
+  }
+
+  async function updateAllGroupProfiles() {
+    if (!applyGroupName && !applyGroupDescription && !groupPhoto) return;
+    setSaving("group-profiles");
+    try {
+      const photo = groupPhoto ? await uploadGroupPhoto(groupPhoto) : undefined;
+      const response = await fetch(`/api/campanhas/${id}/update-group-profiles`, {
+        method: "POST",
+        body: JSON.stringify({ ...(applyGroupName ? { subject: groupName } : {}), ...(applyGroupDescription ? { description: groupDescription } : {}), ...(photo ? { photo } : {}) })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível atualizar os grupos.");
+      const failures = (Array.isArray(data.groups) ? data.groups : []).filter((group: { error?: string }) => group.error);
+      setGroupProfileFailures(failures);
+      setEditGroupsOpen(false);
+      if (failures.length) showMessage(`${groups.length - failures.length} grupo(s) atualizado(s). ${failures.length} precisam de atenção.`);
+      else showMessage(`${groups.length} grupo(s) atualizado(s) com sucesso.`);
+      await load(true);
+    } catch (error: any) { showMessage(error.message); } finally { setSaving(""); }
   }
 
   async function updateSender(senderId: string) {
@@ -525,6 +572,9 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
             <ActionButton icon={saving === "invite-links" ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} disabled={saving === "invite-links"} onClick={updateInviteLinks}>
               Gerar novos links dos grupos
             </ActionButton>
+            <ActionButton className="border border-line bg-white text-ink hover:bg-wash" icon={<Pencil size={15} />} disabled={!groups.length} onClick={openGroupProfileEditor}>
+              Editar todos
+            </ActionButton>
           </div>
         </div>
 
@@ -534,6 +584,16 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
             <p className="mt-1">O número conectado precisa ser administrador para o WhatsApp liberar o link novo.</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {linkSyncFailures.map((failure) => <li key={failure.group_jid}><span className="font-medium">{groups.find((group) => group.group_jid === failure.group_jid)?.nome || failure.group_jid}:</span> {failure.error}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
+        {groupProfileFailures.length ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-semibold">Alguns grupos não foram alterados</div>
+            <p className="mt-1">O número conectado precisa ser administrador de cada grupo.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {groupProfileFailures.map((failure) => <li key={failure.group_jid}><span className="font-medium">{groups.find((group) => group.group_jid === failure.group_jid)?.nome || failure.group_jid}:</span> {failure.error}</li>)}
             </ul>
           </div>
         ) : null}
@@ -741,6 +801,35 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
             <div className="app-safe-bottom grid grid-cols-2 gap-2 border-t border-line p-4 sm:flex sm:justify-end">
               <ActionButton className="border border-line bg-white text-ink" onClick={() => setShowAdd(false)}>Cancelar</ActionButton>
               <ActionButton disabled={!addJids.length || saving === "add"} onClick={addGroups}>{saving === "add" ? "Adicionando..." : "Adicionar selecionados"}</ActionButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editGroupsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/45 sm:grid sm:place-items-center sm:p-4" onClick={() => saving !== "group-profiles" && setEditGroupsOpen(false)}>
+          <div className="app-safe-bottom w-full max-w-lg rounded-t-2xl bg-white p-5 shadow-soft sm:rounded-xl" onClick={(event) => event.stopPropagation()}>
+            <h2 className="font-semibold text-ink">Editar todos os grupos</h2>
+            <p className="mt-1 text-sm text-muted">As informações escolhidas serão aplicadas igualmente aos {groups.length} grupos desta campanha.</p>
+            <div className="mt-5 space-y-4">
+              <label className="block rounded-xl border border-line p-3">
+                <span className="flex items-center gap-2 text-sm font-medium text-ink"><input type="checkbox" checked={applyGroupName} onChange={(event) => setApplyGroupName(event.target.checked)} /> Trocar nome</span>
+                <input value={groupName} disabled={!applyGroupName} maxLength={100} onChange={(event) => setGroupName(event.target.value)} placeholder="Nome para todos os grupos" className="focus-ring mt-3 h-10 w-full rounded-lg border border-line px-3 text-sm disabled:bg-wash" />
+              </label>
+              <label className="block rounded-xl border border-line p-3">
+                <span className="flex items-center gap-2 text-sm font-medium text-ink"><input type="checkbox" checked={applyGroupDescription} onChange={(event) => setApplyGroupDescription(event.target.checked)} /> Trocar descrição</span>
+                <textarea value={groupDescription} disabled={!applyGroupDescription} maxLength={512} onChange={(event) => setGroupDescription(event.target.value)} placeholder="Descrição para todos os grupos" className="focus-ring mt-3 min-h-24 w-full rounded-lg border border-line p-3 text-sm disabled:bg-wash" />
+              </label>
+              <label className="block rounded-xl border border-line p-3">
+                <span className="flex items-center gap-2 text-sm font-medium text-ink"><ImagePlus size={16} /> Trocar foto</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setGroupPhoto(event.target.files?.[0] || null)} className="mt-3 block w-full text-sm" />
+                <p className="mt-2 text-xs text-muted">JPG, PNG ou WebP de até 5 MB{groupPhoto ? ` · ${groupPhoto.name}` : ""}.</p>
+              </label>
+              <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">O número conectado precisa ser administrador dos grupos. Os que não permitirem a alteração serão informados ao final.</p>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+              <ActionButton className="border border-line bg-white text-ink" disabled={saving === "group-profiles"} onClick={() => setEditGroupsOpen(false)}>Cancelar</ActionButton>
+              <ActionButton disabled={saving === "group-profiles" || (!groupPhoto && (!applyGroupName || !groupName.trim()) && !applyGroupDescription)} icon={saving === "group-profiles" ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />} onClick={updateAllGroupProfiles}>{saving === "group-profiles" ? "Atualizando..." : "Aplicar a todos"}</ActionButton>
             </div>
           </div>
         </div>

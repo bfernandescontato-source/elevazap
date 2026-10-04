@@ -1,7 +1,7 @@
 import { supabase } from "../supabase.js";
 import { createWhatsAppSession, type WhatsAppSession } from "../whatsapp/session.js";
 import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "../groups/discovery.js";
-import { regenerateGroupInviteLinks, syncGroupMetadata } from "../groups/sync.js";
+import { regenerateGroupInviteLinks, syncGroupMetadata, updateGroupProfiles, type GroupProfileUpdate } from "../groups/sync.js";
 import { scheduleParticipantEventSync } from "../groups/events.js";
 import { monitorOfferMessages } from "../offers/whatsapp-monitor.js";
 import { env } from "../env.js";
@@ -270,6 +270,13 @@ export async function regenerateSenderGroupInviteLinks(sessionName: string, grou
   if (!sock) throw new Error("Número de disparo desconectado.");
   if (!senders.has(sessionName)) throw new Error("Sessão não pertence a uma conta.");
   return regenerateGroupInviteLinks(sock, groupJids);
+}
+
+export async function updateSenderGroupProfiles(sessionName: string, groupJids: string[], update: GroupProfileUpdate) {
+  const sock = getSenderSock(sessionName);
+  if (!sock) throw new Error("Número de disparo desconectado.");
+  if (!senders.has(sessionName)) throw new Error("Sessão não pertence a uma conta.");
+  return updateGroupProfiles(sock, groupJids, update);
 }
 
 export async function listSenderGroupContacts(sessionName: string, groupJid: string) {

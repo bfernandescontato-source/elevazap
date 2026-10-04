@@ -15,6 +15,38 @@ export type SyncedGroup = {
   invite_error?: string | null;
 };
 
+export type GroupProfileUpdate = {
+  subject?: string;
+  description?: string;
+  photoUrl?: string;
+};
+
+export type GroupProfileUpdateResult = {
+  group_jid: string;
+  error?: string;
+};
+
+/** Applies the same optional presentation fields to a list of groups.
+ * WhatsApp requires the connected number to be an administrator of every group.
+ */
+export async function updateGroupProfiles(sock: any, groupJids: string[], update: GroupProfileUpdate): Promise<GroupProfileUpdateResult[]> {
+  const uniqueJids = Array.from(new Set(groupJids.filter((jid) => /^\d+(-\d+)?@g\.us$/.test(jid))));
+  const results: GroupProfileUpdateResult[] = [];
+
+  for (const groupJid of uniqueJids) {
+    try {
+      if (update.subject !== undefined) await withTimeout("groups.update-subject", env.GROUP_SYNC_TIMEOUT_MS, sock.groupUpdateSubject(groupJid, update.subject));
+      if (update.description !== undefined) await withTimeout("groups.update-description", env.GROUP_SYNC_TIMEOUT_MS, sock.groupUpdateDescription(groupJid, update.description));
+      if (update.photoUrl) await withTimeout("groups.update-photo", env.GROUP_SYNC_TIMEOUT_MS, sock.updateProfilePicture(groupJid, { url: update.photoUrl }));
+      results.push({ group_jid: groupJid });
+    } catch (error: any) {
+      results.push({ group_jid: groupJid, error: error?.message || "Não foi possível atualizar este grupo. Verifique se o número conectado é administrador." });
+    }
+  }
+
+  return results;
+}
+
 export async function syncGroupMetadata(sock: any, groupJids: string[], accountId?: string): Promise<SyncedGroup[]> {
   const uniqueJids = Array.from(new Set(groupJids.filter((jid) => /^\d+(-\d+)?@g\.us$/.test(jid))));
   const rows: SyncedGroup[] = [];
