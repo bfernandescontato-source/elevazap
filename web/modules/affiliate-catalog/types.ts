@@ -1,4 +1,4 @@
-export type MarketplaceProvider = "SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "TIKTOK_SHOP";
+export type MarketplaceProvider = "SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "TIKTOK_SHOP" | "MAGALU";
 
 export type AffiliateOffer = {
   provider: MarketplaceProvider;

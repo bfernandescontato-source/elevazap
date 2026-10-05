@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
-import { isConfirmedAffiliateUrl } from "../schemas";
+import { isConfirmedAffiliateUrl, type CatalogOfferProvider } from "../schemas";
 import type { AffiliateOffer } from "../types";
 
 export class CatalogDispatchError extends Error {
@@ -52,7 +52,7 @@ export async function createCatalogDispatch(input: {
   target: ResolvedTarget; imageMode: ImageMode; scheduledAt?: string;
 }) {
   const { accountId, userId, offer, message, target, imageMode } = input;
-  if (!isConfirmedAffiliateUrl(offer.provider as "SHOPEE" | "MERCADO_LIVRE", offer.affiliateUrl) || !message.includes(offer.affiliateUrl!)) {
+  if (!isConfirmedAffiliateUrl(offer.provider as CatalogOfferProvider, offer.affiliateUrl) || !message.includes(offer.affiliateUrl!)) {
     throw new CatalogDispatchError("A oferta precisa conter o link afiliado confirmado.", 400);
   }
   const when = input.scheduledAt || new Date().toISOString();

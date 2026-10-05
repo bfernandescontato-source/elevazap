@@ -28,7 +28,9 @@ const entries = [
   { name: "service-worker", format: "esm" },
   { name: "popup", format: "esm" },
   { name: "disparei-bridge", format: "iife" },
-  { name: "mercado-livre-bridge", format: "iife" }
+  { name: "mercado-livre-bridge", format: "iife" },
+  { name: "vitrine", format: "iife" },
+  { name: "shopee-page", format: "iife" }
 ];
 for (const entry of entries) {
   await esbuild.build({

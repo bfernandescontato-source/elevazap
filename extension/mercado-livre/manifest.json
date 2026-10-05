@@ -1,15 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Disparei — Mercado Livre",
-  "version": "0.3.1",
-  "description": "Conecta o Mercado Livre à Disparei, importa o catálogo e gera links de afiliado.",
-  "permissions": ["alarms", "storage", "tabs"],
-  "host_permissions": ["https://*.mercadolivre.com.br/*", "https://meli.la/*", "https://*.disparei.pro/*"],
+  "version": "0.4.0",
+  "description": "Conecta o Mercado Livre à Disparei, gera links de afiliado e monta o carrinho de ofertas nas lojas.",
+  "permissions": ["alarms", "storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*", "https://meli.la/*", "https://*.disparei.pro/*",
+    "https://*.amazon.com.br/*", "https://*.shopee.com.br/*", "https://*.magazineluiza.com.br/*", "https://*.magazinevoce.com.br/*"
+  ],
   "background": { "service_worker": "dist/service-worker.js", "type": "module" },
-  "action": { "default_popup": "popup/index.html", "default_title": "Disparei — Mercado Livre" },
+  "action": { "default_popup": "popup/index.html", "default_title": "Disparei" },
   "content_scripts": [
     { "matches": ["https://*.disparei.pro/*"], "js": ["dist/disparei-bridge.js"], "run_at": "document_start" },
     { "matches": ["https://*.mercadolivre.com.br/*"], "exclude_matches": ["https://*.mercadolivre.com.br/afiliados/linkbuilder*"], "js": ["dist/catalog-capture.js"], "run_at": "document_idle" },
-    { "matches": ["https://*.mercadolivre.com.br/afiliados/linkbuilder*"], "js": ["dist/mercado-livre-bridge.js"], "run_at": "document_idle" }
+    { "matches": ["https://*.mercadolivre.com.br/afiliados/linkbuilder*"], "js": ["dist/mercado-livre-bridge.js"], "run_at": "document_idle" },
+    {
+      "matches": ["https://*.mercadolivre.com.br/*", "https://*.amazon.com.br/*", "https://*.shopee.com.br/*", "https://*.magazineluiza.com.br/*", "https://*.magazinevoce.com.br/*"],
+      "exclude_matches": ["https://*.mercadolivre.com.br/afiliados/*"],
+      "js": ["dist/vitrine.js"], "run_at": "document_idle"
+    }
   ]
 }

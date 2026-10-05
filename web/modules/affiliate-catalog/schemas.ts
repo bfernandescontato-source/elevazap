@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const offerSchema = z.object({
-  provider: z.enum(["SHOPEE", "MERCADO_LIVRE"]), externalItemId: z.string().min(1), name: z.string().min(1).max(500),
+  provider: z.enum(["SHOPEE", "MERCADO_LIVRE", "AMAZON", "MAGALU"]), externalItemId: z.string().min(1), name: z.string().min(1).max(500),
   imageUrl: z.string().url().optional(), priceMin: z.number().nonnegative().optional(), priceMax: z.number().nonnegative().optional(),
   originalPrice: z.number().nonnegative().optional(), discountPercentage: z.number().min(0).max(100).optional(), sales: z.number().nonnegative().optional(),
   rating: z.number().min(0).max(5).optional(), commissionRate: z.number().nonnegative().optional(), commissionAmount: z.number().nonnegative().optional(),
@@ -46,10 +46,20 @@ export const agendaCancelSchema = z.union([
   z.object({ ids: z.array(z.string().uuid()).min(1).max(200) })
 ]);
 
-export function isConfirmedAffiliateUrl(provider: "SHOPEE" | "MERCADO_LIVRE", value?: string) {
+export type CatalogOfferProvider = z.infer<typeof offerSchema>["provider"];
+
+/** Loja Magazine Você do afiliado: o próprio link dela já é o link de afiliado. */
+export const MAGAZINE_VOCE_PATH = /^\/(magazine[a-z0-9_-]+)\/(?:.*\/)?p\/[a-z0-9]{6,}(?:[/?]|$)/i;
+
+export function isConfirmedAffiliateUrl(provider: CatalogOfferProvider, value?: string) {
   if (!value) return false;
   try {
-    const host = new URL(value).hostname.toLowerCase();
-    return provider === "MERCADO_LIVRE" ? host === "meli.la" : host === "s.shopee.com.br" || host === "shope.ee";
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:") return false;
+    if (provider === "MERCADO_LIVRE") return host === "meli.la";
+    if (provider === "SHOPEE") return host === "s.shopee.com.br" || host === "shope.ee";
+    if (provider === "AMAZON") return (host === "amazon.com.br" || host === "www.amazon.com.br") && Boolean(url.searchParams.get("tag"));
+    return (host === "magazinevoce.com.br" || host === "www.magazinevoce.com.br") && MAGAZINE_VOCE_PATH.test(url.pathname);
   } catch { return false; }
 }

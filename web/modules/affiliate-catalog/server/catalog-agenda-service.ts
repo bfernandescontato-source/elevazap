@@ -80,3 +80,9 @@ export async function cancelCatalogOffer(accountId: string, id: string) {
   const { error } = await sb.rpc("transition_lote_atomic", { p_lote_id: item.lote_id, p_action: "cancel" });
   if (error) throw new CatalogDispatchError(error.code === "22023" ? "Esta oferta já foi enviada e não pode ser removida." : "Não foi possível remover da fila.", error.code === "22023" ? 409 : 500);
 }
+
+/** Vitrine da extensão (carrinho nas lojas): liberação por conta, nasce desligada. */
+export async function isExtensaoVitrineEnabled(accountId: string) {
+  const { data } = await supabaseAdmin().from("accounts").select("extensao_vitrine_enabled").eq("id", accountId).maybeSingle();
+  return data?.extensao_vitrine_enabled === true;
+}

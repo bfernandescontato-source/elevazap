@@ -10,3 +10,19 @@ export type CatalogProduct = {
   ml_category?: string; sales?: number; rating_star?: number; discount_rate?: number; is_hot?: boolean;
   is_full?: boolean; free_shipping?: boolean; seller_name?: string; captured_at: string;
 };
+
+// Vitrine (carrinho nas lojas). Mensagens entre content script, service worker e painel.
+export const VITRINE_STATUS = "DISPAREI_VITRINE_STATUS";
+export const VITRINE_ENVIAR = "DISPAREI_VITRINE_ENVIAR";
+export const VITRINE_BUSCA_SHOPEE = "DISPAREI_VITRINE_BUSCA_SHOPEE";
+export const VITRINE_ALTERNAR_PAINEL = "DISPAREI_VITRINE_ALTERNAR_PAINEL";
+export const CARRINHO_KEY = "dispareiVitrineCarrinho";
+export const ENVIO_KEY = "dispareiVitrineEnvio";
+export const CARRINHO_MAXIMO = 500;
+export type VitrineStatus = { conectada: boolean; liberada: boolean; painel: string };
+export type ModoDeEnvio = "lote" | "agora";
+
+// Painel da Disparei (página /catalogo/extensao) <-> disparei-bridge.
+export const PAGINA_PEDIR_ENVIO = "DISPAREI_VITRINE_PEDIR_ENVIO";
+export const PAGINA_ENVIO = "DISPAREI_VITRINE_ENVIO";
+export const PAGINA_ENVIADOS = "DISPAREI_VITRINE_ENVIADOS";

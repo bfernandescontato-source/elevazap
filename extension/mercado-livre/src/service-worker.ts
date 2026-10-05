@@ -1,4 +1,4 @@
-import { CONNECT, GENERATE, IMPORT_CATALOG, type CatalogProduct, type Config, type Job } from "./shared.js";
+import { CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VITRINE_ENVIAR, VITRINE_STATUS, type CatalogProduct, type Config, type Job, type VitrineStatus } from "./shared.js";
 
 const CONFIG_KEY = "dispareiMercadoLivre";
 const LINK_BUILDER = "https://www.mercadolivre.com.br/afiliados/linkbuilder";
@@ -96,7 +96,49 @@ async function poll() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// Vitrine: liberada por conta no painel (accounts.extensao_vitrine_enabled).
+// A resposta fica guardada 15 min para cada aba de loja não bater no servidor.
+const VITRINE_CACHE_KEY = "dispareiVitrineStatus";
+const VITRINE_CACHE_MS = 15 * 60_000;
+async function vitrineStatus(): Promise<VitrineStatus> {
+  const config = await getConfig();
+  if (!config) return { conectada: false, liberada: false, painel: "https://www.disparei.pro" };
+  const cached = (await chrome.storage.local.get(VITRINE_CACHE_KEY))[VITRINE_CACHE_KEY] as (VitrineStatus & { em: number; token: string }) | undefined;
+  if (cached && cached.token === config.extensionToken.slice(0, 8) && Date.now() - cached.em < VITRINE_CACHE_MS) return cached;
+  let liberada = false;
+  try { liberada = (await api(config, "/api/extensao/vitrine")).liberada === true; }
+  catch { if (cached) return cached; } // servidor fora do ar: mantém a última resposta
+  const status = { conectada: true, liberada, painel: config.backendOrigin };
+  await chrome.storage.local.set({ [VITRINE_CACHE_KEY]: { ...status, em: Date.now(), token: config.extensionToken.slice(0, 8) } });
+  return status;
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === VITRINE_STATUS) {
+    void vitrineStatus().then(sendResponse).catch(() => sendResponse({ conectada: false, liberada: false }));
+    return true;
+  }
+  if (message?.type === VITRINE_ENVIAR) {
+    void (async () => {
+      const status = await vitrineStatus();
+      if (!status.liberada) throw new Error("A Vitrine não está liberada para esta conta.");
+      const itens = Array.isArray(message.itens) ? message.itens.slice(0, 500) : [];
+      if (!itens.length) throw new Error("Carrinho vazio.");
+      const modo = message.modo === "agora" ? "agora" : "lote";
+      // A página /catalogo/extensao pede esse envio ao disparei-bridge assim que abre.
+      await chrome.storage.local.set({ [ENVIO_KEY]: { modo, itens, criadoEm: Date.now() } });
+      await chrome.tabs.create({ url: `${status.painel}/catalogo/extensao?modo=${modo}`, active: true });
+      return { ok: true };
+    })().then(sendResponse).catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Falha ao abrir a Disparei." }));
+    return true;
+  }
+  if (message?.type === VITRINE_BUSCA_SHOPEE) {
+    const tabId = sender.tab?.id;
+    if (!tabId || !/^https:\/\/([a-z0-9-]+\.)?shopee\.com(\.br)?\//i.test(sender.tab?.url || "")) { sendResponse({ ok: false }); return false; }
+    void chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["dist/shopee-page.js"] })
+      .then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === IMPORT_CATALOG) {
     void (async () => {
       const config = await getConfig();
@@ -112,6 +154,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const response = await fetch(`${message.backendOrigin}/api/piloto-automatico/mercado-livre/extension/connect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: message.nonce }) });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Não foi possível vincular a extensão.");
+    await chrome.storage.local.remove(VITRINE_CACHE_KEY);
     await chrome.storage.local.set({ [CONFIG_KEY]: { backendOrigin: message.backendOrigin, extensionToken: body.extension_token, connectedAt: new Date().toISOString() } satisfies Config });
     await ensurePolling();
     await poll();

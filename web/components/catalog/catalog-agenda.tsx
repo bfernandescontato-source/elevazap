@@ -26,6 +26,8 @@ const matchesFilter = (item: Item, filter: typeof FILTERS[number][0]) =>
   filter === "all" || (filter === "pending" && ["programado", "enviando", "pausado"].includes(item.status)) ||
   (filter === "sent" && ["enviado", "parcial"].includes(item.status)) || (filter === "failed" && ["erro", "parcial", "incerto"].includes(item.status));
 
+const PROVIDER_BADGE: Record<string, [string, string]> = { MERCADO_LIVRE: ["ML", "bg-[#ffe600] text-black"], SHOPEE: ["SHOPEE", "bg-[#ee4d2d] text-white"], AMAZON: ["AMAZON", "bg-[#232f3e] text-white"], MAGALU: ["MAGALU", "bg-[#0086ff] text-white"] };
+
 export function CatalogAgenda() {
   const today = brasiliaDate();
   const [day, setDay] = useState(today);
@@ -116,7 +118,7 @@ export function CatalogAgenda() {
 
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap gap-2"><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)} className="focus-ring h-9 rounded-full border border-line bg-white px-3 text-sm">{FILTERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
-        <select value={provider} onChange={e => setProvider(e.target.value)} className="focus-ring h-9 rounded-full border border-line bg-white px-3 text-sm"><option value="ALL">Todos os marketplaces</option><option value="SHOPEE">Shopee</option><option value="MERCADO_LIVRE">Mercado Livre</option></select></div>
+        <select value={provider} onChange={e => setProvider(e.target.value)} className="focus-ring h-9 rounded-full border border-line bg-white px-3 text-sm"><option value="ALL">Todos os marketplaces</option><option value="SHOPEE">Shopee</option><option value="MERCADO_LIVRE">Mercado Livre</option><option value="AMAZON">Amazon</option><option value="MAGALU">Magalu</option></select></div>
       {upcoming.length ? <div className="flex flex-wrap items-center gap-2 text-sm">
         {day === today ? <button disabled={!!busy} onClick={startNow} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><Clock size={15}/> Começar agora</button> : null}
         <button disabled={!!busy} onClick={spreadDay} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><CalendarDays size={15}/> Espalhar 07h–22h</button>
@@ -158,7 +160,7 @@ function AgendaRow({ item, busy, disabled, messageOpen, onToggleMessage, onTime,
         <div className="min-w-0">
           <p className="line-clamp-2 text-sm font-medium">{item.productName}</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-            <span className={`rounded-full px-2 py-0.5 font-bold ${item.provider === "MERCADO_LIVRE" ? "bg-[#ffe600] text-black" : "bg-[#ee4d2d] text-white"}`}>{item.provider === "MERCADO_LIVRE" ? "ML" : "SHOPEE"}</span>
+            <span className={`rounded-full px-2 py-0.5 font-bold ${PROVIDER_BADGE[item.provider]?.[1] || PROVIDER_BADGE.SHOPEE[1]}`}>{PROVIDER_BADGE[item.provider]?.[0] || item.provider}</span>
             {item.originalPrice && item.price && item.originalPrice > item.price ? <span className="line-through">{money(item.originalPrice)}</span> : null}
             <strong className="text-ink">{money(item.price)}</strong>
             <span>· {item.groupCount} {item.groupCount === 1 ? "grupo" : "grupos"}</span>
