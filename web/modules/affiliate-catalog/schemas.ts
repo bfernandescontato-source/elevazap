@@ -40,7 +40,11 @@ export const agendaDuplicatesSchema = z.object({
 export const agendaRescheduleSchema = z.object({
   changes: z.array(z.object({ id: z.string().uuid(), scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(200)
 });
-export const agendaCancelSchema = z.object({ id: z.string().uuid() });
+export const agendaCancelSchema = z.union([
+  z.object({ id: z.string().uuid() }),
+  // "Tirar da fila": todas as ofertas ainda não enviadas do dia na tela.
+  z.object({ ids: z.array(z.string().uuid()).min(1).max(200) })
+]);
 
 export function isConfirmedAffiliateUrl(provider: "SHOPEE" | "MERCADO_LIVRE", value?: string) {
   if (!value) return false;

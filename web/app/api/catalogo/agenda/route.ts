@@ -44,6 +44,19 @@ export async function DELETE(request: NextRequest) {
   if (!await isCatalogAgendaEnabled(context.accountId)) return disabled();
   const parsed = agendaCancelSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Oferta inválida." }, { status: 400 });
-  try { await cancelCatalogOffer(context.accountId, parsed.data.id); return NextResponse.json({ ok: true }); }
-  catch (error) { return failure(error); }
+  if ("id" in parsed.data) {
+    try { await cancelCatalogOffer(context.accountId, parsed.data.id); return NextResponse.json({ ok: true }); }
+    catch (error) { return failure(error); }
+  }
+  // Várias de uma vez: uma chamada curta por oferta (limite de 8 s do banco) e
+  // o resultado de cada uma, para uma que já saiu não esconder as removidas.
+  const results = [];
+  for (const id of parsed.data.ids) {
+    try { await cancelCatalogOffer(context.accountId, id); results.push({ id, ok: true }); }
+    catch (error) {
+      if (!(error instanceof CatalogDispatchError)) throw error;
+      results.push({ id, ok: false, error: error.message });
+    }
+  }
+  return NextResponse.json({ results });
 }

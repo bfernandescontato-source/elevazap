@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addDays, brasiliaDate, brasiliaInstant, brasiliaTime, everyInterval, sameTimeTomorrow, spreadAcrossDays, spreadInDay } from "../modules/affiliate-catalog/schedule-plan";
-import { buildCatalogOfferMessage } from "../modules/affiliate-catalog/offer-message";
-import { bulkScheduleSchema } from "../modules/affiliate-catalog/schemas";
+import { buildCatalogOfferMessage, catalogMessageRandom } from "../modules/affiliate-catalog/offer-message";
+import { agendaCancelSchema, bulkScheduleSchema } from "../modules/affiliate-catalog/schemas";
 
 const times = (dates: Date[] | null) => (dates || []).map(brasiliaTime);
 const offer = { provider: "SHOPEE" as const, externalItemId: "1", name: "Fone Bluetooth X", priceMin: 89.9, affiliateUrl: "https://s.shopee.com.br/abc" };
@@ -62,5 +62,35 @@ describe("agenda do catálogo — mensagem automática", () => {
     const base = { senderId: "00000000-0000-4000-8000-000000000000", groupJids: ["1@g.us"] };
     expect(bulkScheduleSchema.safeParse({ ...base, items: Array(10).fill(item) }).success).toBe(true);
     expect(bulkScheduleSchema.safeParse({ ...base, items: Array(11).fill(item) }).success).toBe(false);
+  });
+});
+
+describe("prévia da mensagem e tirar da fila", () => {
+  it("a prévia e o agendamento sorteiam o mesmo gancho para o produto no dia", () => {
+    const preview = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, "2026-10-06"));
+    const sent = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date("2026-10-06T15:40:00-03:00"))));
+    expect(sent).toBe(preview);
+  });
+
+  it("o gancho varia entre produtos e dias e fica entre 0 e 1", () => {
+    const hooks = new Set<string>();
+    for (let day = 1; day <= 20; day++) hooks.add(buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, `2026-10-${String(day).padStart(2, "0")}`)).split("\n")[0]);
+    expect(hooks.size).toBeGreaterThan(3);
+    const random = catalogMessageRandom({ provider: "MERCADO_LIVRE", externalItemId: "MLB123" }, "2026-10-06");
+    for (let i = 0; i < 1000; i++) { const value = random(); expect(value).toBeGreaterThanOrEqual(0); expect(value).toBeLessThan(1); }
+  });
+
+  it("a prévia do Mercado Livre mostra o marcador no lugar do link", () => {
+    const message = buildCatalogOfferMessage({ ...offer, provider: "MERCADO_LIVRE", affiliateUrl: undefined }, "[seu link de afiliado]", catalogMessageRandom(offer, "2026-10-06"));
+    expect(message).toContain("[seu link de afiliado]");
+  });
+
+  it("tirar da fila aceita uma oferta ou várias (até 200)", () => {
+    const id = "6f1c2b0e-8a7d-4c3b-9e2f-1a2b3c4d5e6f";
+    expect(agendaCancelSchema.safeParse({ id }).success).toBe(true);
+    expect(agendaCancelSchema.safeParse({ ids: [id, id] }).success).toBe(true);
+    expect(agendaCancelSchema.safeParse({ ids: [] }).success).toBe(false);
+    expect(agendaCancelSchema.safeParse({ ids: Array(201).fill(id) }).success).toBe(false);
+    expect(agendaCancelSchema.safeParse({ ids: ["nao-e-uuid"] }).success).toBe(false);
   });
 });

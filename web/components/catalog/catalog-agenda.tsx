@@ -80,6 +80,22 @@ export function CatalogAgenda() {
     finally { setBusy(null); await load(true); }
   };
 
+  // "Tirar da fila": as programadas que estão na tela (respeita os filtros).
+  const removable = visible.filter(item => item.status === "programado");
+  const removeAll = async () => {
+    if (!removable.length) return;
+    if (!window.confirm(`Tirar ${removable.length} ${removable.length === 1 ? "oferta" : "ofertas"} de ${dayTitle.toLowerCase()} da fila? Os envios que ainda não saíram serão cancelados.`)) return;
+    setBusy("remove-all"); setNotice("");
+    try {
+      const response = await fetch("/api/catalogo/agenda", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: removable.map(item => item.id) }) });
+      const body = await response.json(); if (!response.ok) throw new Error(body.error || "Não foi possível tirar da fila.");
+      const failed = (body.results as Array<{ ok: boolean; error?: string }>).filter(result => !result.ok);
+      const removed = removable.length - failed.length;
+      setNotice(failed.length ? `${removed} tirada(s) da fila; ${failed.length} não saiu: ${failed[0].error}` : `${removed} ${removed === 1 ? "oferta tirada" : "ofertas tiradas"} da fila.`);
+    } catch (current) { setNotice(current instanceof Error ? current.message : "Não foi possível tirar da fila."); }
+    finally { setBusy(null); await load(true); }
+  };
+
   // Ações em massa valem só para as ofertas que ainda não saíram, na ordem atual.
   const startNow = () => { const slots = spreadInDay(upcoming.length, today); if (!slots) return setNotice("Hoje já passou das 22h."); void apply("start", upcoming.map((item, i) => ({ id: item.id, scheduledAt: slots[i].toISOString() }))); };
   const spreadDay = () => { const slots = spreadInDay(upcoming.length, day); if (!slots) return setNotice("Não sobra horário entre 07h e 22h neste dia."); void apply("spread", upcoming.map((item, i) => ({ id: item.id, scheduledAt: slots[i].toISOString() }))); };
@@ -105,6 +121,7 @@ export function CatalogAgenda() {
         {day === today ? <button disabled={!!busy} onClick={startNow} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><Clock size={15}/> Começar agora</button> : null}
         <button disabled={!!busy} onClick={spreadDay} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 disabled:opacity-40"><CalendarDays size={15}/> Espalhar 07h–22h</button>
         <button disabled={!!busy} onClick={() => setShowRedistribute(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 disabled:opacity-40 ${showRedistribute ? "border-primary bg-primary text-white" : "border-line bg-white"}`}><Shuffle size={15}/> Redistribuir</button>
+        {removable.length ? <button disabled={!!busy} onClick={() => void removeAll()} className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-red-700 disabled:opacity-40">{busy === "remove-all" ? <Loader2 className="animate-spin" size={15}/> : <Trash2 size={15}/>} Tirar {removable.length} da fila</button> : null}
       </div> : null}
     </div>
     {showRedistribute && upcoming.length ? <RedistributePanel day={day} today={today} items={upcoming} busy={!!busy} onClose={() => setShowRedistribute(false)} onApply={async changes => { await apply("days", changes); setShowRedistribute(false); }}/> : null}

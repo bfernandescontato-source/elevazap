@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, Check, Loader2, Search, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { LinkGenerating } from "@/components/catalog/link-generating";
+import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
 import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
 import { addDays, brasiliaDate, brasiliaTime, everyInterval, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
 
@@ -15,6 +16,8 @@ const TARGET_KEY = "disparei.catalog.bulkTarget";
 const CHUNK = 5;
 const offerKey = (offer: AffiliateOffer) => `${offer.provider}:${offer.externalItemId}`;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Link do Mercado Livre só existe depois de gerado; na prévia fica este marcador.
+const LINK_PLACEHOLDER = "[seu link de afiliado]";
 
 function readSavedTarget(): { senderId?: string; groupJids?: string[]; imageMode?: string } {
   try { return JSON.parse(localStorage.getItem(TARGET_KEY) || "{}"); } catch { return {}; }
@@ -50,6 +53,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
   const [dayChoice, setDayChoice] = useState<DayChoice>(initialDay); const [customDay, setCustomDay] = useState(addDays(brasiliaDate(), 1));
   const [timing, setTiming] = useState<"spread" | "interval">("spread"); const [firstTime, setFirstTime] = useState("08:00"); const [interval, setIntervalMinutes] = useState(30);
   const [duplicates, setDuplicates] = useState<Set<string>>(new Set()); const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [openMessage, setOpenMessage] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({}); const [running, setRunning] = useState(false); const [finished, setFinished] = useState(false); const [error, setError] = useState("");
 
   const today = brasiliaDate();
@@ -137,11 +141,13 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
         {linkIndex >= 0 && <div className="mt-3"><LinkGenerating current={linkIndex + 1} total={needLink.length}/></div>}
         {running && linkIndex < 0 && <p className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-wash p-3 text-sm"><Loader2 className="animate-spin" size={16}/> Salvando agendamentos... {doneCount} de {toSchedule.length} prontos.</p>}
         <ol className="mt-3 flex-1 space-y-2 overflow-y-auto">{offers.map(offer => { const key = offerKey(offer); const index = toSchedule.indexOf(offer); const row = rows[key]; const skipped = index < 0;
-          return <li key={key} className={`flex items-center gap-3 rounded-lg border p-2 text-sm ${skipped ? "border-dashed border-line opacity-50" : "border-line"}`}>
+          return <li key={key} className={`rounded-lg border p-2 text-sm ${skipped ? "border-dashed border-line opacity-50" : "border-line"}`}><div className="flex items-center gap-3">
             <span className="w-12 shrink-0 text-center font-semibold tabular-nums">{row?.state === "done" ? row.detail : skipped || !slots ? "—" : brasiliaTime(slots[index])}</span>
             {offer.imageUrl ? <img src={offer.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded object-contain"/> : null}
             <span className="min-w-0 flex-1"><span className="line-clamp-1">{offer.name}</span>{skipped ? <span className="text-xs text-muted">Já agendada neste dia</span> : duplicates.has(key) ? <span className="flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={12}/> Já agendada neste dia</span> : row?.detail && row.state !== "done" ? <span className={`text-xs ${row.state === "failed" ? "text-red-700" : "text-muted"}`}>{row.detail}</span> : null}</span>
+            <button type="button" onClick={() => setOpenMessage(openMessage === key ? null : key)} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs ${openMessage === key ? "border-primary bg-wash" : "border-line"}`} aria-expanded={openMessage === key}><MessageSquareText size={14}/> Mensagem</button>
             <span className="shrink-0">{row?.state === "done" ? <Check className="text-emerald-600" size={18}/> : row?.state === "failed" ? <X className="text-red-600" size={18}/> : row && row.state !== "waiting" ? <Loader2 className="animate-spin text-muted" size={18}/> : null}</span>
+          </div>{openMessage === key ? <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-[#e9f7ee] p-3 font-sans text-sm leading-6">{buildCatalogOfferMessage(offer, offer.affiliateUrl || LINK_PLACEHOLDER, catalogMessageRandom(offer, day))}</pre> : null}
           </li>; })}</ol>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         {finished ? <div className="mobile-action-bar mt-4 space-y-2"><div className={`rounded-xl border p-4 text-sm ${doneCount ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-800"}`}><p className="flex items-center gap-2 text-base font-semibold">{doneCount ? <Check size={20}/> : <X size={20}/>}{doneCount ? `${doneCount} ${doneCount === 1 ? "produto agendado" : "produtos agendados"}!` : "Nenhum produto foi agendado."}</p>{failedCount ? <p className="mt-1">{failedCount} com erro — veja o motivo na lista acima.</p> : null}{doneCount ? <p className="mt-1">Acompanhe e ajuste os horários na aba <a href="/catalogo/agenda" className="font-medium underline">Agenda</a>.</p> : null}</div><button onClick={onClose} className="h-12 w-full rounded-lg bg-primary font-medium text-white">Fechar</button></div>

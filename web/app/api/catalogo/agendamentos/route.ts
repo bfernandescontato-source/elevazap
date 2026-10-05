@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
-import { buildCatalogOfferMessage } from "@/modules/affiliate-catalog/offer-message";
+import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
+import { brasiliaDate } from "@/modules/affiliate-catalog/schedule-plan";
 import { agendaDuplicatesSchema, bulkScheduleSchema } from "@/modules/affiliate-catalog/schemas";
 import { isCatalogAgendaEnabled, scheduledItemKeys } from "@/modules/affiliate-catalog/server/catalog-agenda-service";
 import { CatalogDispatchError, createCatalogDispatch, resolveCatalogTarget } from "@/modules/affiliate-catalog/server/catalog-dispatch-service";
@@ -26,7 +27,8 @@ export async function POST(request: NextRequest) {
     const key = `${offer.provider}:${offer.externalItemId}`;
     try {
       if (!offer.affiliateUrl) throw new CatalogDispatchError("Link afiliado ainda não gerado.", 400);
-      const message = buildCatalogOfferMessage(offer, offer.affiliateUrl);
+      // Mesmo sorteio da prévia (produto + dia), para sair o texto que a pessoa viu.
+      const message = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date(scheduledAt))));
       const created = await createCatalogDispatch({ accountId: context.accountId, userId: context.session.userId ?? null, offer, message, target, imageMode, scheduledAt });
       results.push({ key, ok: true, agendaId: created.agendaId, scheduledAt: created.scheduledAt });
     } catch (error) {
