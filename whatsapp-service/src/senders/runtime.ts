@@ -40,7 +40,22 @@ async function persistRuntimeStatus(senderId: string, leaseVersion: number, stat
   if (persistError) throw persistError;
 }
 
-async function startSender(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {
+// Sessões em criação por número. createWhatsAppSession demora (credenciais +
+// versão do WhatsApp) e o mapa `senders` só recebe a sessão no fim: duas
+// chamadas ao mesmo tempo (renovação de lease + QR pelo painel) criavam duas
+// sessões e a primeira ficava órfã, fora do mapa, sem ninguém para pará-la,
+// pedindo QR a cada ~3 min para sempre (conta cc8e9296, 05/10).
+const startingSenders = new Map<string, Promise<SenderSession>>();
+
+function startSender(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {
+  const pending = startingSenders.get(sender.session_name);
+  if (pending) return pending;
+  const promise = startSenderNow(sender, leaseVersion).finally(() => startingSenders.delete(sender.session_name));
+  startingSenders.set(sender.session_name, promise);
+  return promise;
+}
+
+async function startSenderNow(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {
   const current = senders.get(sender.session_name);
   if (current?.leaseVersion === leaseVersion) return current;
   if (current) {
