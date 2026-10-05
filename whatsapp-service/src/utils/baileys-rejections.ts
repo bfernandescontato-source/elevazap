@@ -36,6 +36,17 @@ export function isTimedOutQueryRejection(reason: unknown): boolean {
   return Boolean(boom?.isBoom && boom.output?.statusCode === 408 && boom.message === "Timed Out");
 }
 
+/**
+ * Same family again (2026-10-05, 4 crashes in 20 min): Baileys' waitForMessage
+ * listens to the socket "close" event as its error callback, so when the socket
+ * closes mid-query (e.g. "Stream Errored (conflict)") the query rejects with the
+ * raw WebSocket close code (1006) instead of the Boom "Connection Closed" it
+ * uses when no code is given. Same meaning, same handling.
+ */
+export function isWebSocketCloseCodeRejection(reason: unknown): boolean {
+  return typeof reason === "number" && Number.isInteger(reason) && reason >= 1000 && reason <= 4999;
+}
+
 export function installBaileysRejectionGuard() {
   process.on("uncaughtExceptionMonitor", (error, origin) => {
     try {
@@ -47,6 +58,10 @@ export function installBaileysRejectionGuard() {
   process.on("unhandledRejection", (reason) => {
     if (isClosedSocketRejection(reason)) {
       console.warn({ event: "whatsapp.closed_socket_rejection_ignored", component: "runtime" });
+      return;
+    }
+    if (isWebSocketCloseCodeRejection(reason)) {
+      console.warn({ event: "whatsapp.socket_close_code_rejection_ignored", component: "runtime", code: reason });
       return;
     }
     if (isTimedOutQueryRejection(reason)) {

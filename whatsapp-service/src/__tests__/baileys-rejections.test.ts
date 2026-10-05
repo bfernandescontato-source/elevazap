@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Boom } from "@hapi/boom";
-import { isClosedSocketRejection, isTimedOutQueryRejection } from "../utils/baileys-rejections.js";
+import { isClosedSocketRejection, isTimedOutQueryRejection, isWebSocketCloseCodeRejection } from "../utils/baileys-rejections.js";
 
 describe("rejeições de socket fechado do Baileys", () => {
   it("reconhece só o Connection Closed (428)", () => {
@@ -16,5 +16,16 @@ describe("rejeições de socket fechado do Baileys", () => {
     expect(isTimedOutQueryRejection(new Boom("Timed Out", { statusCode: 500 }))).toBe(false);
     expect(isTimedOutQueryRejection(new Error("Timed Out"))).toBe(false);
     expect(isTimedOutQueryRejection(undefined)).toBe(false);
+  });
+
+  it("reconhece o código de fechamento do WebSocket (1006) vindo de consulta", () => {
+    expect(isWebSocketCloseCodeRejection(1006)).toBe(true);
+    expect(isWebSocketCloseCodeRejection(1000)).toBe(true);
+    expect(isWebSocketCloseCodeRejection(999)).toBe(false);
+    expect(isWebSocketCloseCodeRejection(5000)).toBe(false);
+    expect(isWebSocketCloseCodeRejection(1006.5)).toBe(false);
+    expect(isWebSocketCloseCodeRejection("1006")).toBe(false);
+    expect(isWebSocketCloseCodeRejection(new Error("1006"))).toBe(false);
+    expect(isWebSocketCloseCodeRejection(undefined)).toBe(false);
   });
 });
