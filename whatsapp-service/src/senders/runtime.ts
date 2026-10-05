@@ -44,7 +44,7 @@ async function persistRuntimeStatus(senderId: string, leaseVersion: number, stat
 // versão do WhatsApp) e o mapa `senders` só recebe a sessão no fim: duas
 // chamadas ao mesmo tempo (renovação de lease + QR pelo painel) criavam duas
 // sessões e a primeira ficava órfã, fora do mapa, sem ninguém para pará-la,
-// pedindo QR a cada ~3 min para sempre (conta cc8e9296, 05/10).
+// pedindo QR a cada ~3 min para sempre.
 const startingSenders = new Map<string, Promise<SenderSession>>();
 
 function startSender(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {

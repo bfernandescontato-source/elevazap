@@ -35,7 +35,7 @@ export default function DownloadExtensionPage() {
               <Download size={18} />
               Baixar extensão
             </a>
-            <p className="mt-3 text-sm text-zinc-500">Arquivo ZIP · aproximadamente 4,5 MB</p>
+            <p className="mt-3 text-sm text-zinc-500">Arquivo ZIP</p>
 
             <div className="my-9 h-px bg-zinc-200" />
 

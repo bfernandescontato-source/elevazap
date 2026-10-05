@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Disparei — Mercado Livre",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Conecta o Mercado Livre à Disparei, importa o catálogo e gera links de afiliado.",
   "permissions": ["alarms", "storage", "tabs"],
   "host_permissions": ["https://*.mercadolivre.com.br/*", "https://meli.la/*", "https://*.disparei.pro/*"],
