@@ -27,9 +27,6 @@ export default function CatalogPage() {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS); const [showFilters, setShowFilters] = useState(false);
   const favorites = useFavorites();
   // Nichos em destaque ficam nos botões; os demais em "Mais nichos" (com busca).
-  const hasFeatured = categories.some(category => category.featured);
-  const visibleCategories = hasFeatured ? categories.filter(category => category.id === null || category.featured || category.id === categoryId) : categories;
-  const moreCategories = hasFeatured ? categories.filter(category => category.id !== null && !category.featured) : [];
   const pickCategory = (id: string | null) => { setCategoryId(id); if (id !== null && provider === "ALL") setProvider("SHOPEE"); };
   const visibleOffers = useMemo(() => filterOffers(offers, filters), [offers, filters]);
   const togglePick = (offer: AffiliateOffer) => setPicked(old => { const next = new Map(old); const key = offerKey(offer); if (next.has(key)) next.delete(key); else next.set(key, offer); return next; });
@@ -48,7 +45,7 @@ export default function CatalogPage() {
       {agendaEnabled ? <CatalogTabs active="catalogo"/> : null}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div className="relative max-w-2xl flex-1"><Search className="absolute left-4 top-3.5 text-muted" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produtos, marcas ou categorias..." className="focus-ring h-12 w-full rounded-xl border border-line bg-white pl-11 pr-4 text-sm shadow-sm" /></div><div className="inline-flex w-fit rounded-xl border border-line bg-white p-1">{[["ALL","Todos"],["SHOPEE","Shopee"],["MERCADO_LIVRE","Mercado Livre"],["AMAZON","Amazon"]].map(([id,label])=><button key={id} onClick={()=>{setProvider(id as CatalogProviderFilter);setCategoryId(null);}} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${provider===id?"bg-primary text-white":"text-muted"}`}><ShoppingBag size={15}/>{label}</button>)}</div></div>
       {providerWarning ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{providerWarning}</div> : null}
-      <div className="flex items-start gap-2"><div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">{visibleCategories.map(category => <button key={String(category.id)} onClick={() => pickCategory(category.id)} className={`shrink-0 rounded-full border px-4 py-2 text-sm transition ${categoryId === category.id ? "border-primary bg-primary text-white" : "border-line bg-white text-muted hover:border-zinc-400"}`}>{category.label}</button>)}</div>{moreCategories.length ? <NichePicker niches={moreCategories} selected={categoryId} onPick={pickCategory}/> : null}</div>
+      {categories.length > 1 ? <div className="flex items-center gap-2"><CategoryDropdown categories={categories} selected={categoryId} onPick={pickCategory}/></div> : null}
       <div className="flex items-end justify-between gap-2 border-b border-line"><div className="flex gap-2 overflow-x-auto">{[["top","🔥 Melhor Performance"],["sold","🛒 Mais Vendidos"],["commission","💰 Maior Comissão"]].map(([id,label]) => <button key={id} onClick={() => setListing(id)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-medium ${listing === id ? "border-primary text-ink" : "border-transparent text-muted"}`}>{label}</button>)}</div><div className="mb-2 flex shrink-0 items-center gap-2">{agendaEnabled ? <button onClick={() => setShowFilters(value => !value)} className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm ${showFilters || Object.values(filters).some(Boolean) ? "border-primary" : "border-line"}`}><SlidersHorizontal size={15}/> Filtros</button> : null}</div></div>
       {agendaEnabled && showFilters ? <OfferFilters value={filters} onChange={setFilters}/> : null}
       {agendaEnabled && offers.length ? <div className="flex flex-wrap items-center gap-3 text-sm"><button disabled={!visibleOffers.length} onClick={pickAllVisible} className="rounded-lg border border-line bg-white px-3 py-2 disabled:opacity-40">Selecionar todos os carregados ({visibleOffers.length})</button>{picked.size ? <button onClick={() => setPicked(new Map())} className="text-muted underline">Limpar seleção</button> : null}{visibleOffers.length < offers.length ? <span className="text-xs text-muted">{offers.length - visibleOffers.length} escondidos pelos filtros</span> : null}</div> : null}
@@ -119,16 +116,25 @@ function useFavorites() {
   };
 }
 
-function NichePicker({ niches, selected, onPick }: { niches: Category[]; selected: string | null; onPick: (id: string) => void }) {
+// Seletor \u00fanico de categorias (clica, abre a lista, seleciona). Serve para todos
+// os marketplaces; inclui a op\u00e7\u00e3o "Todas".
+function CategoryDropdown({ categories, selected, onPick }: { categories: Category[]; selected: string | null; onPick: (id: string | null) => void }) {
   const [open, setOpen] = useState(false); const [query, setQuery] = useState("");
   useEffect(() => { if (!open) return; const close = () => setOpen(false); window.addEventListener("click", close); return () => window.removeEventListener("click", close); }, [open]);
   const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const filtered = niches.filter(niche => normalize(niche.label).includes(normalize(query)));
-  return <div className="relative shrink-0" onClick={event => event.stopPropagation()}>
-    <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition ${open ? "border-primary text-primary" : "border-line bg-white text-muted hover:border-zinc-400"}`}>Mais nichos <ChevronDown size={15}/></button>
-    {open ? <div className="absolute right-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-xl border border-line bg-panel shadow-soft">
-      <div className="border-b border-line p-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar nicho" className="focus-ring h-10 w-full rounded-lg border border-line bg-white px-3 text-sm"/></div>
-      <div className="max-h-72 overflow-y-auto py-1">{filtered.length ? filtered.map(niche => <button key={String(niche.id)} type="button" onClick={() => { onPick(String(niche.id)); setOpen(false); setQuery(""); }} className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-wash ${selected === niche.id ? "font-semibold text-primary" : "text-ink"}`}>{niche.label}{selected === niche.id ? <Check size={15}/> : null}</button>) : <p className="px-4 py-3 text-sm text-muted">Nenhum nicho encontrado.</p>}</div>
+  const reais = categories.filter(category => category.id !== null);
+  const filtered = reais.filter(category => normalize(category.label).includes(normalize(query)));
+  const atual = categories.find(category => category.id === selected);
+  const rotulo = selected === null || !atual ? "Todas as categorias" : atual.label;
+  return <div className="relative w-full sm:w-72" onClick={event => event.stopPropagation()}>
+    <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} className={`inline-flex w-full items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm transition ${open || selected !== null ? "border-primary text-primary" : "border-line bg-white text-ink hover:border-zinc-400"}`}><span className="truncate">{rotulo}</span><ChevronDown size={16} className={open ? "rotate-180 transition" : "transition"}/></button>
+    {open ? <div className="absolute left-0 top-full z-30 mt-2 w-full overflow-hidden rounded-xl border border-line bg-panel shadow-soft sm:w-80">
+      <div className="border-b border-line p-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar categoria" className="focus-ring h-10 w-full rounded-lg border border-line bg-white px-3 text-sm"/></div>
+      <div className="max-h-80 overflow-y-auto py-1">
+        <button type="button" onClick={() => { onPick(null); setOpen(false); setQuery(""); }} className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-wash ${selected === null ? "font-semibold text-primary" : "text-ink"}`}>Todas as categorias{selected === null ? <Check size={15}/> : null}</button>
+        {filtered.map(category => <button key={String(category.id)} type="button" onClick={() => { onPick(category.id); setOpen(false); setQuery(""); }} className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-wash ${selected === category.id ? "font-semibold text-primary" : "text-ink"}`}>{category.label}{selected === category.id ? <Check size={15}/> : null}</button>)}
+        {!filtered.length ? <p className="px-4 py-3 text-sm text-muted">Nenhuma categoria encontrada.</p> : null}
+      </div>
     </div> : null}
   </div>;
 }
