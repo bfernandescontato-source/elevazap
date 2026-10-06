@@ -106,12 +106,15 @@ async function coletaDiaria(forcar = false) {
     // Amazon: busca categoria por categoria (produtos reais) e manda com a comissão estimada.
     const vistos = new Set<string>();
     const amazon: any[] = [];
+    const POR_CATEGORIA = 70; // teto por categoria, para TODAS as categorias caberem
     for (const cat of AMAZON_CATEGORIAS) {
       const produtos = await coletarDaPagina(`https://www.amazon.com.br/s?k=${encodeURIComponent(cat.kw)}`).catch(() => []);
       const agora = new Date().toISOString();
+      let naCategoria = 0;
       for (const p of produtos) {
+        if (naCategoria >= POR_CATEGORIA) break;
         if (!p.itemId || vistos.has(p.itemId) || /mega oferta|oferta do dia/i.test(p.title || "")) continue;
-        vistos.add(p.itemId);
+        vistos.add(p.itemId); naCategoria += 1;
         amazon.push({
           external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
           price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
@@ -120,7 +123,7 @@ async function coletaDiaria(forcar = false) {
       }
     }
     // Uma chamada só por loja: o servidor desativa o que não veio nesta coleta.
-    if (amazon.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "AMAZON", offers: amazon.slice(0, 500) }) }).catch(() => undefined);
+    if (amazon.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "AMAZON", offers: amazon.slice(0, 1200) }) }).catch(() => undefined);
   } finally { coletando = false; }
 }
 async function api(config: Config, path: string, init: RequestInit = {}) {

@@ -19,6 +19,6 @@ export const dailyOfferSchema = z.object({
 
 export const dailyImportSchema = z.object({
   provider: z.enum(["AMAZON", "MAGALU"]),
-  offers: z.array(dailyOfferSchema).min(1).max(500)
+  offers: z.array(dailyOfferSchema).min(1).max(1200)
 });
 export type DailyOffer = z.infer<typeof dailyOfferSchema>;
