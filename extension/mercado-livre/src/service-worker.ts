@@ -128,6 +128,7 @@ async function coletaDiaria(forcar = false) {
   coletando = true;
   try {
     await chrome.storage.local.set({ [COLETA_ULTIMA_KEY]: new Date().toISOString().slice(0, 10) });
+    const status = await vitrineStatus().catch(() => null);
     // Mercado Livre: o servidor puxa a central de afiliados (com a comissão), sem abrir o ML.
     await api(config, "/api/catalog/mercado-livre/hub-sync", { method: "POST", body: "{}" }).catch(() => undefined);
     // Amazon: busca categoria por categoria (produtos reais) e manda com a comissão estimada.
@@ -151,6 +152,23 @@ async function coletaDiaria(forcar = false) {
     }
     // Uma chamada só por loja: o servidor desativa o que não veio nesta coleta.
     if (amazon.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "AMAZON", offers: amazon.slice(0, 1200) }) }).catch(() => undefined);
+
+    // Magalu: coleta na loja Magazine Você do afiliado (os links de lá já são de afiliado).
+    if (status?.magaluStore) {
+      const loja = status.magaluStore;
+      const vistosMg = new Set<string>(); const magalu: any[] = [];
+      for (const cat of AMAZON_CATEGORIAS) {
+        const produtos = await coletarDaPagina(`https://www.magazinevoce.com.br/${loja}/busca/${encodeURIComponent(cat.kw)}/`).catch(() => []);
+        const agora = new Date().toISOString(); let naCat = 0;
+        for (const p of produtos) {
+          if (naCat >= 70) break;
+          if (!p.itemId || vistosMg.has(p.itemId) || !/magazinevoce\.com\.br/i.test(p.originalUrl || "")) continue;
+          vistosMg.add(p.itemId); naCat += 1;
+          magalu.push({ external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined, price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount), product_url: p.originalUrl, category: cat.nome, captured_at: agora });
+        }
+      }
+      if (magalu.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "MAGALU", offers: magalu.slice(0, 1200) }) }).catch(() => undefined);
+    }
 
     // Cupons Shopee: abre as páginas de cupom e captura o que a Shopee carrega.
     const respostasCupons: any[] = [];
@@ -253,10 +271,10 @@ async function vitrineStatus(): Promise<VitrineStatus> {
   if (!config) return { conectada: false, liberada: false, painel: "https://www.disparei.pro" };
   const cached = (await chrome.storage.local.get(VITRINE_CACHE_KEY))[VITRINE_CACHE_KEY] as (VitrineStatus & { em: number; token: string }) | undefined;
   if (cached && cached.token === config.extensionToken.slice(0, 8) && Date.now() - cached.em < VITRINE_CACHE_MS) return cached;
-  let liberada = false;
-  try { liberada = (await api(config, "/api/extensao/vitrine")).liberada === true; }
+  let liberada = false; let magaluStore: string | null = null;
+  try { const r = await api(config, "/api/extensao/vitrine"); liberada = r.liberada === true; magaluStore = r.magaluStore || null; }
   catch { if (cached) return cached; } // servidor fora do ar: mantém a última resposta
-  const status = { conectada: true, liberada, painel: config.backendOrigin };
+  const status = { conectada: true, liberada, painel: config.backendOrigin, magaluStore };
   await chrome.storage.local.set({ [VITRINE_CACHE_KEY]: { ...status, em: Date.now(), token: config.extensionToken.slice(0, 8) } });
   return status;
 }

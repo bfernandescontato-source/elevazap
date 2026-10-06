@@ -19,7 +19,7 @@ export const VITRINE_ALTERNAR_PAINEL = "DISPAREI_VITRINE_ALTERNAR_PAINEL";
 export const CARRINHO_KEY = "dispareiVitrineCarrinho";
 export const ENVIO_KEY = "dispareiVitrineEnvio";
 export const CARRINHO_MAXIMO = 500;
-export type VitrineStatus = { conectada: boolean; liberada: boolean; painel: string };
+export type VitrineStatus = { conectada: boolean; liberada: boolean; painel: string; magaluStore?: string | null };
 export type ModoDeEnvio = "lote" | "agora";
 
 // Painel da Disparei (página /catalogo/extensao) <-> disparei-bridge.
