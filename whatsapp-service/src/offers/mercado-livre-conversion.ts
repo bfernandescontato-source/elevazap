@@ -23,7 +23,7 @@ export class MercadoLivreOfferConverter {
 
   async convert(parsed: ParsedOffer, context: Context, initialText = parsed.text): Promise<MercadoLivreConversionResult> {
     const { data: integration, error } = await this.database.from("affiliate_integrations")
-      .select("id,status,affiliate_tag,extension_token_hash").eq("account_id", context.accountId).eq("provider", "mercado_livre").maybeSingle();
+      .select("id,status,affiliate_tag,extension_token_hash,encrypted_session_cookies,session_status").eq("account_id", context.accountId).eq("provider", "mercado_livre").maybeSingle();
     if (error) throw error;
     if (!integration || integration.status !== "connected" || !integration.extension_token_hash) throw new Error("Conecte sua conta Mercado Livre antes de ativar a conversão.");
     let processedText = initialText;
@@ -49,6 +49,13 @@ export class MercadoLivreOfferConverter {
         .eq("account_id", context.accountId).eq("provider", "mercado_livre").eq("credential_fingerprint", fingerprint)
         .eq("resolved_url_hash", resolvedHash).eq("affiliate_tag", affiliateTag).gt("expires_at", new Date().toISOString()).maybeSingle();
       let affiliateLink = cached?.affiliate_link as string | undefined;
+      if (!affiliateLink && integration.encrypted_session_cookies && integration.session_status !== "invalid") {
+        // Caminho sem PC ligado: gera o meli.la pelo servidor com a sessão guardada.
+        affiliateLink = (await this.service.generateViaStoredSession(
+          { id: integration.id, accountId: context.accountId, encryptedCookies: integration.encrypted_session_cookies, affiliateTag: integration.affiliate_tag }, product
+        )) || undefined;
+        if (affiliateLink) log("mercado_livre_affiliate_generated_server_session", context, { item_id: product.itemId });
+      }
       if (!affiliateLink) {
         log("mercado_livre_affiliate_generation_started", context, { item_id: product.itemId });
         try {

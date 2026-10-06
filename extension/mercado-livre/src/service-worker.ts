@@ -3,12 +3,30 @@ import { CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VIT
 const CONFIG_KEY = "dispareiMercadoLivre";
 const LINK_BUILDER = "https://www.mercadolivre.com.br/afiliados/linkbuilder";
 const POLL_ALARM = "disparei-ml-poll";
+const SESSION_ALARM = "disparei-ml-session";
 let processing = false;
+
+// Envia a sessão Mercado Livre (cookies deste navegador) para a Disparei, para o
+// servidor gerar o meli.la com o computador do afiliado desligado. Só os cookies
+// do próprio ML, guardados criptografados no servidor. Sem login no ML, não envia.
+async function syncSession(config?: Config) {
+  const current = config || (await getConfig());
+  if (!current) return;
+  const all = await chrome.cookies.getAll({ domain: "mercadolivre.com.br" }).catch(() => [] as chrome.cookies.Cookie[]);
+  const cookies: Record<string, string> = {};
+  for (const cookie of all) if (!(cookie.name in cookies)) cookies[cookie.name] = cookie.value;
+  if (!cookies.ssid) return; // não logado no ML; nada a enviar
+  await fetch(`${current.backendOrigin}/api/piloto-automatico/mercado-livre/extension/session`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${current.extensionToken}` }, body: JSON.stringify({ cookies })
+  }).catch(() => undefined);
+}
 
 async function getConfig() { return (await chrome.storage.local.get(CONFIG_KEY))[CONFIG_KEY] as Config | undefined; }
 async function ensurePolling() {
   const alarm = await chrome.alarms.get(POLL_ALARM);
   if (!alarm) chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 });
+  const sessionAlarm = await chrome.alarms.get(SESSION_ALARM);
+  if (!sessionAlarm) chrome.alarms.create(SESSION_ALARM, { periodInMinutes: 360 }); // reenvia a sessão a cada 6 h
 }
 async function api(config: Config, path: string, init: RequestInit = {}) {
   const response = await fetch(`${config.backendOrigin}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${config.extensionToken}`, ...(init.headers || {}) } });
@@ -155,13 +173,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Não foi possível vincular a extensão.");
     await chrome.storage.local.remove(VITRINE_CACHE_KEY);
-    await chrome.storage.local.set({ [CONFIG_KEY]: { backendOrigin: message.backendOrigin, extensionToken: body.extension_token, connectedAt: new Date().toISOString() } satisfies Config });
+    const newConfig: Config = { backendOrigin: message.backendOrigin, extensionToken: body.extension_token, connectedAt: new Date().toISOString() };
+    await chrome.storage.local.set({ [CONFIG_KEY]: newConfig });
     await ensurePolling();
+    await syncSession(newConfig);
     await poll();
     return { ok: true };
   })().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Falha na conexão." }));
   return true;
 });
-chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === POLL_ALARM) void poll(); });
-chrome.runtime.onStartup.addListener(() => { void ensurePolling().then(poll); });
-chrome.runtime.onInstalled.addListener(() => { void ensurePolling().then(poll); });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === POLL_ALARM) void poll();
+  if (alarm.name === SESSION_ALARM) void syncSession();
+});
+chrome.runtime.onStartup.addListener(() => { void ensurePolling().then(poll); void syncSession(); });
+chrome.runtime.onInstalled.addListener(() => { void ensurePolling().then(poll); void syncSession(); });

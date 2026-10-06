@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Disparei — Mercado Livre",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Conecta o Mercado Livre à Disparei, gera links de afiliado e monta o carrinho de ofertas nas lojas.",
-  "permissions": ["alarms", "storage", "tabs", "scripting"],
+  "permissions": ["alarms", "storage", "tabs", "scripting", "cookies"],
   "host_permissions": [
     "https://*.mercadolivre.com.br/*", "https://meli.la/*", "https://*.disparei.pro/*",
     "https://*.amazon.com.br/*", "https://*.shopee.com.br/*", "https://*.magazineluiza.com.br/*", "https://*.magazinevoce.com.br/*"
