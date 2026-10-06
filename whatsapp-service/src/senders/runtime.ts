@@ -333,9 +333,19 @@ export async function ensureSenderListening(sessionName: string, quietMs: number
   return { restarted: true, reason: "quiet" };
 }
 
+// Janelas do vigia de número surdo.
+const SURDO_SILENCIO_MS = 25 * 60_000;      // conectado sem ouvir há 25 min = suspeito
+const SURDO_COOLDOWN_MS = 40 * 60_000;      // tenta religar no máx 1x a cada 40 min por número
+const SURDO_ATIVIDADE_PROPRIA_MS = 6 * 60 * 60_000; // "estava recebendo" = ouviu algo nas últimas 6 h
+
 /**
- * Vigia: números de Piloto ligado que estão conectados e sem ouvir grupo nenhum
- * há 45 min são reiniciados (no máximo 1x a cada 3 h por número).
+ * Vigia: números de Piloto ligado, conectados, mas que pararam de ouvir os grupos,
+ * são reiniciados (reconexão sem QR, segundos). Um número é considerado surdo quando:
+ *  (a) algum grupo fonte teve mensagem vista por OUTRO número nos últimos 25 min
+ *      (o grupo está ativo, logo o silêncio é do número), OU
+ *  (b) o PRÓPRIO número vinha recebendo (ouviu algo nas últimas 6 h) e parou há 25 min.
+ * O caso (b) cobre contas de um número só (ex.: Simone, 06/10): antes o vigia não
+ * pegava porque ninguém mais via o grupo e ele parecia "quieto".
  */
 export async function restartDeafPilotSenders() {
   if (!senders.size) return;
@@ -352,12 +362,16 @@ export async function restartDeafPilotSenders() {
   for (const managed of Array.from(senders.values())) {
     const automationId = automationBySender.get(managed.id);
     if (!automationId) continue;
-    if (now - (lastDeafRestartAt.get(managed.sessionName) ?? 0) < 3 * 60 * 60_000) continue;
-    // Só é "surdo" se algum grupo fonte teve mensagem (vista por outro número) nos
-    // últimos 45 min. Grupo quieto não justifica derrubar a conexão.
+    if (now - (lastDeafRestartAt.get(managed.sessionName) ?? 0) < SURDO_COOLDOWN_MS) continue;
+    const heardProprio = lastGroupMessageAt.get(managed.sessionName) ?? 0;
+    // Sessão recém-iniciada ainda não teve tempo de ouvir; ensureSenderListening também protege isso.
+    const prontoHa = now - Math.max(heardProprio, sessionStartedAt.get(managed.sessionName) ?? 0);
+    if (prontoHa < SURDO_SILENCIO_MS) continue;
     const sources = sourcesByAutomation.get(automationId) || [];
-    if (!sources.some((group) => now - (groupLastSeenAt.get(group) ?? 0) < 45 * 60_000)) continue;
-    await ensureSenderListening(managed.sessionName, 45 * 60_000, "watchdog").catch((restartError) =>
+    const grupoAtivoPorOutro = sources.some((group) => now - (groupLastSeenAt.get(group) ?? 0) < SURDO_SILENCIO_MS);
+    const vinhaRecebendo = heardProprio > 0 && now - heardProprio < SURDO_ATIVIDADE_PROPRIA_MS;
+    if (!grupoAtivoPorOutro && !vinhaRecebendo) continue; // grupo realmente quieto: não mexe
+    await ensureSenderListening(managed.sessionName, SURDO_SILENCIO_MS, grupoAtivoPorOutro ? "watchdog_grupo" : "watchdog_proprio").catch((restartError) =>
       console.error({ event: "sender_deaf_restart_failed", session_name: managed.sessionName, error: restartError instanceof Error ? restartError.message : String(restartError) }));
   }
 }
