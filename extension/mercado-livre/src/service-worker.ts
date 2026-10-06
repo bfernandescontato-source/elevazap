@@ -93,11 +93,18 @@ const CUPOM_URLS_SHOPEE = [
 ];
 
 async function coletarCuponsDaPagina(url: string): Promise<any[]> {
-  const tab = await chrome.tabs.create({ url, active: false });
+  // A Shopee só carrega os cupons com a aba VISÍVEL (anti-robô). Abrimos ativa,
+  // rolamos para forçar o carregamento, capturamos e fechamos.
+  const tab = await chrome.tabs.create({ url, active: true });
   if (!tab.id) return [];
   try {
     for (let attempt = 0; attempt < 80; attempt += 1) { await sleep(250); if ((await chrome.tabs.get(tab.id).catch(() => undefined))?.status === "complete") break; }
-    await sleep(5000); // a página busca os cupons depois de carregar
+    await sleep(3500);
+    // Rola a página algumas vezes para disparar o carregamento dos cupons.
+    for (let r = 0; r < 4; r += 1) {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.scrollBy(0, document.body.scrollHeight) }).catch(() => undefined);
+      await sleep(1500);
+    }
     let resposta: any;
     for (let attempt = 0; attempt < 8; attempt += 1) { try { resposta = await chrome.tabs.sendMessage(tab.id, { type: VITRINE_CUPONS }); break; } catch { await sleep(600); } }
     return Array.isArray(resposta?.cupons) ? resposta.cupons : [];
