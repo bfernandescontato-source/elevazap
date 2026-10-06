@@ -49,7 +49,7 @@ const navSections = [
     { href: "/grupos/numeros", label: "Números", icon: Smartphone },
     { href: "/campanhas", label: "Campanhas", icon: Megaphone },
     { href: "/catalogo", label: "Catálogo", icon: ShoppingBag, badge: "NOVO" },
-    { href: "/cupons", label: "Ofertas Shopee", icon: Ticket, badge: "NOVO" },
+    { href: "/cupons", label: "Cupons e Ofertas", icon: Ticket, badge: "NOVO" },
     { href: "/integracoes", label: "Integrações", icon: Cable },
     { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
     { href: "/disparos", label: "Disparos", icon: Send },
