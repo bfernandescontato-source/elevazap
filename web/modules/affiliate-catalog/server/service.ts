@@ -1,12 +1,13 @@
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
 import type { CatalogCategory, CatalogListing, CatalogPage, CatalogProviderFilter } from "../types";
 import { getStoredMercadoLivreCatalog } from "./mercado-livre-catalog-service";
+import { getStoredStoreCatalog } from "./store-catalog-service";
 import { ShopeeAffiliateProvider } from "./shopee-provider";
 import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 import { supabaseAdmin } from "@/lib/supabase";
 import { listNiches, shopeeCategoryIdsFor } from "./niches";
 
-type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE", string>> };
+type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON", string>> };
 const cache = new Map<string, { expires: number; value: CatalogPage | CatalogCategory[] }>();
 
 function cached<T extends CatalogPage | CatalogCategory[]>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
@@ -55,7 +56,7 @@ const MIN_VISIBLE_OFFERS = 8;
 const MAX_EXTRA_PAGES = 3;
 
 export async function getCatalog(database: any, accountId: string, input: { provider: CatalogProviderFilter; keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogResult> {
-  const providers: Array<"SHOPEE" | "MERCADO_LIVRE"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE"] : [input.provider];
+  const providers: Array<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE", "AMAZON"] : [input.provider];
   const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
   const [used, shopeeCategoryIds, niches] = await Promise.all([
     usedOfferKeys(accountId),
@@ -74,6 +75,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
     const settled = await Promise.allSettled(providers.map(async provider => {
       const key = JSON.stringify([provider, accountId, { ...input, categoryId, page: undefined }]);
       if (provider === "SHOPEE") return shopeePage(await shopeeProvider(database, accountId), key, input, shopeeCategoryIds, page);
+      if (provider === "AMAZON") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog("AMAZON", { keyword: input.keyword, listing: input.listing, page, limit: input.limit }));
       return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
     }));
     hasNextPage = false;

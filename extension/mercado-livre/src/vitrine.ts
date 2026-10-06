@@ -1,7 +1,7 @@
 // Content script das lojas: botões nos cards, card na página de produto e o
 // painel do carrinho. Fica inerte até o service worker confirmar que a conta
 // conectada tem a Vitrine liberada.
-import { VITRINE_ALTERNAR_PAINEL, VITRINE_ENVIAR, VITRINE_STATUS, type ModoDeEnvio, type VitrineStatus } from "./shared.js";
+import { VITRINE_ALTERNAR_PAINEL, VITRINE_CAPTURAR, VITRINE_ENVIAR, VITRINE_STATUS, type ModoDeEnvio, type VitrineStatus } from "./shared.js";
 import { adicionar, aoMudar, chaveDo, lerCarrinho, limpar, remover } from "./vitrine/carrinho.js";
 import { detectarLoja, ehPaginaDeProduto, lojaMagazineVoce, type LeitorDeLoja, type Loja, type Produto } from "./vitrine/lojas.js";
 import { leitorAmazon } from "./vitrine/loja-amazon.js";
@@ -248,6 +248,17 @@ async function iniciar(status: VitrineStatus) {
   let ultimaUrl = location.href;
   setInterval(() => { if (location.href !== ultimaUrl) { ultimaUrl = location.href; produtoAtual = null; setTimeout(varrer, 900); } }, 1000);
 }
+
+// Coleta diária: o service worker abre a página de ofertas e pede os produtos.
+// Responde mesmo sem o painel montado (independe da conta estar liberada aqui;
+// a liberação é conferida no service worker antes de abrir a aba).
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== VITRINE_CAPTURAR) return false;
+  const leitor = loja ? LEITORES[loja] : null;
+  if (!leitor?.todosDaPagina) { sendResponse({ ok: false, produtos: [] }); return false; }
+  void leitor.todosDaPagina().then(produtos => sendResponse({ ok: true, produtos })).catch(() => sendResponse({ ok: false, produtos: [] }));
+  return true;
+});
 
 // Só na janela principal: iframes de anúncio não ganham painel.
 if (loja && window.top === window) {

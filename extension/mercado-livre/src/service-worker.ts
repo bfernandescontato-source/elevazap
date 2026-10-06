@@ -1,10 +1,12 @@
-import { CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VITRINE_ENVIAR, VITRINE_STATUS, type CatalogProduct, type Config, type Job, type VitrineStatus } from "./shared.js";
+import { COLETA_HORA_KEY, COLETA_HORA_PADRAO, COLETA_ULTIMA_KEY, CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VITRINE_CAPTURAR, VITRINE_COLETA_AGORA, VITRINE_ENVIAR, VITRINE_STATUS, type CatalogProduct, type Config, type Job, type VitrineStatus } from "./shared.js";
 
 const CONFIG_KEY = "dispareiMercadoLivre";
 const LINK_BUILDER = "https://www.mercadolivre.com.br/afiliados/linkbuilder";
 const POLL_ALARM = "disparei-ml-poll";
 const SESSION_ALARM = "disparei-ml-session";
+const COLETA_ALARM = "disparei-coleta-diaria";
 let processing = false;
+let coletando = false;
 
 // Envia a sessão Mercado Livre (cookies deste navegador) para a Disparei, para o
 // servidor gerar o meli.la com o computador do afiliado desligado. Só os cookies
@@ -27,6 +29,83 @@ async function ensurePolling() {
   if (!alarm) chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 });
   const sessionAlarm = await chrome.alarms.get(SESSION_ALARM);
   if (!sessionAlarm) chrome.alarms.create(SESSION_ALARM, { periodInMinutes: 360 }); // reenvia a sessão a cada 6 h
+  const coletaAlarm = await chrome.alarms.get(COLETA_ALARM);
+  if (!coletaAlarm) chrome.alarms.create(COLETA_ALARM, { periodInMinutes: 20 }); // confere de 20 em 20 min se é hora da coleta
+}
+
+// Páginas de "ofertas do dia" que a coleta diária abre e lê. A Shopee do catálogo
+// já é ao vivo; a Magalu entra junto com a área dela (link só pela Magazine Você).
+const LOJAS_COLETA = [
+  { url: "https://www.mercadolivre.com.br/ofertas", rota: "/api/catalog/mercado-livre/import", provider: "mercado_livre" as const },
+  { url: "https://www.amazon.com.br/deals", rota: "/api/catalog/daily/import", provider: "AMAZON" as const }
+];
+
+const dinheiro = (value?: string) => {
+  const match = String(value || "").match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/);
+  if (!match) return undefined;
+  const parsed = Number(`${match[1].replace(/\./g, "")}.${match[2] || "0"}`);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+const percentual = (value?: string) => { const n = Number(String(value || "").replace(/\D/g, "")); return n > 0 && n <= 100 ? n : undefined; };
+
+/** Abre a página num aba escondida, pede os produtos ao content script e fecha. */
+async function coletarDaPagina(url: string) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  if (!tab.id) return [];
+  try {
+    for (let attempt = 0; attempt < 80; attempt += 1) { // espera a página carregar (até 20 s)
+      await sleep(250);
+      if ((await chrome.tabs.get(tab.id).catch(() => undefined))?.status === "complete") break;
+    }
+    await sleep(2500); // as lojas carregam os cards depois do "complete"
+    let resposta: any;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try { resposta = await chrome.tabs.sendMessage(tab.id, { type: VITRINE_CAPTURAR }); break; }
+      catch { await sleep(600); } // content script ainda subindo
+    }
+    return Array.isArray(resposta?.produtos) ? resposta.produtos : [];
+  } finally { await chrome.tabs.remove(tab.id).catch(() => undefined); }
+}
+
+async function coletaDiaria(forcar = false) {
+  if (coletando) return;
+  const config = await getConfig();
+  if (!config) return;
+  if (!forcar) {
+    const status = await vitrineStatus();
+    if (!status.liberada) return;
+    const hora = Number((await chrome.storage.local.get(COLETA_HORA_KEY))[COLETA_HORA_KEY] ?? COLETA_HORA_PADRAO);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ultima = (await chrome.storage.local.get(COLETA_ULTIMA_KEY))[COLETA_ULTIMA_KEY];
+    // Só roda uma vez por dia, a partir da hora marcada. Se o aparelho estava
+    // desligado na hora, o primeiro alarme/startup depois da hora já dispara (recuperação).
+    if (ultima === hoje || new Date().getHours() < hora) return;
+  }
+  coletando = true;
+  try {
+    await chrome.storage.local.set({ [COLETA_ULTIMA_KEY]: new Date().toISOString().slice(0, 10) });
+    for (const loja of LOJAS_COLETA) {
+      const produtos = await coletarDaPagina(loja.url).catch(() => []);
+      if (!produtos.length) continue;
+      const agora = new Date().toISOString();
+      if (loja.provider === "mercado_livre") {
+        const payload: CatalogProduct[] = produtos.map((p: any) => ({
+          ml_item_id: p.itemId, product_name: p.title, image_url: p.imageUrl || undefined,
+          price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
+          product_link: p.originalUrl, sales: p.vendas || undefined, is_full: p.mercadoFull || false,
+          free_shipping: p.freteGratis || false, captured_at: agora
+        }));
+        await api(config, loja.rota, { method: "POST", body: JSON.stringify(payload.slice(0, 500)) }).catch(() => undefined);
+      } else {
+        const offers = produtos.map((p: any) => ({
+          external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
+          price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
+          product_url: p.originalUrl, coupon: p.coupon || undefined, captured_at: agora
+        }));
+        await api(config, loja.rota, { method: "POST", body: JSON.stringify({ provider: loja.provider, offers: offers.slice(0, 500) }) }).catch(() => undefined);
+      }
+    }
+  } finally { coletando = false; }
 }
 async function api(config: Config, path: string, init: RequestInit = {}) {
   const response = await fetch(`${config.backendOrigin}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${config.extensionToken}`, ...(init.headers || {}) } });
@@ -136,6 +215,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void vitrineStatus().then(sendResponse).catch(() => sendResponse({ conectada: false, liberada: false }));
     return true;
   }
+  if (message?.type === VITRINE_COLETA_AGORA) {
+    void coletaDiaria(true).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === VITRINE_ENVIAR) {
     void (async () => {
       const status = await vitrineStatus();
@@ -185,6 +268,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === POLL_ALARM) void poll();
   if (alarm.name === SESSION_ALARM) void syncSession();
+  if (alarm.name === COLETA_ALARM) void coletaDiaria();
 });
-chrome.runtime.onStartup.addListener(() => { void ensurePolling().then(poll); void syncSession(); });
+// Recuperação: ao ligar o aparelho, se a coleta do dia ainda não rodou e já passou da hora, roda.
+chrome.runtime.onStartup.addListener(() => { void ensurePolling().then(poll); void syncSession(); void coletaDiaria(); });
 chrome.runtime.onInstalled.addListener(() => { void ensurePolling().then(poll); void syncSession(); });
