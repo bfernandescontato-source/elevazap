@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   try {
     const destino = cupom.redirect_url && /shopee\.com\.br/i.test(cupom.redirect_url) ? cupom.redirect_url : "https://shopee.com.br/m/cupom-de-desconto";
     const affiliateUrl = await shopeeAffiliateLink(context.database, context.accountId, destino);
-    const message = [`🎟️ ${cupom.bold_text || "Cupom Shopee"}${cupom.light_text ? ` — ${cupom.light_text}` : ""}`, `🔑 Cupom: ${cupom.voucher_code}`, `🛒 ${affiliateUrl}`, "⏰ Corre que é limitado, acaba rápido!"].join("\n");
+    const message = [`🎟️ *${cupom.bold_text || "Cupom Shopee"}* na Shopee`, cupom.light_text ? `✅ ${cupom.light_text}` : null, `🔑 Cupom: *${cupom.voucher_code}*`, `🛒 ${affiliateUrl}`, "", "⏰ *Corre que é limitado, acaba rápido!*"].filter(Boolean).join("\n");
     return NextResponse.json({ message });
   } catch (error) {
     if (error instanceof StoreLinkError) return NextResponse.json({ error: error.message }, { status: error.status });

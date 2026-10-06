@@ -82,10 +82,10 @@ export default function CuponsPage() {
   const copiar = async (code: string) => { try { await navigator.clipboard.writeText(code); setCopiado(code); setTimeout(() => setCopiado(c => c === code ? null : c), 2000); } catch {} };
 
   const enviarCupom = (c: Coupon) => setEnvio({ titulo: "Enviar cupom", subtitulo: `${c.boldText} · código ${c.code}`,
-    mensagem: [`🎟️ ${c.boldText}${c.lightText ? ` — ${c.lightText}` : ""}`, `🔑 Cupom: ${c.code}`, "⏰ Corre que é limitado, acaba rápido!"].join("\n"),
+    mensagem: [`🎟️ *${c.boldText}* na Shopee`, c.lightText ? `✅ ${c.lightText}` : null, `🔑 Cupom: *${c.code}*`, "", "⏰ *Corre que é limitado, acaba rápido!*"].filter(Boolean).join("\n"),
     body: { tipo: "cupom", promotionId: c.promotionId } });
   const enviarOferta = (o: Offer) => setEnvio({ titulo: "Enviar oferta", subtitulo: `${o.name} · ${o.commissionRate}% comissão`,
-    mensagem: [`🛍️ ${o.name}`, `💰 ${o.commissionRate}% de comissão na Shopee`, `🛒 ${o.offerLink}`, "⏰ Aproveite, por tempo limitado!"].join("\n"),
+    mensagem: [`🛍️ *${o.name}*`, `💰 *${o.commissionRate}%* de comissão na Shopee`, `🛒 ${o.offerLink}`, "", "⏰ *Aproveite, por tempo limitado!*"].join("\n"),
     body: { tipo: "oferta", offerLink: o.offerLink, name: o.name, imageUrl: o.imageUrl || undefined } });
 
   return <AppShell title="Cupons e Ofertas Shopee" subtitle="Cupons de desconto e ofertas da Shopee. Envie para seus grupos com imagem e seu link de afiliado.">

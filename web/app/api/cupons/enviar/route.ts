@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { env } from "@/lib/env";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 import { isExtensaoVitrineEnabled } from "@/modules/affiliate-catalog/server/catalog-agenda-service";
@@ -11,8 +12,8 @@ const schema = z.union([
   z.object({ tipo: z.literal("cupom"), promotionId: z.string().min(1).max(64), ...base }),
   z.object({ tipo: z.literal("oferta"), offerLink: z.string().url(), name: z.string().min(1).max(200), imageUrl: z.string().url().optional(), ...base })
 ]);
-const LINK_OK = /^https:\/\/(?:s\.shopee\.com\.br|shope\.ee)\/[A-Za-z0-9]+/;
-const imagemShopee = (url?: string) => { if (!url) return false; try { return /(^|\.)shopee\.com\.br$|susercontent|disparei\.pro$/i.test(new URL(url).hostname); } catch { return false; } };
+const LINK_OK = /https:\/\/(?:s\.shopee\.com\.br|shope\.ee)\/[A-Za-z0-9]+/;
+const imagemShopee = (url?: string) => { if (!url) return false; try { const hn = new URL(url).hostname; return /(^|\.)shopee\.com\.br$|susercontent/i.test(hn) || url.startsWith(env().NEXT_PUBLIC_APP_URL); } catch { return false; } };
 
 export async function POST(request: NextRequest) {
   const guard = await guardAdminMutation(request, "cupom_dispatch_ip"); if (guard) return guard;
@@ -21,25 +22,26 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Dados inválidos." }, { status: 400 });
   const d = parsed.data;
+  let message = d.message;
+  const linkNaMensagem = message.match(LINK_OK)?.[0];
 
   try {
     let affiliateUrl: string; let name: string; let imageUrl: string | undefined; let externalItemId: string;
     if (d.tipo === "cupom") {
       const { data: cupom } = await supabaseAdmin().from("shopee_coupons").select("*").eq("promotion_id", d.promotionId).eq("active", true).maybeSingle();
       if (!cupom) return NextResponse.json({ error: "Cupom não está mais disponível." }, { status: 404 });
-      const destino = cupom.redirect_url && /shopee\.com\.br/i.test(cupom.redirect_url) ? cupom.redirect_url : "https://shopee.com.br/m/cupom-de-desconto";
-      affiliateUrl = await shopeeAffiliateLink(context.database, context.accountId, destino);
+      // Usa o link que já está na mensagem (evita link duplicado); só gera se não houver.
+      affiliateUrl = linkNaMensagem || await shopeeAffiliateLink(context.database, context.accountId, cupom.redirect_url && /shopee\.com\.br/i.test(cupom.redirect_url) ? cupom.redirect_url : "https://shopee.com.br/m/cupom-de-desconto");
       name = (cupom.bold_text || "Cupom Shopee").slice(0, 120);
-      imageUrl = `${request.nextUrl.origin}/cupom-shopee.png`;
+      imageUrl = `${env().NEXT_PUBLIC_APP_URL}/api/cupons/imagem?bold=${encodeURIComponent(cupom.bold_text || "CUPOM")}&cat=${encodeURIComponent(cupom.icon_text || "")}`;
       externalItemId = `cupom_${cupom.voucher_code}`;
     } else {
-      if (!LINK_OK.test(d.offerLink)) return NextResponse.json({ error: "Link de oferta inválido." }, { status: 400 });
-      affiliateUrl = d.offerLink; name = d.name.slice(0, 120); imageUrl = imagemShopee(d.imageUrl) ? d.imageUrl : undefined;
-      externalItemId = `oferta_${d.offerLink.split("/").pop()}`;
+      affiliateUrl = linkNaMensagem && LINK_OK.test(d.offerLink) ? linkNaMensagem : d.offerLink;
+      name = d.name.slice(0, 120); imageUrl = imagemShopee(d.imageUrl) ? d.imageUrl : undefined; externalItemId = `oferta_${d.offerLink.split("/").pop()}`;
     }
-
-    let message = d.message;
+    if (!LINK_OK.test(affiliateUrl)) return NextResponse.json({ error: "Link de afiliado inválido." }, { status: 400 });
     if (!message.includes(affiliateUrl)) message = `${message}\n🛒 ${affiliateUrl}`;
+
     const usaImagem = imagemShopee(imageUrl);
     const target = await resolveCatalogTarget(context.accountId, { senderId: d.senderId, groupJids: d.groupJids, imageMode: usaImagem ? "original_image" : "product_link_preview" });
     const result = await createCatalogDispatch({
