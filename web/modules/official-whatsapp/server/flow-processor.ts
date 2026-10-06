@@ -95,7 +95,8 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
 
   const textResult = action.response_text ? renderTemplateText(action.response_text, run.context) : null;
   const captionResult = action.caption ? renderTemplateText(action.caption, run.context) : null;
-  const missing = [...(textResult?.missing || []), ...(captionResult?.missing || [])];
+  const additionalResults = (flow.additional_messages || []).map((message) => renderTemplateText(message, run.context));
+  const missing = [...(textResult?.missing || []), ...(captionResult?.missing || []), ...additionalResults.flatMap((result) => result.missing)];
   if (missing.length) {
     const summary = `MISSING_TEMPLATE_VARIABLE: ${missing.join(", ")}`;
     await logMessageAttempt({ eventId: null, phone: run.phone, status: "failed", error: summary }).catch(() => {});
@@ -121,7 +122,30 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
       requestPayload: result.requestPayload, responsePayload: result.response, connectionId: run.connection_id,
       attribution: { sourceType: originalMessage?.broadcast_id ? "broadcast" : "automation", sourceId: originalMessage?.broadcast_id || null, flowId: flow.id, stepId: followUpStep?.id || null, messageKey: "follow_up", broadcastId: originalMessage?.broadcast_id || null, phoneNumberId: result.phoneNumberId }
     });
-    await setFlowRunFinalMessageId(run.id, result.messageId || null).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem final ao fluxo:", error));
+    let finalMessageId = result.messageId || null;
+    for (let index = 0; index < additionalResults.length; index += 1) {
+      const messageKey = `follow_up_${index + 2}`;
+      const step = await getFlowStep(flow.id, messageKey);
+      const additionalAction = {
+        ...action,
+        response_type: "text" as const,
+        response_text: flow.additional_messages[index],
+        media_bucket: null,
+        media_path: null,
+        mime_type: null,
+        file_name: null,
+        caption: null,
+        button_config: null
+      };
+      const additionalResult = await sendQuickReplyMessage(additionalAction, run.phone, { text: additionalResults[index].text, caption: null, mediaId: null }, undefined, run.connection_id);
+      await logMessageAttempt({
+        eventId: null, flowRunId: run.id, phone: additionalResult.phone, status: "accepted", metaMessageId: additionalResult.messageId || null,
+        requestPayload: additionalResult.requestPayload, responsePayload: additionalResult.response, connectionId: run.connection_id,
+        attribution: { sourceType: originalMessage?.broadcast_id ? "broadcast" : "automation", sourceId: originalMessage?.broadcast_id || null, flowId: flow.id, stepId: step?.id || null, messageKey, broadcastId: originalMessage?.broadcast_id || null, phoneNumberId: additionalResult.phoneNumberId }
+      });
+      finalMessageId = additionalResult.messageId || finalMessageId;
+    }
+    await setFlowRunFinalMessageId(run.id, finalMessageId).catch((error) => console.error("[official-whatsapp] Falha ao vincular mensagem final ao fluxo:", error));
     await markFlowRunStatus(run.id, "completed");
     await markEventStatus(eventId, "processed", null, { quickReplyActionId: action.id });
   } catch (error) {

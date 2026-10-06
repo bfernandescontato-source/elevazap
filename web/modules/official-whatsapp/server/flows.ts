@@ -11,6 +11,7 @@ export type OfficialFlow = {
   variable_mapping: VariableMapping;
   quick_reply_action_id: string;
   quick_reply_payload: string | null;
+  additional_messages: string[];
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -33,6 +34,7 @@ export type FlowInput = {
   followupFileName: string | null;
   followupCaption: string | null;
   followupButtonConfig: ButtonConfig | null;
+  additionalMessages: string[];
 };
 
 export async function listFlows(): Promise<OfficialFlowWithAction[]> {
@@ -86,6 +88,7 @@ export async function createFlow(input: FlowInput): Promise<OfficialFlowWithActi
     variable_mapping: input.variableMapping,
     quick_reply_action_id: action.id,
     quick_reply_payload: input.quickReplyPayload,
+    additional_messages: input.additionalMessages,
     active: true
   }).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;
@@ -105,6 +108,7 @@ export async function updateFlow(id: string, input: FlowInput): Promise<Official
     variable_mapping: input.variableMapping,
     quick_reply_action_id: action.id,
     quick_reply_payload: input.quickReplyPayload,
+    additional_messages: input.additionalMessages,
     updated_at: new Date().toISOString()
   }).eq("id", id).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;
@@ -127,6 +131,13 @@ export function parseFlowInput(body: Record<string, any> | null): FlowInput | { 
   if (followupResponseType !== "text" && (!body?.followupMediaBucket || !body?.followupMediaPath)) {
     return { error: "Envie o arquivo de mídia da resposta." };
   }
+  if (body?.additionalMessages !== undefined && !Array.isArray(body.additionalMessages)) {
+    return { error: "As mensagens adicionais são inválidas." };
+  }
+  const additionalMessages = (body?.additionalMessages || []).map((message: unknown) => String(message).trim());
+  if (additionalMessages.length > 10) return { error: "Adicione no máximo 10 mensagens extras." };
+  if (additionalMessages.some((message: string) => !message)) return { error: "Preencha ou remova as mensagens extras vazias." };
+  if (additionalMessages.some((message: string) => message.length > 4096)) return { error: "Cada mensagem extra pode ter no máximo 4.096 caracteres." };
   let buttonConfig: ButtonConfig | null = null;
   if (body?.followupButtonConfig && followupResponseType !== "audio") {
     const bc = body.followupButtonConfig;
@@ -145,7 +156,8 @@ export function parseFlowInput(body: Record<string, any> | null): FlowInput | { 
     followupMimeType: body?.followupMimeType || null,
     followupFileName: body?.followupFileName || null,
     followupCaption: body?.followupCaption || null,
-    followupButtonConfig: buttonConfig
+    followupButtonConfig: buttonConfig,
+    additionalMessages
   };
 }
 

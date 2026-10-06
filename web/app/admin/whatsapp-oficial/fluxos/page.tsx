@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ConnectionSelect } from "../connection-select";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActionButton, AppShell, DataTable, EmptyState, ErrorState, FileDropzone, LoadingState, Toast } from "@/components/ui";
-import { ArrowLeft, ArrowRight, Pencil, Plus, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Plus, Send, Trash2 } from "lucide-react";
 
 const STATIC_OPTION = "__static__";
 const INTERNAL_VARIABLES: { value: string; label: string }[] = [
@@ -38,6 +38,7 @@ type Flow = {
   quick_reply_payload?: string | null;
   id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean;
   variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
+  additional_messages?: string[] | null;
   official_quick_reply_actions: FlowAction;
 };
 
@@ -91,6 +92,7 @@ export default function FluxosPage() {
   const [buttonText, setButtonText] = useState("");
   const [buttonUrl, setButtonUrl] = useState("");
   const [buttonPayload, setButtonPayload] = useState("");
+  const [additionalMessages, setAdditionalMessages] = useState<string[]>([]);
 
   const [testFlowId, setTestFlowId] = useState<string | null>(null);
   const [testPhone, setTestPhone] = useState("");
@@ -142,6 +144,7 @@ export default function FluxosPage() {
     setName(""); setInitialTemplateName(""); setMapping({ header: [], body: [], buttons: [] });
     setQrPayload(""); setQrLabel(""); setResponseType("text"); setResponseText(""); setCaption(""); setFile(null);
     setHasButton(false); setButtonType("url"); setButtonText(""); setButtonUrl(""); setButtonPayload("");
+    setAdditionalMessages([]);
   }
 
   function startEdit(flow: Flow) {
@@ -161,6 +164,7 @@ export default function FluxosPage() {
     setButtonText(action.button_config?.text || "");
     setButtonUrl(action.button_config?.type === "url" ? action.button_config.url || "" : "");
     setButtonPayload(action.button_config?.type === "quick_reply" ? action.button_config.payload || "" : "");
+    setAdditionalMessages(Array.isArray(flow.additional_messages) ? flow.additional_messages : []);
     setShowForm(true);
   }
 
@@ -202,7 +206,8 @@ export default function FluxosPage() {
           followupMediaBucket: media?.bucket || null, followupMediaPath: media?.storage_path || null,
           followupMimeType: media?.mime_type || null, followupFileName: media?.file_name || null,
           followupCaption: responseType !== "text" ? (caption || null) : null,
-          followupButtonConfig
+          followupButtonConfig,
+          additionalMessages
         })
       });
       const data = await response.json();
@@ -335,6 +340,47 @@ export default function FluxosPage() {
                 </label>}
               </div> : null}
             </div> : null}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-line bg-wash p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-ink">Mais mensagens depois da resposta</div>
+                <p className="mt-1 text-xs text-muted">Cada campo será enviado como uma nova mensagem separada, na ordem abaixo.</p>
+              </div>
+              <button
+                type="button"
+                disabled={additionalMessages.length >= 10}
+                onClick={() => setAdditionalMessages((current) => [...current, ""])}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-medium text-ink hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus size={15} /> Adicionar outra mensagem
+              </button>
+            </div>
+            {additionalMessages.length ? <div className="mt-4 space-y-3">
+              {additionalMessages.map((message, index) => <div key={index} className="rounded-lg border border-line bg-white p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label htmlFor={`additional-message-${index}`} className="text-sm font-medium text-ink">Mensagem {index + 3}</label>
+                  <button
+                    type="button"
+                    aria-label={`Remover mensagem ${index + 3}`}
+                    onClick={() => setAdditionalMessages((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                    className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} /> Remover
+                  </button>
+                </div>
+                <textarea
+                  id={`additional-message-${index}`}
+                  value={message}
+                  onChange={(event) => setAdditionalMessages((current) => current.map((item, currentIndex) => currentIndex === index ? event.target.value : item))}
+                  rows={4}
+                  maxLength={4096}
+                  placeholder="Digite o texto desta mensagem separada. Você pode usar {{first_name}} e as demais variáveis do fluxo."
+                  className="w-full rounded-lg border border-line px-3 py-2"
+                />
+              </div>)}
+            </div> : <p className="mt-4 rounded-lg border border-dashed border-line bg-white px-4 py-3 text-sm text-muted">O fluxo termina na segunda mensagem. Adicione outra para continuar a sequência.</p>}
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
