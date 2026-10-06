@@ -7,7 +7,7 @@ import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/s
 import { supabaseAdmin } from "@/lib/supabase";
 import { listNiches, shopeeCategoryIdsFor } from "./niches";
 
-type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON", string>> };
+type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "MAGALU", string>> };
 const cache = new Map<string, { expires: number; value: CatalogPage | CatalogCategory[] }>();
 
 function cached<T extends CatalogPage | CatalogCategory[]>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
@@ -56,7 +56,7 @@ const MIN_VISIBLE_OFFERS = 8;
 const MAX_EXTRA_PAGES = 3;
 
 export async function getCatalog(database: any, accountId: string, input: { provider: CatalogProviderFilter; keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogResult> {
-  const providers: Array<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE", "AMAZON"] : [input.provider];
+  const providers: Array<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "MAGALU"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE", "AMAZON", "MAGALU"] : [input.provider];
   const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
   const [used, shopeeCategoryIds, niches] = await Promise.all([
     usedOfferKeys(accountId),
@@ -70,13 +70,14 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   let loadedAny = false;
   let mlCategories: CatalogCategory[] | undefined;
   let amazonCategories: CatalogCategory[] | undefined;
+  let magaluCategories: CatalogCategory[] | undefined;
   // Ofertas já usadas saem da página; se sobrar pouco, busca as próximas
   // páginas (até 3 extras). A tela continua de pageInfo.page + 1.
   for (let extra = 0; extra <= MAX_EXTRA_PAGES; extra++) {
     const settled = await Promise.allSettled(providers.map(async provider => {
       const key = JSON.stringify([provider, accountId, { ...input, categoryId, page: undefined }]);
       if (provider === "SHOPEE") return shopeePage(await shopeeProvider(database, accountId), key, input, shopeeCategoryIds, page);
-      if (provider === "AMAZON") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog("AMAZON", { keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
+      if (provider === "AMAZON" || provider === "MAGALU") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog(provider, { keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
       return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
     }));
     hasNextPage = false;
@@ -87,6 +88,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
         hasNextPage ||= result.value.pageInfo.hasNextPage;
         if (provider === "MERCADO_LIVRE") mlCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
         if (provider === "AMAZON") amazonCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
+        if (provider === "MAGALU") magaluCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
         offers.push(...result.value.offers.filter(offer => !used.has(`${offer.provider}:${offer.externalItemId}`)));
       } else providerErrors[provider] = codeOf(result.reason, `${provider}_UNAVAILABLE`);
     });
@@ -105,5 +107,6 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   if (input.provider === "SHOPEE" || input.provider === "ALL") categories = [{ id: null, label: "Todas" }, ...niches.map(niche => ({ id: niche.id, label: niche.label, featured: niche.featured }))];
   if (input.provider === "MERCADO_LIVRE") { if (mlCategories?.length) categories = mlCategories; }
   if (input.provider === "AMAZON") { if (amazonCategories?.length) categories = amazonCategories; }
+  if (input.provider === "MAGALU") { if (magaluCategories?.length) categories = magaluCategories; }
   return { offers, pageInfo: { page, limit: input.limit, hasNextPage }, categories, providerErrors };
 }

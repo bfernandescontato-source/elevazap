@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const listing = query.get("listing") || "top";
   if (!["top", "sold", "commission"].includes(listing)) return NextResponse.json({ error: "Filtro inválido." }, { status: 400 });
   const provider = (query.get("provider") || "ALL").toUpperCase();
-  if (!["ALL", "SHOPEE", "MERCADO_LIVRE", "AMAZON"].includes(provider)) return NextResponse.json({ error: "Marketplace inválido." }, { status: 400 });
+  if (!["ALL", "SHOPEE", "MERCADO_LIVRE", "AMAZON", "MAGALU"].includes(provider)) return NextResponse.json({ error: "Marketplace inválido." }, { status: 400 });
   const page = Math.max(1, Number(query.get("page") || 1));
   const categoryId = query.get("categoryId")?.slice(0, 80) || undefined;
   const keyword = query.get("keyword")?.trim().slice(0, 100) || undefined;

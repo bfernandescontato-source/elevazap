@@ -3,7 +3,7 @@ import { credentialFingerprint, encryptIntegrationSecret } from "@/lib/integrati
 import { testShopeeCredentials } from "@/modules/offer-autopilot/server/shopee-client";
 import { secretToken, tokenHash } from "@/modules/offer-autopilot/server/mercado-livre-extension";
 
-export type IntegrationProvider = "shopee" | "mercado_livre" | "amazon";
+export type IntegrationProvider = "shopee" | "mercado_livre" | "amazon" | "magalu";
 type StoredProvider = IntegrationProvider;
 
 const visibleColumns = "provider,app_id,status,affiliate_tag,external_account_id,external_account_label,last_tested_at,last_error,auth_expires_at,updated_at";
@@ -21,6 +21,27 @@ export async function getIntegration(database: SupabaseClient, accountId: string
 export const getShopeeIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "shopee");
 export const getMercadoLivreIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "mercado_livre");
 export const getAmazonIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "amazon");
+export const getMagaluIntegration = (database: SupabaseClient, accountId: string) => getIntegration(database, accountId, "magalu");
+
+// Magalu paga afiliado só pela loja Magazine Você; guardamos o slug dela (ex.: magazinejoao).
+export function parseMagazineVoceSlug(value: string) {
+  let slug = String(value || "").trim();
+  try { if (/^https?:/i.test(slug)) { const u = new URL(slug); if (!/(^|\.)magazinevoce\.com\.br$/i.test(u.hostname)) throw new Error("host"); slug = (u.pathname.split("/").filter(Boolean)[0] || ""); } } catch { throw new Error("Informe o link da sua loja Magazine Você (magazinevoce.com.br/sua-loja)."); }
+  slug = slug.replace(/^@/, "").toLowerCase();
+  if (!/^magazine[a-z0-9_.-]{2,40}$/.test(slug)) throw new Error("A loja Magazine Você deve começar com \"magazine\" (ex.: magazinejoao).");
+  return slug;
+}
+
+export async function saveMagaluStore(database: SupabaseClient, accountId: string, userId: string, storeValue: string) {
+  const slug = parseMagazineVoceSlug(storeValue);
+  const now = new Date().toISOString();
+  const { error } = await database.from("affiliate_integrations").upsert({
+    account_id: accountId, user_id: userId, provider: "magalu", affiliate_tag: slug,
+    external_account_label: slug, external_account_id: slug, status: "connected", last_error: null, last_tested_at: now, updated_at: now
+  }, { onConflict: "account_id,provider" });
+  if (error) throw error;
+  return { status: "connected", store: slug };
+}
 
 export async function hasConnectedIntegration(database: SupabaseClient, accountId: string, provider: IntegrationProvider) {
   return (await getIntegration(database, accountId, provider))?.status === "connected";
@@ -33,8 +54,8 @@ export async function getShopeeIntegrationCredentials(database: SupabaseClient, 
 }
 
 export async function listIntegrations(database: SupabaseClient, accountId: string) {
-  const [shopee, mercadoLivre, amazon] = await Promise.all([getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId), getAmazonIntegration(database, accountId)]);
-  return { shopee: shopee, mercado_livre: mercadoLivre, amazon };
+  const [shopee, mercadoLivre, amazon, magalu] = await Promise.all([getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId), getAmazonIntegration(database, accountId), getMagaluIntegration(database, accountId)]);
+  return { shopee: shopee, mercado_livre: mercadoLivre, amazon, magalu };
 }
 
 export async function saveAmazonIntegration(database: SupabaseClient, accountId: string, userId: string, partnerTag: string) {
