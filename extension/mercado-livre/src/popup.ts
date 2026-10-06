@@ -3,6 +3,7 @@ import { VITRINE_ALTERNAR_PAINEL, VITRINE_COLETA_AGORA, VITRINE_STATUS, type Vit
 const CONFIG_KEY = "dispareiMercadoLivre";
 const LOJAS = /^https?:\/\/([^/]*\.)?(mercadolivre\.com(\.br)?|mercadolibre\.com|amazon\.com(\.br)?|shopee\.com(\.br)?|magazineluiza\.com\.br|magazinevoce\.com\.br)\//i;
 const statusElement = document.querySelector<HTMLParagraphElement>("#status")!;
+try { const v = document.querySelector("#ver"); if (v) v.textContent = "v" + chrome.runtime.getManifest().version; } catch {}
 const cartButton = document.querySelector<HTMLButtonElement>("#carrinho")!;
 const coletaButton = document.querySelector<HTMLButtonElement>("#coleta")!;
 const coletaMsg = document.querySelector<HTMLParagraphElement>("#coletaMsg")!;
