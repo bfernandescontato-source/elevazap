@@ -69,6 +69,6 @@ export async function listShopeeCoupons(): Promise<ShopeeCoupon[]> {
   const { data, error } = await supabaseAdmin().from("shopee_coupons").select("*").eq("active", true).order("last_seen_at", { ascending: false }).limit(300);
   if (error) throw error;
   return (data || [])
-    .filter((r: any) => !r.end_time || r.end_time > nowSec)
+    .filter((r: any) => (!r.end_time || r.end_time > nowSec) && (r.percentage_used == null || r.percentage_used < 100))
     .map((r: any) => ({ promotionId: r.promotion_id, code: r.voucher_code, boldText: r.bold_text || "", lightText: r.light_text || "", iconText: r.icon_text || "", labels: r.labels || [], redirectUrl: r.redirect_url || "", collectionId: r.collection_id, endTime: r.end_time, percentageUsed: r.percentage_used }));
 }

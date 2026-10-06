@@ -26,7 +26,17 @@ function EnviarDialog({ item, onClose }: { item: EnvioItem; onClose: () => void 
   const [senders, setSenders] = useState<Sender[]>([]); const [senderId, setSenderId] = useState("");
   const [groups, setGroups] = useState<Group[]>([]); const [selected, setSelected] = useState<string[]>([]); const [query, setQuery] = useState("");
   const [message, setMessage] = useState(item.mensagem);
+  const [preparando, setPreparando] = useState(item.body.tipo === "cupom");
   const [enviando, setEnviando] = useState(false); const [erro, setErro] = useState(""); const [feito, setFeito] = useState("");
+  // Cupom: busca o link de afiliado para a mensagem já mostrar ele.
+  useEffect(() => {
+    if (item.body.tipo !== "cupom") return;
+    setPreparando(true);
+    fetch("/api/cupons/preparar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ promotionId: item.body.promotionId }) })
+      .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b.error); setMessage(b.message || item.mensagem); })
+      .catch(e => setErro(e instanceof Error ? e.message : "Não foi possível gerar seu link."))
+      .finally(() => setPreparando(false));
+  }, [item]);
   useEffect(() => { fetch("/api/whatsapp/senders").then(r => r.json()).then(b => { const l: Sender[] = b.senders || []; setSenders(l); if (l[0]) setSenderId(l[0].id); }).catch(() => setErro("Não foi possível carregar seus números.")); }, []);
   useEffect(() => { if (!senderId) { setGroups([]); return; } fetch(`/api/whatsapp/groups?sender_id=${senderId}`).then(r => r.json()).then(b => { setGroups(Array.isArray(b) ? b : []); setSelected([]); }); }, [senderId]);
   const filtrados = useMemo(() => groups.filter(g => (g.nome || g.group_jid).toLowerCase().includes(query.toLowerCase())), [groups, query]);
@@ -45,10 +55,13 @@ function EnviarDialog({ item, onClose }: { item: EnvioItem; onClose: () => void 
           <div className="relative mt-2"><Search className="absolute left-3 top-3 text-muted" size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Pesquisar grupo" className="focus-ring h-10 w-full rounded-lg border border-line pl-9 pr-3 text-sm"/></div>
           <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-line"><label className="flex cursor-pointer items-center gap-3 border-b border-line bg-wash p-3 text-sm font-medium"><input type="checkbox" checked={filtrados.length > 0 && filtrados.every(g => selected.includes(g.group_jid))} onChange={e => setSelected(e.target.checked ? Array.from(new Set([...selected, ...filtrados.map(g => g.group_jid)])) : selected.filter(id => !filtrados.some(g => g.group_jid === id)))}/> Selecionar todos</label>
             {filtrados.map(g => <label key={g.group_jid} className="flex cursor-pointer items-center gap-3 border-b border-line p-3 text-sm last:border-0"><input type="checkbox" checked={selected.includes(g.group_jid)} onChange={e => setSelected(e.target.checked ? [...selected, g.group_jid] : selected.filter(id => id !== g.group_jid))}/><span className="truncate">{g.nome || g.group_jid}</span></label>)}</div></div>
-        <div><label className="text-sm font-medium">Mensagem (já vem pronta, edite se quiser)</label><textarea value={message} onChange={e => setMessage(e.target.value)} rows={5} className="focus-ring mt-2 w-full rounded-lg border border-line p-3 text-sm leading-6"/><p className="mt-2 rounded-lg bg-wash p-3 text-xs leading-5 text-muted">A imagem vai junto. O link já é o seu, rastreado, então a comissão é sua. Mantenha o link no texto.</p></div>
+        <div><label className="text-sm font-medium">Mensagem (já vem pronta, edite se quiser)</label>
+          {preparando ? <div className="mt-2 flex items-center gap-2 rounded-lg border border-line bg-wash p-3 text-sm text-muted"><Loader2 className="animate-spin" size={15}/> Gerando o seu link de afiliado...</div>
+            : <textarea value={message} onChange={e => setMessage(e.target.value)} rows={6} className="focus-ring mt-2 w-full rounded-lg border border-line p-3 text-sm leading-6"/>}
+          <p className="mt-2 rounded-lg bg-wash p-3 text-xs leading-5 text-muted">A imagem vai junto. O link já é o seu, rastreado, então a comissão é sua. Mantenha o link no texto.</p></div>
         {erro ? <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erro}</p> : null}
       </div>
-      <div className="border-t border-line p-4"><button disabled={enviando || !senderId || !selected.length || !message.trim()} onClick={enviar} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-white disabled:opacity-40">{enviando ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>} {enviando ? "Enviando..." : `Enviar agora para ${selected.length} ${selected.length === 1 ? "grupo" : "grupos"}`}</button></div>
+      <div className="border-t border-line p-4"><button disabled={enviando || preparando || !senderId || !selected.length || !message.trim()} onClick={enviar} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-white disabled:opacity-40">{enviando ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>} {enviando ? "Enviando..." : `Enviar agora para ${selected.length} ${selected.length === 1 ? "grupo" : "grupos"}`}</button></div>
     </>}
   </div></div>;
 }
@@ -72,7 +85,7 @@ export default function CuponsPage() {
     mensagem: [`🎟️ ${c.boldText}${c.lightText ? ` — ${c.lightText}` : ""}`, `🔑 Cupom: ${c.code}`, "⏰ Corre que é limitado, acaba rápido!"].join("\n"),
     body: { tipo: "cupom", promotionId: c.promotionId } });
   const enviarOferta = (o: Offer) => setEnvio({ titulo: "Enviar oferta", subtitulo: `${o.name} · ${o.commissionRate}% comissão`,
-    mensagem: [`🛍️ ${o.name}`, `💰 ${o.commissionRate}% de comissão na Shopee`, "⏰ Aproveite, por tempo limitado!"].join("\n"),
+    mensagem: [`🛍️ ${o.name}`, `💰 ${o.commissionRate}% de comissão na Shopee`, `🛒 ${o.offerLink}`, "⏰ Aproveite, por tempo limitado!"].join("\n"),
     body: { tipo: "oferta", offerLink: o.offerLink, name: o.name, imageUrl: o.imageUrl || undefined } });
 
   return <AppShell title="Cupons e Ofertas Shopee" subtitle="Cupons de desconto e ofertas da Shopee. Envie para seus grupos com imagem e seu link de afiliado.">
