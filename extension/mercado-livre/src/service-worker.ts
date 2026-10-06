@@ -57,6 +57,13 @@ const AMAZON_CATEGORIAS: Array<{ nome: string; kw: string; comissao: number }> =
   { nome: "Livros", kw: "livros mais vendidos", comissao: 5 }
 ];
 
+// Magalu (Parceiro Magalu) também não mostra comissão por produto; estimativa por categoria.
+const MAGALU_COMISSAO: Record<string, number> = {
+  "Eletrônicos": 3, "Informática": 3, "Celulares": 1.5, "Casa e Cozinha": 6, "Casa e Decoração": 7,
+  "Beleza": 8, "Saúde": 6, "Esportes": 6, "Moda": 10, "Brinquedos": 5, "Bebês": 5,
+  "Pet Shop": 5, "Ferramentas": 6, "Automotivo": 5, "Livros": 4
+};
+
 const dinheiro = (value?: string) => {
   const match = String(value || "").match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/);
   if (!match) return undefined;
@@ -164,7 +171,7 @@ async function coletaDiaria(forcar = false) {
           if (naCat >= 70) break;
           if (!p.itemId || vistosMg.has(p.itemId) || !/magazinevoce\.com\.br/i.test(p.originalUrl || "")) continue;
           vistosMg.add(p.itemId); naCat += 1;
-          magalu.push({ external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined, price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount), product_url: p.originalUrl, category: cat.nome, captured_at: agora });
+          magalu.push({ external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined, price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount), product_url: p.originalUrl, category: cat.nome, commission_rate: MAGALU_COMISSAO[cat.nome] ?? 3, commission_estimated: true, captured_at: agora });
         }
       }
       if (magalu.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "MAGALU", offers: magalu.slice(0, 1200) }) }).catch(() => undefined);
