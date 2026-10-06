@@ -19,27 +19,21 @@ export function cookieHeader(cookies) {
     .map(([name, value]) => `${name}=${value}`).join("; ");
 }
 
-/** O ML só aceita a chamada com o token anti-CSRF da sessão; vem do cookie ou da página do Gerador. */
-async function csrfToken(cookies, header, fetcher) {
-  if (cookies._csrf) return cookies._csrf;
-  const page = await fetcher(LINK_BUILDER, { headers: { cookie: header, "user-agent": USER_AGENT, accept: "text/html" }, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (page.status >= 300 && page.status < 400) throw new MercadoLivreSessionError("Sessão Mercado Livre expirada.", "SESSION_INVALID");
-  const html = await page.text();
-  return html.match(/name=["']csrf-token["']\s+content=["']([^"']+)/i)?.[1] || html.match(/["']csrfToken["']\s*:\s*["']([^"']+)/)?.[1] || null;
-}
-
 export async function createMercadoLivreLinkWithSession({ cookies, productUrl, tag, fetcher = fetch }) {
   if (!tag) throw new MercadoLivreSessionError("Etiqueta de afiliado desconhecida.", "NO_TAG");
   const header = cookieHeader(cookies);
   if (!header || !cookies.ssid) throw new MercadoLivreSessionError("Sem sessão Mercado Livre.", "SESSION_INVALID");
-  const token = await csrfToken(cookies, header, fetcher);
+  // A API aceita a chamada só com os cookies (testado em produção). O x-csrf-token
+  // vai junto quando o cookie _csrf existe, mas não é obrigatório — e nunca
+  // buscamos a página do Gerador (num servidor ela redireciona e derrubaria a sessão à toa).
   let response;
   try {
     response = await fetcher(CREATE_LINK, {
       method: "POST",
       headers: {
         cookie: header, "content-type": "application/json", accept: "application/json", "user-agent": USER_AGENT,
-        origin: "https://www.mercadolivre.com.br", referer: LINK_BUILDER, ...(token ? { "x-csrf-token": token } : {})
+        origin: "https://www.mercadolivre.com.br", referer: LINK_BUILDER, "accept-language": "pt-BR,pt;q=0.9",
+        ...(cookies._csrf ? { "x-csrf-token": cookies._csrf } : {})
       },
       body: JSON.stringify({ urls: [productUrl], tag }),
       redirect: "manual",
@@ -53,7 +47,8 @@ export async function createMercadoLivreLinkWithSession({ cookies, productUrl, t
   const item = body?.urls?.[0];
   const link = item?.created ? item.short_url : null;
   if (!response.ok || typeof link !== "string" || !/^https:\/\/meli\.la\/[A-Za-z0-9_-]+$/.test(link)) {
-    throw new MercadoLivreSessionError("O Mercado Livre não gerou o link.", "REJECTED");
+    // error_code 111 = produto fora do programa de afiliados; não é falha de sessão.
+    throw new MercadoLivreSessionError(item?.message || "O Mercado Livre não gerou o link.", "REJECTED");
   }
   return link;
 }
