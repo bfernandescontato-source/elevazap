@@ -35,10 +35,26 @@ async function ensurePolling() {
 
 // Páginas de "ofertas do dia" que a coleta diária abre e lê. A Shopee do catálogo
 // já é ao vivo; a Magalu entra junto com a área dela (link só pela Magazine Você).
-// Amazon é raspada da página de ofertas. Mercado Livre NÃO abre página: o servidor
-// puxa a central de afiliados com a sessão guardada (traz a comissão, igual Shopee).
-const LOJAS_COLETA = [
-  { url: "https://www.amazon.com.br/deals", rota: "/api/catalog/daily/import", provider: "AMAZON" as const }
+// Amazon por categoria (busca da própria Amazon, produtos reais). A Amazon não mostra
+// comissão por produto, então usamos a estimativa por categoria (tabela de comissão),
+// marcada como estimada. Mercado Livre NÃO abre página: o servidor puxa a central de
+// afiliados com a sessão guardada (comissão real, igual Shopee).
+const AMAZON_CATEGORIAS: Array<{ nome: string; kw: string; comissao: number }> = [
+  { nome: "Eletrônicos", kw: "eletronicos", comissao: 2 },
+  { nome: "Informática", kw: "informatica", comissao: 2.5 },
+  { nome: "Celulares", kw: "celular", comissao: 2 },
+  { nome: "Casa e Cozinha", kw: "cozinha", comissao: 4.5 },
+  { nome: "Casa e Decoração", kw: "decoracao casa", comissao: 6 },
+  { nome: "Beleza", kw: "beleza", comissao: 6 },
+  { nome: "Saúde", kw: "saude e cuidados pessoais", comissao: 6 },
+  { nome: "Esportes", kw: "esportes fitness", comissao: 6 },
+  { nome: "Moda", kw: "moda", comissao: 8 },
+  { nome: "Brinquedos", kw: "brinquedos", comissao: 3 },
+  { nome: "Bebês", kw: "bebe", comissao: 3 },
+  { nome: "Pet Shop", kw: "pet shop", comissao: 4 },
+  { nome: "Ferramentas", kw: "ferramentas", comissao: 5 },
+  { nome: "Automotivo", kw: "acessorios automotivos", comissao: 4 },
+  { nome: "Livros", kw: "livros mais vendidos", comissao: 5 }
 ];
 
 const dinheiro = (value?: string) => {
@@ -87,18 +103,24 @@ async function coletaDiaria(forcar = false) {
     await chrome.storage.local.set({ [COLETA_ULTIMA_KEY]: new Date().toISOString().slice(0, 10) });
     // Mercado Livre: o servidor puxa a central de afiliados (com a comissão), sem abrir o ML.
     await api(config, "/api/catalog/mercado-livre/hub-sync", { method: "POST", body: "{}" }).catch(() => undefined);
-    // Demais lojas (Amazon): raspa a página de ofertas do dia.
-    for (const loja of LOJAS_COLETA) {
-      const produtos = await coletarDaPagina(loja.url).catch(() => []);
-      if (!produtos.length) continue;
+    // Amazon: busca categoria por categoria (produtos reais) e manda com a comissão estimada.
+    const vistos = new Set<string>();
+    const amazon: any[] = [];
+    for (const cat of AMAZON_CATEGORIAS) {
+      const produtos = await coletarDaPagina(`https://www.amazon.com.br/s?k=${encodeURIComponent(cat.kw)}`).catch(() => []);
       const agora = new Date().toISOString();
-      const offers = produtos.map((p: any) => ({
-        external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
-        price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
-        product_url: p.originalUrl, coupon: p.coupon || undefined, captured_at: agora
-      }));
-      await api(config, loja.rota, { method: "POST", body: JSON.stringify({ provider: loja.provider, offers: offers.slice(0, 500) }) }).catch(() => undefined);
+      for (const p of produtos) {
+        if (!p.itemId || vistos.has(p.itemId) || /mega oferta|oferta do dia/i.test(p.title || "")) continue;
+        vistos.add(p.itemId);
+        amazon.push({
+          external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
+          price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
+          product_url: p.originalUrl, category: cat.nome, commission_rate: cat.comissao, commission_estimated: true, captured_at: agora
+        });
+      }
     }
+    // Uma chamada só por loja: o servidor desativa o que não veio nesta coleta.
+    if (amazon.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "AMAZON", offers: amazon.slice(0, 500) }) }).catch(() => undefined);
   } finally { coletando = false; }
 }
 async function api(config: Config, path: string, init: RequestInit = {}) {

@@ -12,6 +12,8 @@ export const dailyOfferSchema = z.object({
   product_url: z.string().url().optional(),
   coupon: z.string().max(60).optional(),
   category: z.string().max(120).optional(),
+  commission_rate: z.number().min(0).max(100).optional(),
+  commission_estimated: z.boolean().optional(),
   captured_at: z.string().optional()
 });
 

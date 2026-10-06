@@ -69,13 +69,14 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   let hasNextPage = false;
   let loadedAny = false;
   let mlCategories: CatalogCategory[] | undefined;
+  let amazonCategories: CatalogCategory[] | undefined;
   // Ofertas já usadas saem da página; se sobrar pouco, busca as próximas
   // páginas (até 3 extras). A tela continua de pageInfo.page + 1.
   for (let extra = 0; extra <= MAX_EXTRA_PAGES; extra++) {
     const settled = await Promise.allSettled(providers.map(async provider => {
       const key = JSON.stringify([provider, accountId, { ...input, categoryId, page: undefined }]);
       if (provider === "SHOPEE") return shopeePage(await shopeeProvider(database, accountId), key, input, shopeeCategoryIds, page);
-      if (provider === "AMAZON") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog("AMAZON", { keyword: input.keyword, listing: input.listing, page, limit: input.limit }));
+      if (provider === "AMAZON") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog("AMAZON", { keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
       return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
     }));
     hasNextPage = false;
@@ -85,6 +86,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
         loadedAny = true;
         hasNextPage ||= result.value.pageInfo.hasNextPage;
         if (provider === "MERCADO_LIVRE") mlCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
+        if (provider === "AMAZON") amazonCategories ??= (result.value as CatalogPage & { categories?: CatalogCategory[] }).categories;
         offers.push(...result.value.offers.filter(offer => !used.has(`${offer.provider}:${offer.externalItemId}`)));
       } else providerErrors[provider] = codeOf(result.reason, `${provider}_UNAVAILABLE`);
     });
@@ -101,8 +103,7 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   // Os nichos são da Shopee. Mantê-los também na visão "Todos" preserva a
   // navegação por nicho da vitrine, mesmo quando há mais de um marketplace.
   if (input.provider === "SHOPEE" || input.provider === "ALL") categories = [{ id: null, label: "Todas" }, ...niches.map(niche => ({ id: niche.id, label: niche.label, featured: niche.featured }))];
-  if (input.provider === "MERCADO_LIVRE") {
-    if (mlCategories?.length) categories = mlCategories;
-  }
+  if (input.provider === "MERCADO_LIVRE") { if (mlCategories?.length) categories = mlCategories; }
+  if (input.provider === "AMAZON") { if (amazonCategories?.length) categories = amazonCategories; }
   return { offers, pageInfo: { page, limit: input.limit, hasNextPage }, categories, providerErrors };
 }

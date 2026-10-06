@@ -13,6 +13,7 @@ export type AffiliateOffer = {
   rating?: number;
   commissionRate?: number;
   commissionAmount?: number;
+  commissionEstimated?: boolean;
   shopId?: string;
   shopName?: string;
   productUrl?: string;
