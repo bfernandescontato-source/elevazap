@@ -11,7 +11,6 @@ export type OfficialFlow = {
   variable_mapping: VariableMapping;
   quick_reply_action_id: string;
   quick_reply_payload: string | null;
-  additional_messages: string[];
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -67,6 +66,17 @@ async function upsertFollowupAction(input: FlowInput) {
   });
 }
 
+// Mantemos a sequência no JSON já existente do fluxo. Assim a melhoria funciona também nas
+// instalações que ainda não receberam a migração opcional de coluna dedicada.
+function mappingWithAdditionalMessages(mapping: VariableMapping, additionalMessages: string[]): VariableMapping {
+  return { ...mapping, _additionalMessages: additionalMessages } as VariableMapping;
+}
+
+export function additionalMessagesForFlow(flow: OfficialFlow): string[] {
+  const value = (flow.variable_mapping as VariableMapping & { _additionalMessages?: unknown })._additionalMessages;
+  return Array.isArray(value) ? value.filter((message): message is string => typeof message === "string") : [];
+}
+
 async function assertFlowHasNoPendingBroadcasts(id: string) {
   const { count, error } = await supabaseAdmin().from("official_broadcasts")
     .select("id", { count: "exact", head: true })
@@ -85,10 +95,9 @@ export async function createFlow(input: FlowInput): Promise<OfficialFlowWithActi
     name: input.name,
     initial_template_name: input.initialTemplateName,
     initial_template_language: input.initialTemplateLanguage,
-    variable_mapping: input.variableMapping,
+    variable_mapping: mappingWithAdditionalMessages(input.variableMapping, input.additionalMessages),
     quick_reply_action_id: action.id,
     quick_reply_payload: input.quickReplyPayload,
-    additional_messages: input.additionalMessages,
     active: true
   }).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;
@@ -105,10 +114,9 @@ export async function updateFlow(id: string, input: FlowInput): Promise<Official
     name: input.name,
     initial_template_name: input.initialTemplateName,
     initial_template_language: input.initialTemplateLanguage,
-    variable_mapping: input.variableMapping,
+    variable_mapping: mappingWithAdditionalMessages(input.variableMapping, input.additionalMessages),
     quick_reply_action_id: action.id,
     quick_reply_payload: input.quickReplyPayload,
-    additional_messages: input.additionalMessages,
     updated_at: new Date().toISOString()
   }).eq("id", id).select("*, official_quick_reply_actions(*)").single();
   if (error) throw error;

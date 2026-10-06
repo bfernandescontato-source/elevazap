@@ -37,8 +37,7 @@ type FlowAction = {
 type Flow = {
   quick_reply_payload?: string | null;
   id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean;
-  variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string> };
-  additional_messages?: string[] | null;
+  variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string>; _additionalMessages?: string[] };
   official_quick_reply_actions: FlowAction;
 };
 
@@ -164,7 +163,7 @@ export default function FluxosPage() {
     setButtonText(action.button_config?.text || "");
     setButtonUrl(action.button_config?.type === "url" ? action.button_config.url || "" : "");
     setButtonPayload(action.button_config?.type === "quick_reply" ? action.button_config.payload || "" : "");
-    setAdditionalMessages(Array.isArray(flow.additional_messages) ? flow.additional_messages : []);
+    setAdditionalMessages(Array.isArray(flow.variable_mapping?._additionalMessages) ? flow.variable_mapping._additionalMessages : []);
     setShowForm(true);
   }
 

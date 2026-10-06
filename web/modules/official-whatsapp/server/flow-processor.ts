@@ -1,5 +1,5 @@
 import { normalizeBrazilianPhone } from "@/lib/phone";
-import { getFlow } from "./flows";
+import { additionalMessagesForFlow, getFlow } from "./flows";
 import { createFlowRun, findFlowRunByMessageId, markFlowRunStatus, setFlowRunFinalDestination, setFlowRunFinalMessageId } from "./flow-runs";
 import { findTemplate } from "./templates";
 import { sendWhatsAppTemplate } from "./send-template";
@@ -95,7 +95,8 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
 
   const textResult = action.response_text ? renderTemplateText(action.response_text, run.context) : null;
   const captionResult = action.caption ? renderTemplateText(action.caption, run.context) : null;
-  const additionalResults = (flow.additional_messages || []).map((message) => renderTemplateText(message, run.context));
+  const additionalMessages = additionalMessagesForFlow(flow);
+  const additionalResults = additionalMessages.map((message) => renderTemplateText(message, run.context));
   const missing = [...(textResult?.missing || []), ...(captionResult?.missing || []), ...additionalResults.flatMap((result) => result.missing)];
   if (missing.length) {
     const summary = `MISSING_TEMPLATE_VARIABLE: ${missing.join(", ")}`;
@@ -129,7 +130,7 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
       const additionalAction = {
         ...action,
         response_type: "text" as const,
-        response_text: flow.additional_messages[index],
+        response_text: additionalMessages[index],
         media_bucket: null,
         media_path: null,
         mime_type: null,
