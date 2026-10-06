@@ -115,10 +115,15 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
           // Sem este registro não dá para saber por que um número "conecta e desconecta".
           console.warn({ event: "whatsapp.connection_closed", component: "managed-session", session_name: sessionId, code: code ?? null, message: String(update.lastDisconnect?.error?.message || "").slice(0, 200), stopped });
           if (!stopped) {
-            if (code === DisconnectReason.loggedOut) {
+            // 401/403/419 = WhatsApp recusou/baniu a sessão (UNAUTHORIZED_CODES do Baileys).
+            // Reconectar nesses casos é inútil e só martela o serviço (um número banido
+            // chegou a 348 reconexões em 2h, derrubando a entrega dos outros números).
+            if (code === DisconnectReason.loggedOut || code === 403 || code === 419) {
               status = "logged_out";
               currentQr = "";
-              lastError = "A sessão foi desconectada pelo WhatsApp.";
+              lastError = code === DisconnectReason.loggedOut
+                ? "A sessão foi desconectada pelo WhatsApp."
+                : "O WhatsApp bloqueou este número. Reconecte lendo um novo QR (ou use outro número).";
               void reportStatus();
             } else {
               status = "reconnecting";
