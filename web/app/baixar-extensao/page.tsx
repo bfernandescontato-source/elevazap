@@ -1,4 +1,4 @@
-import { CheckCircle2, Chrome, Download, ExternalLink, Puzzle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Chrome, Download, ExternalLink, Puzzle } from "lucide-react";
 
 export const metadata = {
   title: "Baixar extensão do Mercado Livre",
@@ -6,10 +6,12 @@ export const metadata = {
 };
 
 const steps = [
+  "No Chrome, abra chrome://extensions e REMOVA a versão antiga da extensão Disparei (se tiver).",
   "Baixe o arquivo ZIP usando o botão abaixo.",
   "Descompacte o arquivo em uma pasta no seu computador.",
-  "No Chrome, abra chrome://extensions e ative o Modo do desenvolvedor.",
-  "Clique em Carregar sem compactação e selecione a pasta descompactada."
+  "Em chrome://extensions, ative o Modo do desenvolvedor.",
+  "Clique em Carregar sem compactação e selecione a pasta descompactada.",
+  "Volte em Integrações e conecte o Mercado Livre novamente."
 ];
 
 export default function DownloadExtensionPage() {
@@ -27,6 +29,10 @@ export default function DownloadExtensionPage() {
           </section>
 
           <section className="px-6 py-8 sm:px-12 sm:py-10">
+            <div className="mb-7 flex items-start gap-3 rounded-2xl border-2 border-red-500 bg-red-50 p-4 text-sm font-bold leading-6 text-red-700">
+              <AlertTriangle className="mt-0.5 shrink-0" size={20} />
+              <p>IMPORTANTE: Baixe a NOVA versão da extensão antes de conectar o Mercado Livre. Remova a versão antiga primeiro. Sem a versão nova, suas ofertas podem falhar.</p>
+            </div>
             <a
               href="/downloads/mercado-livre.zip"
               download="mercado-livre.zip"
