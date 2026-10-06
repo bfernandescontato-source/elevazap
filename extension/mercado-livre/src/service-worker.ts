@@ -1,4 +1,4 @@
-import { COLETA_HORA_KEY, COLETA_HORA_PADRAO, COLETA_ULTIMA_KEY, CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VITRINE_CAPTURAR, VITRINE_COLETA_AGORA, VITRINE_ENVIAR, VITRINE_STATUS, type CatalogProduct, type Config, type Job, type VitrineStatus } from "./shared.js";
+import { COLETA_HORA_KEY, COLETA_HORA_PADRAO, COLETA_ULTIMA_KEY, CONNECT, ENVIO_KEY, GENERATE, IMPORT_CATALOG, VITRINE_BUSCA_SHOPEE, VITRINE_CAPTURAR, VITRINE_COLETA_AGORA, VITRINE_CUPONS, VITRINE_ENVIAR, VITRINE_STATUS, type CatalogProduct, type Config, type Job, type VitrineStatus } from "./shared.js";
 
 const CONFIG_KEY = "dispareiMercadoLivre";
 const LINK_BUILDER = "https://www.mercadolivre.com.br/afiliados/linkbuilder";
@@ -84,6 +84,26 @@ async function coletarDaPagina(url: string) {
   } finally { await chrome.tabs.remove(tab.id).catch(() => undefined); }
 }
 
+// Páginas de cupom da Shopee: a página busca os cupons sozinha, o gancho captura a
+// resposta (já assinada pela Shopee) e devolvemos pelo content script.
+const CUPOM_URLS_SHOPEE = [
+  "https://shopee.com.br/m/cupom-de-desconto",
+  "https://shopee.com.br/m/cupom-de-desconto-v68",
+  "https://shopee.com.br/m/cupom-de-desconto-v140"
+];
+
+async function coletarCuponsDaPagina(url: string): Promise<any[]> {
+  const tab = await chrome.tabs.create({ url, active: false });
+  if (!tab.id) return [];
+  try {
+    for (let attempt = 0; attempt < 80; attempt += 1) { await sleep(250); if ((await chrome.tabs.get(tab.id).catch(() => undefined))?.status === "complete") break; }
+    await sleep(5000); // a página busca os cupons depois de carregar
+    let resposta: any;
+    for (let attempt = 0; attempt < 8; attempt += 1) { try { resposta = await chrome.tabs.sendMessage(tab.id, { type: VITRINE_CUPONS }); break; } catch { await sleep(600); } }
+    return Array.isArray(resposta?.cupons) ? resposta.cupons : [];
+  } finally { await chrome.tabs.remove(tab.id).catch(() => undefined); }
+}
+
 async function coletaDiaria(forcar = false) {
   if (coletando) return;
   const config = await getConfig();
@@ -124,6 +144,11 @@ async function coletaDiaria(forcar = false) {
     }
     // Uma chamada só por loja: o servidor desativa o que não veio nesta coleta.
     if (amazon.length) await api(config, "/api/catalog/daily/import", { method: "POST", body: JSON.stringify({ provider: "AMAZON", offers: amazon.slice(0, 1200) }) }).catch(() => undefined);
+
+    // Cupons Shopee: abre as páginas de cupom e captura o que a Shopee carrega.
+    const respostasCupons: any[] = [];
+    for (const url of CUPOM_URLS_SHOPEE) { const c = await coletarCuponsDaPagina(url).catch(() => []); respostasCupons.push(...c); }
+    if (respostasCupons.length) await api(config, "/api/catalog/cupons-shopee/import", { method: "POST", body: JSON.stringify({ responses: respostasCupons.slice(0, 40) }) }).catch(() => undefined);
   } finally { coletando = false; }
 }
 async function api(config: Config, path: string, init: RequestInit = {}) {

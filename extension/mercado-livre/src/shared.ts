@@ -30,6 +30,7 @@ export const PAGINA_ENVIADOS = "DISPAREI_VITRINE_ENVIADOS";
 // Coleta diária das ofertas do dia (service worker pede ao content script da loja).
 export const VITRINE_CAPTURAR = "DISPAREI_VITRINE_CAPTURAR";
 export const VITRINE_COLETA_AGORA = "DISPAREI_VITRINE_COLETA_AGORA"; // botão de teste no popup
+export const VITRINE_CUPONS = "DISPAREI_VITRINE_CUPONS"; // pede ao content script os cupons capturados da página Shopee
 export const COLETA_HORA_KEY = "dispareiColetaHora";   // hora do dia (0-23), padrão 7
 export const COLETA_ULTIMA_KEY = "dispareiColetaUltima"; // "YYYY-MM-DD" da última coleta feita
 export const COLETA_HORA_PADRAO = 7;

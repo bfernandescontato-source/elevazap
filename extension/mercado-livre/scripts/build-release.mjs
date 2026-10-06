@@ -30,7 +30,8 @@ const entries = [
   { name: "disparei-bridge", format: "iife" },
   { name: "mercado-livre-bridge", format: "iife" },
   { name: "vitrine", format: "iife" },
-  { name: "shopee-page", format: "iife" }
+  { name: "shopee-page", format: "iife" },
+  { name: "shopee-cupom-hook", format: "iife" }
 ];
 for (const entry of entries) {
   await esbuild.build({

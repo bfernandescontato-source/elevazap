@@ -1,7 +1,7 @@
 // Content script das lojas: botões nos cards, card na página de produto e o
 // painel do carrinho. Fica inerte até o service worker confirmar que a conta
 // conectada tem a Vitrine liberada.
-import { VITRINE_ALTERNAR_PAINEL, VITRINE_CAPTURAR, VITRINE_ENVIAR, VITRINE_STATUS, type ModoDeEnvio, type VitrineStatus } from "./shared.js";
+import { VITRINE_ALTERNAR_PAINEL, VITRINE_CAPTURAR, VITRINE_CUPONS, VITRINE_ENVIAR, VITRINE_STATUS, type ModoDeEnvio, type VitrineStatus } from "./shared.js";
 import { adicionar, aoMudar, chaveDo, lerCarrinho, limpar, remover } from "./vitrine/carrinho.js";
 import { detectarLoja, ehPaginaDeProduto, lojaMagazineVoce, type LeitorDeLoja, type Loja, type Produto } from "./vitrine/lojas.js";
 import { leitorAmazon } from "./vitrine/loja-amazon.js";
@@ -249,10 +249,18 @@ async function iniciar(status: VitrineStatus) {
   setInterval(() => { if (location.href !== ultimaUrl) { ultimaUrl = location.href; produtoAtual = null; setTimeout(varrer, 900); } }, 1000);
 }
 
+// Cupons Shopee: o gancho no mundo da página (shopee-cupom-hook) captura a resposta
+// de get_vouchers_by_collections e posta aqui. Guardamos até o service worker pedir.
+const cuponsCapturados: any[] = [];
+window.addEventListener("message", event => {
+  if (event.source === window && event.origin === location.origin && event.data?.__dspCupons) cuponsCapturados.push(event.data.data);
+});
+
 // Coleta diária: o service worker abre a página de ofertas e pede os produtos.
 // Responde mesmo sem o painel montado (independe da conta estar liberada aqui;
 // a liberação é conferida no service worker antes de abrir a aba).
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === VITRINE_CUPONS) { sendResponse({ ok: true, cupons: cuponsCapturados.splice(0) }); return false; }
   if (message?.type !== VITRINE_CAPTURAR) return false;
   const leitor = loja ? LEITORES[loja] : null;
   if (!leitor?.todosDaPagina) { sendResponse({ ok: false, produtos: [] }); return false; }
