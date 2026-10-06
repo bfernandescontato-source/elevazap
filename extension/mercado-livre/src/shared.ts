@@ -8,7 +8,7 @@ export type CatalogProduct = {
   ml_item_id: string; product_name: string; image_url?: string; price?: number; original_price?: number;
   commission_rate?: number; commission_value?: number; product_link?: string; category?: string;
   ml_category?: string; sales?: number; rating_star?: number; discount_rate?: number; is_hot?: boolean;
-  is_full?: boolean; free_shipping?: boolean; seller_name?: string; captured_at: string;
+  is_full?: boolean; free_shipping?: boolean; seller_name?: string; badges?: string[]; captured_at: string;
 };
 
 // Vitrine (carrinho nas lojas). Mensagens entre content script, service worker e painel.

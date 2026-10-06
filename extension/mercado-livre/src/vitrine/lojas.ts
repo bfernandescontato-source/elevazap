@@ -9,8 +9,20 @@ export type Produto = {
   price: string; oldPrice: string; discount: string; coupon: string; installment: string;
   imageUrl: string; originalUrl: string;
   vendas?: number; freteGratis?: boolean; mercadoFull?: boolean;
+  badges?: string[]; // textos tipo "Ganhos 12%" (Mercado Livre afiliado) para o servidor extrair a comissão
   addedAt?: string;
 };
+
+/** Junta textos curtos do card que falam de "Ganhos/Comissão" (afiliado Mercado Livre). */
+export function ganhosDoCard(root: Element): string[] {
+  const found = new Set<string>();
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    if (element.children.length) continue;
+    const text = textOf(element);
+    if (text.length > 0 && text.length <= 80 && /ganho|comiss/i.test(text)) found.add(text);
+  }
+  return Array.from(found).slice(0, 10);
+}
 
 /** O que cada loja sabe fazer: achar os cards da listagem, ler um card e ler a página de produto. */
 export type LeitorDeLoja = {

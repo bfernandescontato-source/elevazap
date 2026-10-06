@@ -93,7 +93,7 @@ async function coletaDiaria(forcar = false) {
           ml_item_id: p.itemId, product_name: p.title, image_url: p.imageUrl || undefined,
           price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
           product_link: p.originalUrl, sales: p.vendas || undefined, is_full: p.mercadoFull || false,
-          free_shipping: p.freteGratis || false, captured_at: agora
+          free_shipping: p.freteGratis || false, badges: Array.isArray(p.badges) ? p.badges : undefined, captured_at: agora
         }));
         await api(config, loja.rota, { method: "POST", body: JSON.stringify(payload.slice(0, 500)) }).catch(() => undefined);
       } else {

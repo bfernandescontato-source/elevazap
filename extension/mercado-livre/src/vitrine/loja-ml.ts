@@ -1,4 +1,4 @@
-import { dinheiro, ehPaginaDeProduto, fotoGrande, imagemDoCard, semRuido, soExternos, textOf, type LeitorDeLoja, type Produto } from "./lojas.js";
+import { dinheiro, ehPaginaDeProduto, fotoGrande, ganhosDoCard, imagemDoCard, semRuido, soExternos, textOf, type LeitorDeLoja, type Produto } from "./lojas.js";
 
 const idDoItem = (value?: string | null) => {
   const match = (value || "").match(/MLB(U)?[-\s]?(\d+)/i);
@@ -134,7 +134,7 @@ function doCard(card: Element): Produto | null {
     itemId, platform: "ML", title, price, oldPrice, discount: discount ? `${discount}%` : "",
     installment: (card.querySelector("[class*=\"installments\"], .poly-price__installments")?.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
     coupon: cupom(card, price), imageUrl: fotoGrande(image?.getAttribute("data-src") || image?.src),
-    ...selos(card, title), originalUrl: url.split("?")[0]
+    ...selos(card, title), badges: ganhosDoCard(card), originalUrl: url.split("?")[0]
   };
 }
 
@@ -152,7 +152,7 @@ function daPagina(): Produto | null {
     installment: (main.querySelector(".ui-pdp-price__subtitles, [class*=\"installment\"]")?.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
     coupon: cupom(main, price),
     imageUrl: fotoGrande(document.querySelector<HTMLImageElement>(".ui-pdp-gallery__figure img")?.src || document.querySelector<HTMLMetaElement>("meta[property=\"og:image\"]")?.content),
-    ...selos(main, title, price), originalUrl: location.href.split("?")[0]
+    ...selos(main, title, price), badges: ganhosDoCard(main), originalUrl: location.href.split("?")[0]
   };
 }
 
