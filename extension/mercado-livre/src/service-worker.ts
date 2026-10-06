@@ -35,8 +35,9 @@ async function ensurePolling() {
 
 // Páginas de "ofertas do dia" que a coleta diária abre e lê. A Shopee do catálogo
 // já é ao vivo; a Magalu entra junto com a área dela (link só pela Magazine Você).
+// Amazon é raspada da página de ofertas. Mercado Livre NÃO abre página: o servidor
+// puxa a central de afiliados com a sessão guardada (traz a comissão, igual Shopee).
 const LOJAS_COLETA = [
-  { url: "https://www.mercadolivre.com.br/ofertas", rota: "/api/catalog/mercado-livre/import", provider: "mercado_livre" as const },
   { url: "https://www.amazon.com.br/deals", rota: "/api/catalog/daily/import", provider: "AMAZON" as const }
 ];
 
@@ -84,26 +85,19 @@ async function coletaDiaria(forcar = false) {
   coletando = true;
   try {
     await chrome.storage.local.set({ [COLETA_ULTIMA_KEY]: new Date().toISOString().slice(0, 10) });
+    // Mercado Livre: o servidor puxa a central de afiliados (com a comissão), sem abrir o ML.
+    await api(config, "/api/catalog/mercado-livre/hub-sync", { method: "POST", body: "{}" }).catch(() => undefined);
+    // Demais lojas (Amazon): raspa a página de ofertas do dia.
     for (const loja of LOJAS_COLETA) {
       const produtos = await coletarDaPagina(loja.url).catch(() => []);
       if (!produtos.length) continue;
       const agora = new Date().toISOString();
-      if (loja.provider === "mercado_livre") {
-        const payload: CatalogProduct[] = produtos.map((p: any) => ({
-          ml_item_id: p.itemId, product_name: p.title, image_url: p.imageUrl || undefined,
-          price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
-          product_link: p.originalUrl, sales: p.vendas || undefined, is_full: p.mercadoFull || false,
-          free_shipping: p.freteGratis || false, badges: Array.isArray(p.badges) ? p.badges : undefined, captured_at: agora
-        }));
-        await api(config, loja.rota, { method: "POST", body: JSON.stringify(payload.slice(0, 500)) }).catch(() => undefined);
-      } else {
-        const offers = produtos.map((p: any) => ({
-          external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
-          price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
-          product_url: p.originalUrl, coupon: p.coupon || undefined, captured_at: agora
-        }));
-        await api(config, loja.rota, { method: "POST", body: JSON.stringify({ provider: loja.provider, offers: offers.slice(0, 500) }) }).catch(() => undefined);
-      }
+      const offers = produtos.map((p: any) => ({
+        external_item_id: p.itemId, name: p.title, image_url: p.imageUrl || undefined,
+        price: dinheiro(p.price), original_price: dinheiro(p.oldPrice), discount_rate: percentual(p.discount),
+        product_url: p.originalUrl, coupon: p.coupon || undefined, captured_at: agora
+      }));
+      await api(config, loja.rota, { method: "POST", body: JSON.stringify({ provider: loja.provider, offers: offers.slice(0, 500) }) }).catch(() => undefined);
     }
   } finally { coletando = false; }
 }
