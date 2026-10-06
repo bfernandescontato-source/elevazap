@@ -73,7 +73,8 @@ export async function getStoredMercadoLivreCatalog(input: { keyword?: string; ca
   if (input.minPrice !== undefined) query = query.gte("price", input.minPrice);
   if (input.maxPrice !== undefined) query = query.lte("price", input.maxPrice);
   if (input.minCommission !== undefined) query = query.gte("commission_rate", input.minCommission);
-  const order = input.listing === "commission" ? "commission_value" : input.listing === "sold" ? "sales" : "updated_at";
+  // "Melhor Performance" (top) agora ordena por mais vendidos, como a Shopee, em vez de só recência.
+  const order = input.listing === "commission" ? "commission_value" : "sales";
   const from = (input.page - 1) * input.limit; const { data, count, error } = await query.order(order, { ascending: false, nullsFirst: false }).range(from, from + input.limit - 1);
   if (error) throw error;
   const { data: categoryRows, error: categoryError } = await db.from("mercado_livre_products").select("category").eq("active", true).not("category", "is", null).limit(1000);

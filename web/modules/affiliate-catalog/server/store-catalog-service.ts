@@ -37,7 +37,9 @@ export async function getStoredStoreCatalog(provider: StoreProvider, input: { ke
   const db = supabaseAdmin();
   let query = db.from("catalog_store_offers").select("*", { count: "exact" }).eq("provider", provider).eq("active", true);
   if (input.keyword) query = query.ilike("name", `%${input.keyword.replace(/[%_,]/g, "")}%`);
-  const order = input.listing === "sold" ? "sales" : "last_seen_at";
+  // Esconde cards genéricos de banner (ex.: "Mega Oferta Prime" da Amazon), que não são produtos.
+  query = query.not("name", "ilike", "%Mega Oferta%").not("name", "ilike", "%Oferta do Dia%");
+  const order = input.listing === "sold" ? "sales" : input.listing === "commission" ? "price" : "last_seen_at";
   const from = (input.page - 1) * input.limit;
   const { data, count, error } = await query.order(order, { ascending: false, nullsFirst: false }).range(from, from + input.limit - 1);
   if (error) throw error;
