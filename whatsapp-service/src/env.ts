@@ -38,6 +38,14 @@ const schema = z.object({
   RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1000).default(60_000),
   WELCOME_UNCERTAIN_POLICY: z.string().default("manual"),
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  // Observabilidade da investigação do número surdo. z.coerce.boolean trata
+  // "false" como true, por isso a comparação explícita.
+  OBS_ENABLED: z.string().default("true").transform((value) => value !== "false"),
+  OBS_PERSIST: z.string().default("true").transform((value) => value !== "false"),
+  OBS_FLUSH_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(300_000),
+  OBS_DETECT_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),
+  OBS_RING_MINUTES: z.coerce.number().int().min(10).max(180).default(60),
+  OBS_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(14),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.6"),
   OPENAI_REWRITE_MODEL: z.string().default("gpt-4o-mini")

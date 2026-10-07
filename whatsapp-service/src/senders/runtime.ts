@@ -5,6 +5,18 @@ import { regenerateGroupInviteLinks, syncGroupMetadata, updateGroupProfiles, typ
 import { scheduleParticipantEventSync } from "../groups/events.js";
 import { monitorOfferMessages } from "../offers/whatsapp-monitor.js";
 import { env } from "../env.js";
+import { observer, PROCESS_SESSION } from "../observability/observer.js";
+import { forgetLease, recordLeaseRenewed, type SupervisorCycle } from "../observability/supervisor-trace.js";
+
+// Observabilidade nunca interfere no ciclo de vida das sessões.
+function observe(action: () => void) {
+  try { action(); } catch (error) { console.error({ event: "obs.observe_failed", error: String((error as Error)?.message || error) }); }
+}
+
+/** Cronometra a operação no ciclo do supervisor, quando houver um. */
+function timed<T>(cycle: SupervisorCycle | undefined, name: string, session: string | undefined, operation: () => Promise<T>) {
+  return cycle ? cycle.time(name, session, operation) : operation();
+}
 
 type SenderSession = {
   id: string;
@@ -59,6 +71,7 @@ async function startSenderNow(sender: { id: string; session_name: string; label:
   const current = senders.get(sender.session_name);
   if (current?.leaseVersion === leaseVersion) return current;
   if (current) {
+    observe(() => observer.freezeBeforeRestart(sender.session_name, "lease_version_changed"));
     await current.session.stop();
     senders.delete(sender.session_name);
   }
@@ -90,59 +103,79 @@ async function startSenderNow(sender: { id: string; session_name: string; label:
   const managed = { id: sender.id, sessionName: sender.session_name, label: sender.label, session, accountId: sender.account_id, leaseVersion };
   senders.set(sender.session_name, managed);
   sessionStartedAt.set(sender.session_name, Date.now());
+  observe(() => {
+    observer.setManagedInstance(sender.session_name, session.instanceId);
+    observer.count(sender.session_name, "session_created", 1, sender.account_id);
+    observer.count(PROCESS_SESSION, "sessions_created");
+  });
   console.log(`[sender] Session started ${sender.label} (${sender.session_name})`);
   return managed;
 }
 
-export async function syncSenderSessionOwnership() {
-  const { data: leases, error } = await supabase.rpc("acquire_whatsapp_session_leases", {
+export async function syncSenderSessionOwnership(cycle?: SupervisorCycle) {
+  const { data: leases, error } = await timed(cycle, "acquire_leases_rpc", undefined, async () => supabase.rpc("acquire_whatsapp_session_leases", {
     p_worker_id: env.INSTANCE_ID,
     p_limit: env.MAX_SESSIONS_PER_WORKER,
     p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
-  });
+  }));
   if (error) throw error;
   const owned = (leases || []) as OwnedSenderLease[];
+  cycle?.count("owned", owned.length);
   const ownedIds = new Set(owned.map((lease) => lease.whatsapp_session_id));
   for (const managed of Array.from(senders.values())) {
     if (!ownedIds.has(managed.id)) {
-      await managed.session.stop();
+      observe(() => observer.freezeBeforeRestart(managed.sessionName, "lease_not_owned"));
+      cycle?.count("sessions_stopped");
+      await timed(cycle, "stop_not_owned", managed.sessionName, () => managed.session.stop());
       senders.delete(managed.sessionName);
     }
   }
   if (!owned.length) return owned;
-  const { data: rows, error: senderError } = await supabase.from("whatsapp_senders").select("*")
-    .in("id", owned.map((lease) => lease.whatsapp_session_id));
+  const { data: rows, error: senderError } = await timed(cycle, "select_senders", undefined, async () => supabase.from("whatsapp_senders").select("*")
+    .in("id", owned.map((lease) => lease.whatsapp_session_id)));
   if (senderError) throw senderError;
   const leaseById = new Map(owned.map((lease) => [lease.whatsapp_session_id, lease]));
   for (const sender of rows || []) {
     const lease = leaseById.get(sender.id);
-    if (lease) await startSender(sender, lease.lease_version).catch((currentError) =>
+    if (!lease) continue;
+    const before = senders.get(sender.session_name);
+    await timed(cycle, "start_sender", sender.session_name, () => startSender(sender, lease.lease_version)).catch((currentError) =>
       console.error(`[sender] boot failed ${sender.session_name}`, currentError)
     );
+    if (senders.get(sender.session_name) !== before) cycle?.count("sessions_started");
   }
   return owned;
 }
 
 export async function bootSenderSessions() { return syncSenderSessionOwnership(); }
 
-export async function renewOwnedSenderLeases() {
+export async function renewOwnedSenderLeases(cycle?: SupervisorCycle) {
   const leases = Array.from(senders.values()).map((managed) => ({ whatsapp_session_id: managed.id, lease_version: managed.leaseVersion }));
   if (!leases.length) return [] as OwnedSenderLease[];
-  const { data, error } = await supabase.rpc("renew_whatsapp_session_leases", {
+  cycle?.count("renew_requested", leases.length);
+  const { data, error } = await timed(cycle, "renew_leases_rpc", undefined, async () => supabase.rpc("renew_whatsapp_session_leases", {
     p_worker_id: env.INSTANCE_ID,
     p_leases: leases,
     p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
-  });
+  }));
   if (error) throw error;
   const renewed = (data || []) as Array<{ whatsapp_session_id: string; lease_version: number }>;
   const renewedIds = new Set(renewed.map((lease) => lease.whatsapp_session_id));
+  cycle?.count("renewed", renewed.length);
   for (const managed of Array.from(senders.values())) {
     if (!renewedIds.has(managed.id)) {
-      await managed.session.stop();
+      cycle?.count("renew_lost");
+      observe(() => {
+        observer.count(managed.sessionName, "lease_lost");
+        observer.freezeBeforeRestart(managed.sessionName, "lease_lost");
+        forgetLease(managed.sessionName);
+      });
+      await timed(cycle, "stop_lost_lease", managed.sessionName, () => managed.session.stop());
       senders.delete(managed.sessionName);
       continue;
     }
-    await persistRuntimeStatus(managed.id, managed.leaseVersion, managed.session.getStatus(), managed.session.getLastError());
+    observe(() => recordLeaseRenewed(managed.sessionName, env.SESSION_LEASE_TTL_SECONDS));
+    await timed(cycle, "persist_status", managed.sessionName, () => persistRuntimeStatus(managed.id, managed.leaseVersion, managed.session.getStatus(), managed.session.getLastError()));
   }
   return renewed;
 }
@@ -172,13 +205,14 @@ export async function startSenderSessionByName(sessionName: string) {
   if (current) {
     const status = current.session.getStatus();
     if (["starting", "waiting_qr", "connected", "reconnecting"].includes(status)) return current;
+    observe(() => observer.freezeBeforeRestart(sessionName, "start_replaces_inactive"));
     await current.session.logout();
     senders.delete(sessionName);
   }
   return startSender(sender, lease.lease_version);
 }
 
-export async function restartSenderSessionByName(sessionName: string) {
+export async function restartSenderSessionByName(sessionName: string, reason = "api_restart") {
   const { data: sender } = await supabase.from("whatsapp_senders").select("*").eq("session_name", sessionName).maybeSingle();
   if (!sender) throw new Error("Número não encontrado.");
   const { data: leases, error: leaseError } = await supabase.rpc("acquire_whatsapp_session_lease", {
@@ -191,6 +225,7 @@ export async function restartSenderSessionByName(sessionName: string) {
   if (!lease) throw new Error("Este número está sendo gerenciado por outra instância. Tente novamente em alguns segundos.");
   const current = senders.get(sessionName);
   if (current) {
+    observe(() => observer.freezeBeforeRestart(sessionName, reason));
     await current.session.stop();
     senders.delete(sessionName);
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -201,6 +236,7 @@ export async function restartSenderSessionByName(sessionName: string) {
 export async function disconnectSenderSession(sessionName: string) {
   const managed = senders.get(sessionName);
   if (!managed) return;
+  observe(() => observer.freezeBeforeRestart(sessionName, "disconnect"));
   await managed.session.logout();
   senders.delete(sessionName);
 }
@@ -329,7 +365,7 @@ export async function ensureSenderListening(sessionName: string, quietMs: number
   if (now - heard < quietMs) return { restarted: false, reason: "listening" };
   console.warn({ event: "sender_deaf_restart", component: "offer-autopilot", session_name: sessionName, account_id: managed.accountId, reason, quiet_minutes: Math.round((now - heard) / 60_000) });
   lastDeafRestartAt.set(sessionName, now);
-  await restartSenderSessionByName(sessionName);
+  await restartSenderSessionByName(sessionName, `ensure_listening:${reason}`);
   return { restarted: true, reason: "quiet" };
 }
 

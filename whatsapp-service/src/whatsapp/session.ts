@@ -1,4 +1,5 @@
-import makeWASocket, { DisconnectReason } from "@whiskeysockets/baileys";
+import makeWASocket, { DisconnectReason, proto } from "@whiskeysockets/baileys";
+import { randomUUID } from "crypto";
 import { pino } from "pino";
 import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
@@ -7,9 +8,11 @@ import { env } from "../env.js";
 import { withTimeout } from "../utils/timeout.js";
 import { errorFields } from "../utils/log.js";
 import { getBaileysVersion } from "../utils/baileys-version.js";
+import { observer } from "../observability/observer.js";
 
 export type WhatsAppSession = {
   sessionId: string;
+  instanceId: string;
   sock: any;
   getStatus: () => "idle" | "starting" | "waiting_qr" | "connected" | "reconnecting" | "logged_out" | "failed";
   getQr: () => string;
@@ -21,6 +24,12 @@ export type WhatsAppSession = {
 const CREDS_SAVE_ERROR = "Falha ao salvar a conexão do WhatsApp.";
 const CREDS_SAVE_ATTEMPTS = 3;
 const CREDS_SAVE_RETRY_MS = 3_000;
+const CIPHERTEXT_STUB = proto.WebMessageInfo.StubType.CIPHERTEXT;
+
+// Observabilidade nunca pode derrubar o fluxo do WhatsApp.
+function observe(action: () => void) {
+  try { action(); } catch (error) { console.error({ event: "obs.observe_failed", error: String((error as Error)?.message || error) }); }
+}
 
 type MessageHandler = (messages: any[], upsertType?: string) => Promise<void>;
 type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
@@ -36,6 +45,10 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   let lastError: string | null = null;
 
   let socketOpen = false;
+  // Identidade desta instância e de cada socket que ela cria: duas instâncias
+  // vivas para o mesmo número (sessão órfã) aparecem como dois ids diferentes.
+  const instanceId = randomUUID();
+  let socketSeq = 0;
 
   const reportStatus = () => onStatus?.(status, lastError).catch((error) =>
     console.error({ event: "whatsapp.status_persist_failed", component: "managed-session", ...errorFields(error) })
@@ -60,6 +73,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         return;
       } catch (error) {
         console.error({ event: "whatsapp.credentials_save_failed", component: "managed-session", attempt, ...errorFields(error) });
+        observe(() => observer.count(sessionId, "creds_save_fail"));
         if (attempt === CREDS_SAVE_ATTEMPTS) {
           status = "failed";
           lastError = CREDS_SAVE_ERROR;
@@ -102,18 +116,32 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         // qualidade quando a URL disponibiliza Open Graph acessível.
         generateHighQualityLinkPreview: true
       });
+      const seq = ++socketSeq;
+      const created = sock;
+      observe(() => {
+        observer.socketCreated(sessionId, instanceId, seq, accountId);
+        // Frame já decodificado, antes da decriptação: mede o que o WhatsApp entrega.
+        created.ws?.on?.("frame", (frame: any) => observe(() => observer.frame(sessionId, frame)));
+        created.ws?.on?.("message", (data: any) => observe(() => observer.count(sessionId, "raw_bytes", data?.length || data?.byteLength || 0)));
+      });
 
-      sock.ev.on("creds.update", () => void saveCredsWithRetry());
+      sock.ev.on("creds.update", () => {
+        observe(() => { observer.count(sessionId, "creds_update"); observer.mark(sessionId, "creds_update"); });
+        void saveCredsWithRetry();
+      });
 
       sock.ev.on("connection.update", async (update: any) => {
+        if (update.qr) observe(() => observer.count(sessionId, "qr"));
+        if (update.connection === "open") observe(() => observer.socketOpened(sessionId, instanceId, seq));
         if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; void reportStatus(); }
         if (update.connection === "open") { socketOpen = true; status = "connected"; currentQr = ""; lastError = null; void reportStatus(); }
         if (update.connection === "connecting" && status !== "waiting_qr") { status = "starting"; void reportStatus(); }
         if (update.connection === "close") {
           socketOpen = false;
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+          observe(() => observer.socketClosed(sessionId, instanceId, seq, code ?? null, stopped));
           // Sem este registro não dá para saber por que um número "conecta e desconecta".
-          console.warn({ event: "whatsapp.connection_closed", component: "managed-session", session_name: sessionId, code: code ?? null, message: String(update.lastDisconnect?.error?.message || "").slice(0, 200), stopped });
+          console.warn({ event: "whatsapp.connection_closed", component: "managed-session", session_name: sessionId, session_instance_id: instanceId, socket_seq: seq, code: code ?? null, message: String(update.lastDisconnect?.error?.message || "").slice(0, 200), stopped });
           if (!stopped) {
             // 401/403/419 = WhatsApp recusou/baniu a sessão (UNAUTHORIZED_CODES do Baileys).
             // Reconectar nesses casos é inútil e só martela o serviço (um número banido
@@ -136,6 +164,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       });
 
       sock.ev.on("messages.upsert", async ({ messages, type }: { messages: any[]; type?: string }) => {
+        observe(() => observer.upsert(sessionId, type, messages, CIPHERTEXT_STUB));
         try { await onMessages(messages, type); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
       });
       if (onGroupParticipants) {
@@ -155,8 +184,24 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   }
 
   await start();
+  observe(() => observer.registerInstance(sessionId, instanceId, () => ({
+    status,
+    stopped,
+    starting,
+    socket_seq: socketSeq,
+    socket_open: socketOpen,
+    ws_open: Boolean(sock?.ws?.isOpen),
+    is_buffering: typeof sock?.ev?.isBuffering === "function" ? sock.ev.isBuffering() : null,
+    listeners: {
+      ws_frame: sock?.ws?.listenerCount?.("frame") ?? null,
+      ws_message: sock?.ws?.listenerCount?.("message") ?? null,
+      cb_message: sock?.ws?.listenerCount?.("CB:message") ?? null
+    },
+    last_error: lastError
+  }), accountId));
   return {
     sessionId,
+    instanceId,
     get sock() { return sock; },
     getStatus: () => status,
     getQr: () => currentQr,
@@ -169,6 +214,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       currentQr = "";
       lastError = null;
       void reportStatus();
+      observe(() => observer.unregisterInstance(sessionId, instanceId, "logout"));
     },
     stop: async () => {
       stopped = true;
@@ -177,6 +223,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       await auth.waitForIdle();
       status = "idle";
       void reportStatus();
+      observe(() => observer.unregisterInstance(sessionId, instanceId, "stop"));
     }
   };
 }

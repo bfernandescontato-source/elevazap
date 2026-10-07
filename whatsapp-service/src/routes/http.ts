@@ -17,6 +17,8 @@ import {
 } from "../senders/runtime.js";
 import { waitForSessionReady } from "../utils/session-ready.js";
 import { retryCapturedOffer } from "../offers/offer-retry.js";
+import { observer } from "../observability/observer.js";
+import { recentEventLoop, recentSupervisorCycles } from "../observability/supervisor-trace.js";
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health" || req.path === "/ready") return next();
@@ -69,6 +71,12 @@ export function createHttpServer(
     });
   });
   app.get("/metrics", (_req, res) => res.json({ queue: queueRef.current?.stats() || { running: false }, senders: getSenderRuntimeStats() }));
+
+  // Observabilidade da investigação do número surdo (só leitura).
+  app.get("/obs/sessions", (_req, res) => res.json({ sessions: observer.listSessions() }));
+  app.get("/obs/sessions/:sessionName", (req, res) => res.json(observer.snapshot(req.params.sessionName, "http")));
+  app.get("/obs/incidents", (_req, res) => res.json({ incidents: observer.listIncidents() }));
+  app.get("/obs/supervisor", (_req, res) => res.json({ supervisor: recentSupervisorCycles(Number(_req.query.limit) || 40), event_loop: recentEventLoop() }));
 
   app.get("/senders/:sessionName/status", (req, res) => {
     res.json(getSenderStatus(req.params.sessionName));

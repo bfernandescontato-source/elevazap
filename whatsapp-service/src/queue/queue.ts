@@ -21,6 +21,18 @@ import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolv
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, findMarketplaceLink, isAmazonCaptchaPage } from "./link-preview-page.js";
 import { buildLinkThumbnail } from "./link-thumbnail.js";
+import { observer } from "../observability/observer.js";
+
+// Observabilidade por número (investigação do número surdo): nunca interfere no envio.
+function observeSend(row: any, outcome: "send_ok" | "send_timeout" | "send_fail", durationMs?: number) {
+  try {
+    const sessionName = row?.whatsapp_session_name;
+    if (!sessionName) return;
+    observer.count(sessionName, outcome, 1, row?.account_id || null);
+    if (outcome === "send_ok") observer.mark(sessionName, "send_ok");
+    if (durationMs !== undefined) observer.max(sessionName, "send_ms", durationMs);
+  } catch { /* nada */ }
+}
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/i;
 const LINK_PREVIEW_CACHE_MS = 10 * 60_000;
@@ -233,11 +245,14 @@ export class GlobalSendQueue {
     try {
       const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
       if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
+      const sendStartedAt = Date.now();
       await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, this.execute(item, row));
       this.metrics.success();
+      observeSend(row, "send_ok", Date.now() - sendStartedAt);
     } catch (error) {
       const potentiallyDelivered = error instanceof OperationTimeoutError &&
         ["queue.item", "whatsapp.sendMessage"].includes(error.operation);
+      observeSend(row, potentiallyDelivered ? "send_timeout" : "send_fail");
       if (potentiallyDelivered) {
         await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
         this.metrics.uncertainResult(error);

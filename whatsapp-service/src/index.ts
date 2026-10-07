@@ -9,8 +9,11 @@ import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-gro
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
+import { startObservability } from "./observability/bootstrap.js";
+import { SupervisorCycle } from "./observability/supervisor-trace.js";
 
 installBaileysRejectionGuard();
+startObservability();
 
 async function prepareDatabaseRuntime(readiness: ServiceReadiness) {
   let attempt = 0;
@@ -86,12 +89,19 @@ async function main() {
       console.error({ event: "sender.initial_sync_failed", error: readiness.lastError });
     });
     setInterval(async () => {
+      // Só mede o ciclo (duração, sobreposição, operação lenta, event loop);
+      // a ordem e a concorrência continuam as mesmas.
+      const cycle = new SupervisorCycle();
+      let cycleError: unknown = null;
       try {
-        await renewOwnedSenderLeases();
-        await syncSenderSessionOwnership();
+        await renewOwnedSenderLeases(cycle);
+        await syncSenderSessionOwnership(cycle);
       } catch (error) {
+        cycleError = error;
         readiness.lastError = error instanceof Error ? error.message : "Falha no supervisor de sessões.";
         console.error({ event: "sender.supervisor_failed", error: readiness.lastError });
+      } finally {
+        try { cycle.end(cycleError); } catch { /* observabilidade */ }
       }
     }, env.SESSION_SUPERVISOR_INTERVAL_MS);
     // Watchdog de número surdo DESLIGADO (07/10): o reinício automático não cura
