@@ -94,7 +94,12 @@ async function main() {
         console.error({ event: "sender.supervisor_failed", error: readiness.lastError });
       }
     }, env.SESSION_SUPERVISOR_INTERVAL_MS);
-    setInterval(() => restartDeafPilotSenders().catch((error) => console.error({ event: "sender_deaf_watch_failed", error: error instanceof Error ? error.message : String(error) })), 5 * 60_000);
+    // Watchdog de número surdo DESLIGADO (07/10): o reinício automático não cura
+    // número surdo de verdade (precisa QR) e só gera reconexão à toa, que o
+    // WhatsApp penaliza. Número que cai de verdade reconecta sozinho (handler de
+    // connection close); surdo mesmo é recuperado por QR.
+    // setInterval(() => restartDeafPilotSenders().catch((error) => console.error({ event: "sender_deaf_watch_failed", error: error instanceof Error ? error.message : String(error) })), 5 * 60_000);
+    void restartDeafPilotSenders;
     setTimeout(() => syncAllCampaignGroups().catch((error) => console.error("[groups] initial sync error:", error)), 15_000);
     setInterval(() => syncAllCampaignGroups().catch((error) => console.error("[groups] periodic sync error:", error)), 5 * 60_000);
   } catch (error) {
