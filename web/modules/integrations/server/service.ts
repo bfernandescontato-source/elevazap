@@ -6,7 +6,7 @@ import { secretToken, tokenHash } from "@/modules/offer-autopilot/server/mercado
 export type IntegrationProvider = "shopee" | "mercado_livre" | "amazon" | "magalu";
 type StoredProvider = IntegrationProvider;
 
-const visibleColumns = "provider,app_id,status,affiliate_tag,external_account_id,external_account_label,last_tested_at,last_error,auth_expires_at,updated_at";
+const visibleColumns = "provider,app_id,status,affiliate_tag,external_account_id,external_account_label,last_tested_at,last_error,auth_expires_at,updated_at,session_status";
 
 export async function getIntegration(database: SupabaseClient, accountId: string, provider: IntegrationProvider) {
   const { data, error } = await database.from("affiliate_integrations").select(visibleColumns).eq("account_id", accountId).eq("provider", provider).maybeSingle();
