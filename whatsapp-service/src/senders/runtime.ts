@@ -147,7 +147,7 @@ export async function syncSenderSessionOwnership(cycle?: SupervisorCycle) {
   return owned;
 }
 
-export async function bootSenderSessions() { return syncSenderSessionOwnership(); }
+export async function bootSenderSessions(cycle?: SupervisorCycle) { return syncSenderSessionOwnership(cycle); }
 
 export async function renewOwnedSenderLeases(cycle?: SupervisorCycle) {
   const leases = Array.from(senders.values()).map((managed) => ({ whatsapp_session_id: managed.id, lease_version: managed.leaseVersion }));

@@ -19,6 +19,8 @@ import { waitForSessionReady } from "../utils/session-ready.js";
 import { retryCapturedOffer } from "../offers/offer-retry.js";
 import { observer } from "../observability/observer.js";
 import { recentEventLoop, recentSupervisorCycles } from "../observability/supervisor-trace.js";
+import { runtimeHookState } from "../observability/bootstrap.js";
+import { liveInstanceCount, observabilityListenerCount } from "../observability/socket-hooks.js";
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health" || req.path === "/ready") return next();
@@ -73,6 +75,17 @@ export function createHttpServer(
   app.get("/metrics", (_req, res) => res.json({ queue: queueRef.current?.stats() || { running: false }, senders: getSenderRuntimeStats() }));
 
   // Observabilidade da investigação do número surdo (só leitura).
+  app.get("/obs/config", (_req, res) => res.json({ ...observer.config(), hooks: { ...runtimeHookState(), socket_listeners: observabilityListenerCount(), live_instances: liveInstanceCount() } }));
+  // Liga/desliga e canary sem reiniciar (vale até o próximo restart; depois volta ao env).
+  app.post("/obs/config", (req, res) => {
+    const body = req.body || {};
+    if (body.enabled !== undefined && typeof body.enabled !== "boolean") return res.status(400).json({ error: "enabled deve ser booleano." });
+    if (body.sessions !== undefined && body.sessions !== null && !(Array.isArray(body.sessions) && body.sessions.every((item: unknown) => typeof item === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(item)))) {
+      return res.status(400).json({ error: "sessions deve ser null ou lista de session_name." });
+    }
+    const config = observer.configure({ enabled: body.enabled, sessions: body.sessions });
+    res.json({ ...config, hooks: { ...runtimeHookState(), socket_listeners: observabilityListenerCount(), live_instances: liveInstanceCount() } });
+  });
   app.get("/obs/sessions", (_req, res) => res.json({ sessions: observer.listSessions() }));
   app.get("/obs/sessions/:sessionName", (req, res) => res.json(observer.snapshot(req.params.sessionName, "http")));
   app.get("/obs/incidents", (_req, res) => res.json({ incidents: observer.listIncidents() }));

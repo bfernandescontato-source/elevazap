@@ -11,6 +11,7 @@ import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
 import { startObservability } from "./observability/bootstrap.js";
 import { SupervisorCycle } from "./observability/supervisor-trace.js";
+import { observer } from "./observability/observer.js";
 
 installBaileysRejectionGuard();
 startObservability();
@@ -84,14 +85,20 @@ async function main() {
 
     // A transient session/lease error must not prevent the dispatcher and the
     // supervisor from recovering on the next pass.
-    await bootSenderSessions().catch((error) => {
+    // Só mede quanto o boot das sessões demora (as posses valem
+    // SESSION_LEASE_TTL_SECONDS desde a aquisição no início do boot).
+    const bootCycle = observer.isEnabled() ? new SupervisorCycle("boot") : undefined;
+    let bootError: unknown = null;
+    await bootSenderSessions(bootCycle).catch((error) => {
+      bootError = error;
       readiness.lastError = error instanceof Error ? error.message : "Falha inicial ao assumir sessões.";
       console.error({ event: "sender.initial_sync_failed", error: readiness.lastError });
     });
+    try { bootCycle?.end(bootError); } catch { /* observabilidade */ }
     setInterval(async () => {
       // Só mede o ciclo (duração, sobreposição, operação lenta, event loop);
       // a ordem e a concorrência continuam as mesmas.
-      const cycle = new SupervisorCycle();
+      const cycle = observer.isEnabled() ? new SupervisorCycle() : undefined;
       let cycleError: unknown = null;
       try {
         await renewOwnedSenderLeases(cycle);
@@ -101,7 +108,7 @@ async function main() {
         readiness.lastError = error instanceof Error ? error.message : "Falha no supervisor de sessões.";
         console.error({ event: "sender.supervisor_failed", error: readiness.lastError });
       } finally {
-        try { cycle.end(cycleError); } catch { /* observabilidade */ }
+        try { cycle?.end(cycleError); } catch { /* observabilidade */ }
       }
     }, env.SESSION_SUPERVISOR_INTERVAL_MS);
     // Watchdog de número surdo DESLIGADO (07/10): o reinício automático não cura

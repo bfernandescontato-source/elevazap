@@ -16,6 +16,7 @@ const nsToMs = (ns: number) => Math.round((ns / 1e6) * 10) / 10;
 type Op = { name: string; session?: string; ms: number; ok: boolean };
 
 export type CycleSummary = {
+  kind: "boot" | "supervisor";
   cycle: number;
   started_at: string;
   duration_ms: number;
@@ -43,6 +44,13 @@ export function startEventLoopMonitor() {
   if (processLoopEnabled) return;
   processLoop.enable();
   processLoopEnabled = true;
+}
+
+export function stopEventLoopMonitor() {
+  if (!processLoopEnabled) return;
+  processLoop.disable();
+  processLoop.reset();
+  processLoopEnabled = false;
 }
 
 /** Fecha a janela atual do laço de eventos e grava no minuto do processo. */
@@ -79,7 +87,7 @@ export class SupervisorCycle {
   private readonly counts: Record<string, number> = {};
   private ended = false;
 
-  constructor() {
+  constructor(readonly kind: "boot" | "supervisor" = "supervisor") {
     this.overlapping = activeCycles > 0;
     activeCycles += 1;
     this.concurrent = activeCycles;
@@ -109,6 +117,7 @@ export class SupervisorCycle {
     const opsTotal: Record<string, number> = {};
     for (const op of this.ops) opsTotal[op.name] = (opsTotal[op.name] || 0) + op.ms;
     const summary: CycleSummary = {
+      kind: this.kind,
       cycle: this.id,
       started_at: new Date(this.startedAt).toISOString(),
       duration_ms: Date.now() - this.startedAt,
@@ -124,14 +133,15 @@ export class SupervisorCycle {
     recentCycles.push(summary);
     while (recentCycles.length > RECENT_CYCLES) recentCycles.shift();
 
-    observer.count(PROCESS_SESSION, "supervisor_cycles");
-    observer.max(PROCESS_SESSION, "supervisor_cycle_ms", summary.duration_ms);
+    if (this.kind === "boot") observer.max(PROCESS_SESSION, "boot_ms", summary.duration_ms);
+    observer.count(PROCESS_SESSION, `${this.kind}_cycles`);
+    observer.max(PROCESS_SESSION, `${this.kind}_cycle_ms`, summary.duration_ms);
     observer.max(PROCESS_SESSION, "supervisor_eld_max_ms", summary.eld_max_ms);
     if (summary.overlapping) observer.count(PROCESS_SESSION, "supervisor_overlaps");
     if (summary.error) observer.count(PROCESS_SESSION, "supervisor_errors");
     for (const [key, value] of Object.entries(summary.counts)) observer.count(PROCESS_SESSION, `supervisor_${key}`, value);
 
-    const notable = summary.duration_ms >= SLOW_CYCLE_MS || summary.overlapping || summary.error
+    const notable = this.kind === "boot" || summary.duration_ms >= SLOW_CYCLE_MS || summary.overlapping || summary.error
       || (summary.counts.renew_lost || 0) > 0 || (summary.counts.sessions_started || 0) > 0 || (summary.counts.sessions_stopped || 0) > 0;
     if (notable) console.warn({ event: "obs.supervisor_cycle", component: "obs", ...summary });
     return summary;
@@ -151,6 +161,7 @@ export function supervisorState() {
 const lastRenewAt = new Map<string, number>();
 
 export function recordLeaseRenewed(sessionName: string, ttlSeconds: number, at = Date.now()) {
+  if (!observer.isEnabled()) return;
   const previous = lastRenewAt.get(sessionName);
   lastRenewAt.set(sessionName, at);
   if (previous === undefined) return;

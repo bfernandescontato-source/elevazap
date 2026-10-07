@@ -39,9 +39,11 @@ async function withAuthOperationLock<T>(lockKey: string, operation: () => Promis
   const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
   const tail = previous.catch(() => undefined).then(() => current);
   authOperationTails.set(lockKey, tail);
-  const opId = ++authOperationSeq;
-  const enqueuedAt = Date.now();
-  if (sessionName) safeObserve(() => {
+  // Decidido na entrada: se a observação mudar no meio, a saída continua coerente.
+  const tracked = Boolean(sessionName && observer.isActive(sessionName));
+  const opId = tracked ? ++authOperationSeq : 0;
+  const enqueuedAt = tracked ? Date.now() : 0;
+  if (tracked && sessionName) safeObserve(() => {
     const queue = authQueues.get(sessionName) || { depth: 0, enqueuedAt: new Map<number, number>() };
     queue.depth += 1;
     queue.enqueuedAt.set(opId, enqueuedAt);
@@ -49,13 +51,13 @@ async function withAuthOperationLock<T>(lockKey: string, operation: () => Promis
     observer.max(sessionName, "auth_depth", queue.depth);
   });
   await previous.catch(() => undefined);
-  if (sessionName) safeObserve(() => observer.max(sessionName, "auth_wait_ms", Date.now() - enqueuedAt));
+  if (tracked && sessionName) safeObserve(() => observer.max(sessionName, "auth_wait_ms", Date.now() - enqueuedAt));
   try {
     return await operation();
   } finally {
     releaseCurrent();
     if (authOperationTails.get(lockKey) === tail) authOperationTails.delete(lockKey);
-    if (sessionName) safeObserve(() => {
+    if (tracked && sessionName) safeObserve(() => {
       const queue = authQueues.get(sessionName);
       if (queue) { queue.depth = Math.max(0, queue.depth - 1); queue.enqueuedAt.delete(opId); }
     });
@@ -64,6 +66,7 @@ async function withAuthOperationLock<T>(lockKey: string, operation: () => Promis
 
 /** Mede uma leitura/gravação de chave Signal sem alterar seu resultado. */
 async function measureKeyOperation<T>(sessionName: string, kind: "signal_read" | "signal_write", keys: number, operation: () => Promise<T>): Promise<T> {
+  if (!observer.isActive(sessionName)) return operation();
   const started = Date.now();
   try {
     const result = await operation();

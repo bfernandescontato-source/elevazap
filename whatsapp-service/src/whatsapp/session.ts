@@ -9,6 +9,7 @@ import { withTimeout } from "../utils/timeout.js";
 import { errorFields } from "../utils/log.js";
 import { getBaileysVersion } from "../utils/baileys-version.js";
 import { observer } from "../observability/observer.js";
+import { createInstanceHooks } from "../observability/socket-hooks.js";
 
 export type WhatsAppSession = {
   sessionId: string;
@@ -49,6 +50,23 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   // vivas para o mesmo número (sessão órfã) aparecem como dois ids diferentes.
   const instanceId = randomUUID();
   let socketSeq = 0;
+  // Ouvintes de observação: só registrados enquanto a observação estiver
+  // ligada para este número (ver observability/socket-hooks.ts).
+  const hooks = createInstanceHooks(sessionId, instanceId, accountId, () => ({
+    status,
+    stopped,
+    starting,
+    socket_seq: socketSeq,
+    socket_open: socketOpen,
+    ws_open: Boolean(sock?.ws?.isOpen),
+    is_buffering: typeof sock?.ev?.isBuffering === "function" ? sock.ev.isBuffering() : null,
+    listeners: {
+      ws_frame: sock?.ws?.listenerCount?.("frame") ?? null,
+      ws_message: sock?.ws?.listenerCount?.("message") ?? null,
+      cb_message: sock?.ws?.listenerCount?.("CB:message") ?? null
+    },
+    last_error: lastError
+  }));
 
   const reportStatus = () => onStatus?.(status, lastError).catch((error) =>
     console.error({ event: "whatsapp.status_persist_failed", component: "managed-session", ...errorFields(error) })
@@ -118,12 +136,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       });
       const seq = ++socketSeq;
       const created = sock;
-      observe(() => {
-        observer.socketCreated(sessionId, instanceId, seq, accountId);
-        // Frame já decodificado, antes da decriptação: mede o que o WhatsApp entrega.
-        created.ws?.on?.("frame", (frame: any) => observe(() => observer.frame(sessionId, frame)));
-        created.ws?.on?.("message", (data: any) => observe(() => observer.count(sessionId, "raw_bytes", data?.length || data?.byteLength || 0)));
-      });
+      observe(() => hooks.socketCreated(created, seq));
 
       sock.ev.on("creds.update", () => {
         observe(() => { observer.count(sessionId, "creds_update"); observer.mark(sessionId, "creds_update"); });
@@ -164,7 +177,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       });
 
       sock.ev.on("messages.upsert", async ({ messages, type }: { messages: any[]; type?: string }) => {
-        observe(() => observer.upsert(sessionId, type, messages, CIPHERTEXT_STUB));
+        observe(() => observer.upsert(sessionId, type, messages, CIPHERTEXT_STUB, instanceId, seq));
         try { await onMessages(messages, type); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
       });
       if (onGroupParticipants) {
@@ -183,22 +196,12 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
     }
   }
 
-  await start();
-  observe(() => observer.registerInstance(sessionId, instanceId, () => ({
-    status,
-    stopped,
-    starting,
-    socket_seq: socketSeq,
-    socket_open: socketOpen,
-    ws_open: Boolean(sock?.ws?.isOpen),
-    is_buffering: typeof sock?.ev?.isBuffering === "function" ? sock.ev.isBuffering() : null,
-    listeners: {
-      ws_frame: sock?.ws?.listenerCount?.("frame") ?? null,
-      ws_message: sock?.ws?.listenerCount?.("message") ?? null,
-      cb_message: sock?.ws?.listenerCount?.("CB:message") ?? null
-    },
-    last_error: lastError
-  }), accountId));
+  try {
+    await start();
+  } catch (error) {
+    observe(() => hooks.release("start_failed"));
+    throw error;
+  }
   return {
     sessionId,
     instanceId,
@@ -214,7 +217,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       currentQr = "";
       lastError = null;
       void reportStatus();
-      observe(() => observer.unregisterInstance(sessionId, instanceId, "logout"));
+      observe(() => hooks.release("logout"));
     },
     stop: async () => {
       stopped = true;
@@ -223,7 +226,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       await auth.waitForIdle();
       status = "idle";
       void reportStatus();
-      observe(() => observer.unregisterInstance(sessionId, instanceId, "stop"));
+      observe(() => hooks.release("stop"));
     }
   };
 }
