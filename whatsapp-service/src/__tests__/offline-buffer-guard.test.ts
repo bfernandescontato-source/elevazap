@@ -4,7 +4,7 @@ import { guardOfflineBuffer } from "../utils/offline-buffer-guard.js";
 function fakeSock(buffering: { value: boolean }) {
   return {
     ws: { isOpen: true },
-    ev: { isBuffering: () => buffering.value, flush: vi.fn(() => { buffering.value = false; }) },
+    ev: { isBuffering: () => buffering.value, flush: vi.fn(() => { buffering.value = false; }), on: vi.fn(), off: vi.fn() },
     sendNode: vi.fn(async (_node: unknown) => undefined)
   };
 }
@@ -23,8 +23,16 @@ describe("número surdo: buffer de mensagens pendentes travado", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(sock.ev.flush).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith("whatsapp.offline_buffer_forced_flush", expect.any(Object));
+    // Buffer liberado à força, mas o servidor ainda não confirmou o fim: segue pedindo lotes.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sock.sendNode).toHaveBeenCalledTimes(7);
+    expect(log).not.toHaveBeenCalledWith("whatsapp.offline_buffer_released", expect.anything());
+    const onUpdate = sock.ev.on.mock.calls[0][1] as (u: unknown) => void;
+    onUpdate({ receivedPendingNotifications: true });
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(log).toHaveBeenCalledWith("whatsapp.offline_buffer_released", expect.objectContaining({ forced_flushes: 1 }));
+    expect(sock.sendNode).toHaveBeenCalledTimes(7);
+    expect(log).toHaveBeenCalledWith("whatsapp.offline_buffer_released", expect.objectContaining({ forced_flushes: 1, server_done: true }));
+    expect(sock.ev.off).toHaveBeenCalled();
     vi.useRealTimers();
   });
 

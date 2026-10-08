@@ -17,6 +17,8 @@
  */
 export const OFFLINE_BATCH_INTERVAL_MS = 10_000;
 export const OFFLINE_FORCE_FLUSH_MS = 60_000;
+// Teto de segurança: uma conexão viva não deveria ficar mais que isso puxando pendentes.
+const MAX_GUARD_MS = 2 * 60 * 60_000;
 
 type Log = (event: string, fields?: Record<string, unknown>) => void;
 
@@ -25,29 +27,46 @@ export function guardOfflineBuffer(sock: any, log: Log, now: () => number = Date
   let batchesRequested = 0;
   let flushes = 0;
   let lastFlushAt = openedAt;
+  // Fim das pendentes confirmado pelo servidor ("ib,,offline"). Em 08/10 o
+  // flush forçado liberava o buffer, a guarda parava de pedir lotes e o
+  // servidor seguia guardando as mensagens novas como pendentes: a Rosi ficou
+  // conectada recebendo 1 mensagem em 20 min. Só o fim confirmado encerra.
+  let serverDone = false;
+  const onUpdate = (update: any) => { if (update?.receivedPendingNotifications === true) serverDone = true; };
+  sock?.ev?.on?.("connection.update", onUpdate);
+  const stop = () => {
+    clearInterval(timer);
+    sock?.ev?.off?.("connection.update", onUpdate);
+  };
   const timer = setInterval(() => {
     const elapsed = now() - openedAt;
     const buffering = typeof sock?.ev?.isBuffering === "function" && sock.ev.isBuffering();
-    // Sem prazo: em 08/10 a Rosi tinha mais de 2.600 pendentes e um teto de
-    // 5 min deixou o resto preso de novo. Só para quando o buffer liberar.
-    if (!buffering || !sock?.ws?.isOpen) {
-      if (batchesRequested && !buffering) log("whatsapp.offline_buffer_released", { elapsed_ms: elapsed, batches_requested: batchesRequested, forced_flushes: flushes });
-      clearInterval(timer);
+    if (!sock?.ws?.isOpen || elapsed > MAX_GUARD_MS) {
+      if (batchesRequested) log("whatsapp.offline_guard_stopped", { elapsed_ms: elapsed, batches_requested: batchesRequested, forced_flushes: flushes, server_done: serverDone });
+      stop();
+      return;
+    }
+    // Número saudável: o buffer já liberou sozinho antes de qualquer pedido.
+    // Número travado: depois de começar a pedir, só para com o fim confirmado.
+    if (!buffering && (serverDone || !batchesRequested)) {
+      if (batchesRequested) log("whatsapp.offline_buffer_released", { elapsed_ms: elapsed, batches_requested: batchesRequested, forced_flushes: flushes, server_done: serverDone });
+      stop();
       return;
     }
     // Se o Baileys voltar a segurar depois do flush, força de novo a cada limite.
-    if (now() - lastFlushAt >= OFFLINE_FORCE_FLUSH_MS) {
+    if (buffering && now() - lastFlushAt >= OFFLINE_FORCE_FLUSH_MS) {
       flushes++;
       lastFlushAt = now();
       log("whatsapp.offline_buffer_forced_flush", { elapsed_ms: elapsed, batches_requested: batchesRequested, flushes });
       try { sock.ev.flush(); } catch (error) { log("whatsapp.offline_buffer_flush_failed", { message: String((error as Error)?.message || error) }); }
       return;
     }
+    if (serverDone) return;
     batchesRequested++;
     Promise.resolve()
       .then(() => sock.sendNode({ tag: "ib", attrs: {}, content: [{ tag: "offline_batch", attrs: { count: "100" } }] }))
       .catch((error: unknown) => log("whatsapp.offline_batch_request_failed", { message: String((error as Error)?.message || error) }));
   }, OFFLINE_BATCH_INTERVAL_MS);
   timer.unref?.();
-  return () => clearInterval(timer);
+  return stop;
 }
