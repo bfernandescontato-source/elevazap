@@ -5,7 +5,7 @@ function fakeSock(buffering: { value: boolean }) {
   return {
     ws: { isOpen: true },
     ev: { isBuffering: () => buffering.value, flush: vi.fn(() => { buffering.value = false; }) },
-    sendNode: vi.fn(async () => undefined)
+    sendNode: vi.fn(async (_node: unknown) => undefined)
   };
 }
 
