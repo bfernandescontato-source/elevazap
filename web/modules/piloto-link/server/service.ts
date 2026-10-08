@@ -63,11 +63,12 @@ async function shopeeProductInfo(database: SupabaseClient, accountId: string, pr
       credentials.app_id,
       decryptIntegrationSecret(credentials.encrypted_app_secret),
       "query($itemId:Int64){productOfferV2(itemId:$itemId,limit:1){nodes{productName priceMin imageUrl}}}",
-      { itemId: Number(itemId) },
+      { itemId },
     );
     const node = data.productOfferV2?.nodes?.[0];
     return node?.productName ? { productName: node.productName, price: node.priceMin ?? null, imageUrl: node.imageUrl ?? null } : null;
-  } catch {
+  } catch (error) {
+    console.warn({ event: "piloto_product_info_failed", component: "piloto-link", error: error instanceof Error ? error.message : "unknown" });
     return null;
   }
 }
