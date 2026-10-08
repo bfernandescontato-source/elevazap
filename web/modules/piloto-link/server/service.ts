@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getAmazonIntegration, getShopeeIntegration } from "@/modules/integrations/server/service";
+import { decryptIntegrationSecret } from "@/lib/integration-crypto";
+import { getAmazonIntegration, getShopeeIntegration, getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
+import { shopeeGraphQl } from "@/modules/offer-autopilot/server/shopee-client";
 import { amazonAffiliateLink, shopeeAffiliateLink, StoreLinkError } from "@/modules/affiliate-catalog/server/store-link-service";
 
 // Piloto Automático (Comentei + Disparei vendidos juntos): o app da Comentei pede aqui o link de
@@ -44,6 +46,32 @@ export async function resolveProductUrl(raw: string, fetcher: typeof fetch = fet
   return { marketplace, url: `${url.origin}${url.pathname}` };
 }
 
+/** Código do produto na Shopee: /loja/123/456 ou nome-i.123.456 */
+export function shopeeItemId(productUrl: string) {
+  const path = new URL(productUrl).pathname;
+  return path.match(/-i\.\d+\.(\d+)/)?.[1] ?? path.match(/^\/[^/]+\/\d+\/(\d+)/)?.[1] ?? path.match(/^\/product\/\d+\/(\d+)/)?.[1] ?? null;
+}
+
+/** Nome e preço do produto pela API de afiliados (melhor esforço: sem isso o link continua valendo). */
+async function shopeeProductInfo(database: SupabaseClient, accountId: string, productUrl: string) {
+  const itemId = shopeeItemId(productUrl);
+  if (!itemId) return null;
+  try {
+    const credentials = await getShopeeIntegrationCredentials(database, accountId);
+    if (!credentials || credentials.status !== "connected") return null;
+    const data = await shopeeGraphQl<{ productOfferV2?: { nodes?: Array<{ productName?: string; priceMin?: string; imageUrl?: string }> } }>(
+      credentials.app_id,
+      decryptIntegrationSecret(credentials.encrypted_app_secret),
+      "query($itemId:Int64){productOfferV2(itemId:$itemId,limit:1){nodes{productName priceMin imageUrl}}}",
+      { itemId: Number(itemId) },
+    );
+    const node = data.productOfferV2?.nodes?.[0];
+    return node?.productName ? { productName: node.productName, price: node.priceMin ?? null, imageUrl: node.imageUrl ?? null } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function accountIdByEmail(database: SupabaseClient, email: string) {
   const { data, error } = await database.from("app_users").select("account_id,status")
     .eq("email", email.trim().toLowerCase()).maybeSingle();
@@ -67,7 +95,8 @@ export async function affiliateLinkForEmail(database: SupabaseClient, email: str
     const link = product.marketplace === "shopee"
       ? await shopeeAffiliateLink(database, accountId, product.url)
       : await amazonAffiliateLink(database, accountId, product.url);
-    return { marketplace: product.marketplace, productUrl: product.url, link };
+    const info = product.marketplace === "shopee" ? await shopeeProductInfo(database, accountId, product.url) : null;
+    return { marketplace: product.marketplace, productUrl: product.url, link, productName: info?.productName ?? null, price: info?.price ?? null };
   } catch (error) {
     if (error instanceof StoreLinkError) {
       throw new PilotoLinkError(error.status === 409 ? "not_connected" : "provider", error.message, error.status);

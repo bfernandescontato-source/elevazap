@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { marketplaceOf, PilotoLinkError, resolveProductUrl } from "@/modules/piloto-link/server/service";
+import { marketplaceOf, PilotoLinkError, resolveProductUrl, shopeeItemId } from "@/modules/piloto-link/server/service";
 
 function redirects(map: Record<string, string>): typeof fetch {
   return (async (input: RequestInfo | URL) => {
@@ -42,5 +42,12 @@ describe("Piloto: link de afiliado pelo Disparei", () => {
   it("recusa loja desconhecida e link inválido", async () => {
     await expect(resolveProductUrl("https://exemplo.com/p")).rejects.toMatchObject({ code: "unsupported" });
     await expect(resolveProductUrl("não é link")).rejects.toMatchObject({ code: "invalid_url" });
+  });
+
+  it("acha o código do produto na Shopee", () => {
+    expect(shopeeItemId("https://shopee.com.br/opaanlp/363220493/16128265568")).toBe("16128265568");
+    expect(shopeeItemId("https://shopee.com.br/Removedor-de-Pelo-i.123.456")).toBe("456");
+    expect(shopeeItemId("https://shopee.com.br/product/1/2")).toBe("2");
+    expect(shopeeItemId("https://shopee.com.br/")).toBeNull();
   });
 });
