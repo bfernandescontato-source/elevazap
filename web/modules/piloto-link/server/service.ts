@@ -4,6 +4,10 @@ import { decryptIntegrationSecret } from "@/lib/integration-crypto";
 import { getAmazonIntegration, getShopeeIntegration, getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 import { shopeeGraphQl } from "@/modules/offer-autopilot/server/shopee-client";
 import { amazonAffiliateLink, shopeeAffiliateLink, StoreLinkError } from "@/modules/affiliate-catalog/server/store-link-service";
+import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
+import { brasiliaDate } from "@/modules/affiliate-catalog/schedule-plan";
+import { CatalogDispatchError, createCatalogDispatch, resolveCatalogTarget } from "@/modules/affiliate-catalog/server/catalog-dispatch-service";
+import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
 
 // Piloto Automático (Comentei + Disparei vendidos juntos): o app da Comentei pede aqui o link de
 // afiliado da aluna. As credenciais de afiliado ficam só no Disparei; sai daqui apenas o link pronto.
@@ -102,6 +106,70 @@ export async function affiliateLinkForEmail(database: SupabaseClient, email: str
     if (error instanceof StoreLinkError) {
       throw new PilotoLinkError(error.status === 409 ? "not_connected" : "provider", error.message, error.status);
     }
+    throw error;
+  }
+}
+
+/** Números e grupos da aluna no Disparei, para ela escolher onde o achadinho vai. */
+export async function dispatchTargets(database: SupabaseClient, email: string) {
+  const accountId = await accountIdByEmail(database, email);
+  if (!accountId) throw new PilotoLinkError("no_account", "Não encontramos uma conta no Disparei com este e-mail.", 404);
+  const [senders, groups] = await Promise.all([
+    database.from("whatsapp_senders").select("id,label,session_name,connection_status").eq("account_id", accountId).order("created_at"),
+    database.from("grupos").select("group_jid,nome,qtd_membros").eq("account_id", accountId).order("nome").limit(500),
+  ]);
+  if (senders.error) throw senders.error;
+  if (groups.error) throw groups.error;
+  return {
+    senders: (senders.data ?? []).map((sender) => ({
+      id: sender.id as string,
+      name: (sender.label as string | null) || (sender.session_name as string),
+      connected: sender.connection_status === "connected",
+    })),
+    groups: (groups.data ?? []).map((group) => ({ jid: group.group_jid as string, name: (group.nome as string | null) ?? "Grupo", members: (group.qtd_membros as number | null) ?? null })),
+  };
+}
+
+/**
+ * Agenda o achadinho do Piloto nos grupos de WhatsApp da aluna, pela mesma fila do Disparei
+ * (mesmo espaçamento e as mesmas regras dos outros envios). Só Shopee por enquanto.
+ */
+export async function scheduleOfferForEmail(database: SupabaseClient, input: {
+  email: string; url: string; senderId: string; groupJids: string[]; scheduledAt?: string;
+}, fetcher: typeof fetch = fetch) {
+  const accountId = await accountIdByEmail(database, input.email);
+  if (!accountId) throw new PilotoLinkError("no_account", "Não encontramos uma conta no Disparei com este e-mail.", 404);
+  const product = await resolveProductUrl(input.url, fetcher);
+  if (product.marketplace !== "shopee") throw new PilotoLinkError("unsupported", "Por enquanto só achadinhos da Shopee vão para os grupos.", 422);
+  const itemId = shopeeItemId(product.url);
+  if (!itemId) throw new PilotoLinkError("unsupported", "Não achamos o código deste produto na Shopee.", 422);
+  let link: string;
+  try {
+    link = await shopeeAffiliateLink(database, accountId, product.url);
+  } catch (error) {
+    if (error instanceof StoreLinkError) throw new PilotoLinkError(error.status === 409 ? "not_connected" : "provider", error.message, error.status);
+    throw error;
+  }
+  const info = await shopeeProductInfo(database, accountId, product.url);
+  if (!info?.productName) throw new PilotoLinkError("provider", "A Shopee não informou os dados deste produto agora.", 503);
+  const price = info.price ? Number(info.price) : undefined;
+  const offer: AffiliateOffer = {
+    provider: "SHOPEE",
+    externalItemId: itemId,
+    name: info.productName,
+    imageUrl: info.imageUrl ?? undefined,
+    priceMin: Number.isFinite(price) ? price : undefined,
+    productUrl: product.url,
+    affiliateUrl: link,
+  } as AffiliateOffer;
+  const when = input.scheduledAt ?? new Date().toISOString();
+  const message = buildCatalogOfferMessage(offer, link, catalogMessageRandom(offer, brasiliaDate(new Date(when))));
+  try {
+    const target = await resolveCatalogTarget(accountId, { senderId: input.senderId, groupJids: input.groupJids, imageMode: "original_image" });
+    const created = await createCatalogDispatch({ accountId, userId: null, offer, message, target, imageMode: "original_image", scheduledAt: when });
+    return { ok: true as const, loteId: created.loteId, total: created.total, scheduledAt: created.scheduledAt, message };
+  } catch (error) {
+    if (error instanceof CatalogDispatchError) throw new PilotoLinkError("provider", error.message, error.status);
     throw error;
   }
 }
