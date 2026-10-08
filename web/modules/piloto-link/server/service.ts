@@ -173,3 +173,12 @@ export async function scheduleOfferForEmail(database: SupabaseClient, input: {
     throw error;
   }
 }
+
+/** Só o nome e o preço do produto (sem gerar link), para o catálogo do Piloto mostrar o nome certo. */
+export async function productInfoForEmail(database: SupabaseClient, email: string, productUrl: string, fetcher: typeof fetch = fetch) {
+  const accountId = await accountIdByEmail(database, email);
+  if (!accountId) throw new PilotoLinkError("no_account", "Não encontramos uma conta no Disparei com este e-mail.", 404);
+  const product = await resolveProductUrl(productUrl, fetcher);
+  const info = product.marketplace === "shopee" ? await shopeeProductInfo(database, accountId, product.url) : null;
+  return { marketplace: product.marketplace, productUrl: product.url, productName: info?.productName ?? null, price: info?.price ?? null, imageUrl: info?.imageUrl ?? null };
+}

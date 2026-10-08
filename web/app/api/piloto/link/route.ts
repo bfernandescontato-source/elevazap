@@ -4,15 +4,17 @@ import { z } from "zod";
 
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
-import { affiliateLinkForEmail, integrationStatus, PilotoLinkError } from "@/modules/piloto-link/server/service";
+import { affiliateLinkForEmail, integrationStatus, PilotoLinkError, productInfoForEmail } from "@/modules/piloto-link/server/service";
 
 // Servidor a servidor: o app do Piloto (app.comentei.com) pede o link de afiliado da aluna.
 //   { email, url }  -> { link, marketplace }
 //   { email }       -> quais integrações a aluna tem conectadas
+//   { email, url, info: true } -> só nome e preço do produto (sem gerar link)
 
 const bodySchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   url: z.string().trim().url().max(2000).optional(),
+  info: z.boolean().optional(),
 });
 
 function authorized(request: NextRequest, expected: string | undefined) {
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
   const database = supabaseAdmin({ timeoutMs: 15_000 });
   try {
     if (!parsed.data.url) return NextResponse.json(await integrationStatus(database, parsed.data.email));
+    if (parsed.data.info) return NextResponse.json(await productInfoForEmail(database, parsed.data.email, parsed.data.url));
     return NextResponse.json(await affiliateLinkForEmail(database, parsed.data.email, parsed.data.url));
   } catch (error) {
     if (error instanceof PilotoLinkError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
