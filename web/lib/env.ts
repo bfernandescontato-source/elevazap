@@ -34,7 +34,9 @@ const serverEnvSchema = z.object({
   META_RELAY_URL: z.string().url().optional(),
   META_RELAY_TOKEN: z.string().min(24).optional(),
   OFFICIAL_BROADCAST_CONCURRENCY: z.coerce.number().int().min(1).max(20).optional(),
-  CRON_SECRET: z.string().min(16).optional()
+  CRON_SECRET: z.string().min(16).optional(),
+  // Piloto Automático (app.comentei.com) pede links de afiliado por aqui, servidor a servidor
+  PILOTO_LINK_TOKEN: z.string().min(24).optional()
 });
 
 export function env() {
