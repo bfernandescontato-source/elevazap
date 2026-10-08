@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, ignored: true });
   }
 
-  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  const rawEmail = typeof body?.email === "string" ? body.email : typeof body?.customer === "string" ? body.customer : "";
+  const email = rawEmail.trim().toLowerCase();
   const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim() : email.split("@")[0];
   const orderId = typeof body?.order_id === "string" ? body.order_id : "";
   if (!email.includes("@") || !orderId) return NextResponse.json({ error: "Payload inválido." }, { status: 400 });
