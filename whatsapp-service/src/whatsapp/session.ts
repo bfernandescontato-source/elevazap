@@ -11,6 +11,7 @@ import { getBaileysVersion } from "../utils/baileys-version.js";
 import { observer } from "../observability/observer.js";
 import { createInstanceHooks } from "../observability/socket-hooks.js";
 import { guardNoiseDecrypt } from "../utils/noise-guard.js";
+import { guardOfflineBuffer } from "../utils/offline-buffer-guard.js";
 
 export type WhatsAppSession = {
   sessionId: string;
@@ -143,6 +144,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         observe(() => observer.count(sessionId, "noise_decrypt_failed"));
       });
       observe(() => hooks.socketCreated(created, seq));
+      let stopOfflineGuard: (() => void) | null = null;
 
       sock.ev.on("creds.update", () => {
         observe(() => { observer.count(sessionId, "creds_update"); observer.mark(sessionId, "creds_update"); });
@@ -154,9 +156,14 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         if (update.connection === "open") observe(() => observer.socketOpened(sessionId, instanceId, seq));
         if (update.qr) { currentQr = await qrcode.toDataURL(update.qr); status = "waiting_qr"; void reportStatus(); }
         if (update.connection === "open") { socketOpen = true; status = "connected"; currentQr = ""; lastError = null; void reportStatus(); }
+        if (update.connection === "open" && !stopOfflineGuard) {
+          stopOfflineGuard = guardOfflineBuffer(created, (event, fields) =>
+            console.warn({ event, component: "managed-session", session_name: sessionId, session_instance_id: instanceId, socket_seq: seq, ...fields }));
+        }
         if (update.connection === "connecting" && status !== "waiting_qr") { status = "starting"; void reportStatus(); }
         if (update.connection === "close") {
           socketOpen = false;
+          stopOfflineGuard?.();
           const code = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
           observe(() => observer.socketClosed(sessionId, instanceId, seq, code ?? null, stopped));
           // Sem este registro não dá para saber por que um número "conecta e desconecta".
