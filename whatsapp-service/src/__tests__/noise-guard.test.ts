@@ -44,3 +44,19 @@ describe("falha de decriptação do transporte (Noise)", () => {
     expect(isNoiseDecryptError(new Error("Bad MAC"))).toBe(false);
   });
 });
+
+describe("falha do Noise como promise rejeitada (decodeFrame é async)", () => {
+  it("o tratador de rejeição fecha o socket que recebeu o último frame", async () => {
+    const { handleNoiseDecryptRejection } = await import("../utils/noise-guard.js");
+    const ws = new EventEmitter();
+    const sock = { ws, end: vi.fn() };
+    guardNoiseDecrypt(sock, vi.fn());
+    let rejected: unknown;
+    ws.on("message", () => { Promise.reject(noiseError()).catch((error) => { rejected = error; }); });
+    ws.emit("message", Buffer.from("x"));
+    await Promise.resolve();
+    expect(handleNoiseDecryptRejection(rejected)).toBe(true);
+    expect(sock.end).toHaveBeenCalledTimes(1);
+    expect(handleNoiseDecryptRejection(new Error("outro erro"))).toBe(false);
+  });
+});

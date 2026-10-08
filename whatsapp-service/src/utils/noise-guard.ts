@@ -19,18 +19,45 @@ export function isNoiseDecryptError(error: unknown) {
     && /noise-handler|aesDecryptGCM/.test(String(value?.stack));
 }
 
+type GuardedSocket = { sock: any; onCaught: (error: Error) => void };
+
+// O decodeFrame do Baileys é async: a falha do Noise vira promise rejeitada
+// (unhandledRejection), não exceção síncrona. O Node entrega essa rejeição
+// logo depois do evento "message" que a causou, então o socket afetado é o
+// último que recebeu frame.
+let lastMessageSocket: GuardedSocket | null = null;
+
+function closeGuardedSocket(target: GuardedSocket, error: Error) {
+  try { target.onCaught(error); } catch { /* registro não pode impedir o fechamento */ }
+  try { target.sock.end(new Boom("Falha ao decriptar frame do transporte (Noise)", { statusCode: DisconnectReason.connectionLost })); } catch { /* já fechado */ }
+}
+
+/**
+ * Chamado pelo tratador de unhandledRejection. Devolve true quando a rejeição
+ * é a falha do Noise (e fecha o socket que a causou); false para qualquer outra.
+ */
+export function handleNoiseDecryptRejection(reason: unknown) {
+  if (!isNoiseDecryptError(reason)) return false;
+  const target = lastMessageSocket;
+  lastMessageSocket = null;
+  if (target) closeGuardedSocket(target, reason as Error);
+  else console.warn({ event: "whatsapp.noise_decrypt_failed", component: "runtime", socket: "unknown" });
+  return true;
+}
+
 export function guardNoiseDecrypt(sock: any, onCaught: (error: Error) => void) {
   const ws = sock?.ws;
   if (!ws || typeof ws.emit !== "function") return;
   const originalEmit = ws.emit;
+  const guarded: GuardedSocket = { sock, onCaught };
   ws.emit = function guardedEmit(this: unknown, event: string, ...args: unknown[]) {
     if (event !== "message") return originalEmit.call(this, event, ...args);
+    lastMessageSocket = guarded;
     try {
       return originalEmit.call(this, event, ...args);
     } catch (error) {
       if (!isNoiseDecryptError(error)) throw error;
-      try { onCaught(error as Error); } catch { /* registro não pode impedir o fechamento */ }
-      try { sock.end(new Boom("Falha ao decriptar frame do transporte (Noise)", { statusCode: DisconnectReason.connectionLost })); } catch { /* já fechado */ }
+      closeGuardedSocket(guarded, error as Error);
       return false;
     }
   };

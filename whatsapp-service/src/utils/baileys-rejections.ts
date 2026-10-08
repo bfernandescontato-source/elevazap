@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { inspect } from "node:util";
+import { handleNoiseDecryptRejection } from "./noise-guard.js";
 
 /**
  * Container logs keep only ~45 min (half of it libsignal noise), so the error
@@ -68,6 +69,8 @@ export function installBaileysRejectionGuard() {
       console.warn({ event: "whatsapp.timed_out_query_rejection_ignored", component: "runtime" });
       return;
     }
+    // Falha do Noise (07/10: 4 quedas): fecha só o socket afetado.
+    if (handleNoiseDecryptRejection(reason)) return;
     throw reason;
   });
 }
