@@ -30,6 +30,7 @@ type SenderSession = {
 export type OwnedSenderLease = { whatsapp_session_id: string; account_id: string; lease_version: number };
 
 const senders = new Map<string, SenderSession>();
+const effectiveLeaseTtlSeconds = Math.max(env.SESSION_LEASE_TTL_SECONDS, 120);
 // Última mensagem de grupo recebida e início de cada sessão: um número pode
 // ficar "conectado" sem receber nada (socket surdo). Visto em 29/09 na conta
 // Rosikelly: o Piloto parou quando o grupo fonte passou a depender só dele.
@@ -116,7 +117,7 @@ export async function syncSenderSessionOwnership(cycle?: SupervisorCycle) {
   const { data: leases, error } = await timed(cycle, "acquire_leases_rpc", undefined, async () => supabase.rpc("acquire_whatsapp_session_leases", {
     p_worker_id: env.INSTANCE_ID,
     p_limit: env.MAX_SESSIONS_PER_WORKER,
-    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+    p_ttl_seconds: effectiveLeaseTtlSeconds
   }));
   if (error) throw error;
   const owned = (leases || []) as OwnedSenderLease[];
@@ -142,7 +143,11 @@ export async function syncSenderSessionOwnership(cycle?: SupervisorCycle) {
     await timed(cycle, "start_sender", sender.session_name, () => startSender(sender, lease.lease_version)).catch((currentError) =>
       console.error(`[sender] boot failed ${sender.session_name}`, currentError)
     );
-    if (senders.get(sender.session_name) !== before) cycle?.count("sessions_started");
+    const started = senders.get(sender.session_name) !== before;
+    if (started) cycle?.count("sessions_started");
+    if (started && env.SESSION_START_STAGGER_MS > 0) {
+      await new Promise((resolve) => setTimeout(resolve, env.SESSION_START_STAGGER_MS));
+    }
   }
   return owned;
 }
@@ -156,12 +161,13 @@ export async function renewOwnedSenderLeases(cycle?: SupervisorCycle) {
   const { data, error } = await timed(cycle, "renew_leases_rpc", undefined, async () => supabase.rpc("renew_whatsapp_session_leases", {
     p_worker_id: env.INSTANCE_ID,
     p_leases: leases,
-    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+    p_ttl_seconds: effectiveLeaseTtlSeconds
   }));
   if (error) throw error;
   const renewed = (data || []) as Array<{ whatsapp_session_id: string; lease_version: number }>;
   const renewedIds = new Set(renewed.map((lease) => lease.whatsapp_session_id));
   cycle?.count("renewed", renewed.length);
+  const heartbeatRows: Array<{ whatsapp_session_id: string; lease_version: number; status: string; error: string | null }> = [];
   for (const managed of Array.from(senders.values())) {
     if (!renewedIds.has(managed.id)) {
       cycle?.count("renew_lost");
@@ -174,8 +180,19 @@ export async function renewOwnedSenderLeases(cycle?: SupervisorCycle) {
       senders.delete(managed.sessionName);
       continue;
     }
-    observe(() => recordLeaseRenewed(managed.sessionName, env.SESSION_LEASE_TTL_SECONDS));
-    await timed(cycle, "persist_status", managed.sessionName, () => persistRuntimeStatus(managed.id, managed.leaseVersion, managed.session.getStatus(), managed.session.getLastError()));
+    observe(() => recordLeaseRenewed(managed.sessionName, effectiveLeaseTtlSeconds));
+    heartbeatRows.push({
+      whatsapp_session_id: managed.id,
+      lease_version: managed.leaseVersion,
+      status: managed.session.getStatus(),
+      error: managed.session.getLastError()
+    });
+  }
+  if (heartbeatRows.length) {
+    const { error: heartbeatError } = await timed(cycle, "persist_status_batch", undefined, async () =>
+      supabase.rpc("heartbeat_whatsapp_session_runtime", { p_worker_id: env.INSTANCE_ID, p_sessions: heartbeatRows })
+    );
+    if (heartbeatError) throw heartbeatError;
   }
   return renewed;
 }
@@ -196,7 +213,7 @@ export async function startSenderSessionByName(sessionName: string) {
   const { data: leases, error: leaseError } = await supabase.rpc("acquire_whatsapp_session_lease", {
     p_worker_id: env.INSTANCE_ID,
     p_session_id: sender.id,
-    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+    p_ttl_seconds: effectiveLeaseTtlSeconds
   });
   if (leaseError) throw leaseError;
   const lease = (leases || [])[0] as OwnedSenderLease | undefined;
@@ -218,7 +235,7 @@ export async function restartSenderSessionByName(sessionName: string, reason = "
   const { data: leases, error: leaseError } = await supabase.rpc("acquire_whatsapp_session_lease", {
     p_worker_id: env.INSTANCE_ID,
     p_session_id: sender.id,
-    p_ttl_seconds: env.SESSION_LEASE_TTL_SECONDS
+    p_ttl_seconds: effectiveLeaseTtlSeconds
   });
   if (leaseError) throw leaseError;
   const lease = (leases || [])[0] as OwnedSenderLease | undefined;

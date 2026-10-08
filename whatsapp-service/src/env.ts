@@ -17,6 +17,7 @@ const schema = z.object({
   DISPATCH_POLL_MS: z.coerce.number().int().min(100).max(30_000).default(1000),
   SESSION_LEASE_TTL_SECONDS: z.coerce.number().int().min(15).max(300).default(60),
   SESSION_SUPERVISOR_INTERVAL_MS: z.coerce.number().int().min(1000).max(60_000).default(15_000),
+  SESSION_START_STAGGER_MS: z.coerce.number().int().min(0).max(5_000).default(250),
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
   CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).max(3_600_000).default(300_000),
   DB_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10_000),

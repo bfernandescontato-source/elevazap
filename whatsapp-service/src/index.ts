@@ -95,7 +95,13 @@ async function main() {
       console.error({ event: "sender.initial_sync_failed", error: readiness.lastError });
     });
     try { bootCycle?.end(bootError); } catch { /* observabilidade */ }
+    let senderSupervisorRunning = false;
     setInterval(async () => {
+      if (senderSupervisorRunning) {
+        console.warn({ event: "sender.supervisor_skipped", reason: "previous_cycle_still_running" });
+        return;
+      }
+      senderSupervisorRunning = true;
       // Só mede o ciclo (duração, sobreposição, operação lenta, event loop);
       // a ordem e a concorrência continuam as mesmas.
       const cycle = observer.isEnabled() ? new SupervisorCycle() : undefined;
@@ -109,6 +115,7 @@ async function main() {
         console.error({ event: "sender.supervisor_failed", error: readiness.lastError });
       } finally {
         try { cycle?.end(cycleError); } catch { /* observabilidade */ }
+        senderSupervisorRunning = false;
       }
     }, env.SESSION_SUPERVISOR_INTERVAL_MS);
     // Watchdog de número surdo DESLIGADO (07/10): o reinício automático não cura
