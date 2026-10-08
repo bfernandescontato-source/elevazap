@@ -9,10 +9,12 @@ import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-gro
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
+import { installLibsignalLogFilter } from "./utils/libsignal-log-filter.js";
 import { startObservability } from "./observability/bootstrap.js";
 import { SupervisorCycle } from "./observability/supervisor-trace.js";
 import { observer } from "./observability/observer.js";
 
+installLibsignalLogFilter();
 installBaileysRejectionGuard();
 startObservability();
 
