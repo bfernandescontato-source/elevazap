@@ -17,7 +17,6 @@
  */
 export const OFFLINE_BATCH_INTERVAL_MS = 10_000;
 export const OFFLINE_FORCE_FLUSH_MS = 60_000;
-const MAX_CHECK_MS = 5 * 60_000;
 
 type Log = (event: string, fields?: Record<string, unknown>) => void;
 
@@ -29,7 +28,9 @@ export function guardOfflineBuffer(sock: any, log: Log, now: () => number = Date
   const timer = setInterval(() => {
     const elapsed = now() - openedAt;
     const buffering = typeof sock?.ev?.isBuffering === "function" && sock.ev.isBuffering();
-    if (!buffering || !sock?.ws?.isOpen || elapsed > MAX_CHECK_MS) {
+    // Sem prazo: em 08/10 a Rosi tinha mais de 2.600 pendentes e um teto de
+    // 5 min deixou o resto preso de novo. Só para quando o buffer liberar.
+    if (!buffering || !sock?.ws?.isOpen) {
       if (batchesRequested && !buffering) log("whatsapp.offline_buffer_released", { elapsed_ms: elapsed, batches_requested: batchesRequested, forced_flushes: flushes });
       clearInterval(timer);
       return;
