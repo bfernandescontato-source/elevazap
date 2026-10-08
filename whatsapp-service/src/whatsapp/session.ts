@@ -10,6 +10,7 @@ import { errorFields } from "../utils/log.js";
 import { getBaileysVersion } from "../utils/baileys-version.js";
 import { observer } from "../observability/observer.js";
 import { createInstanceHooks } from "../observability/socket-hooks.js";
+import { guardNoiseDecrypt } from "../utils/noise-guard.js";
 
 export type WhatsAppSession = {
   sessionId: string;
@@ -136,6 +137,11 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
       });
       const seq = ++socketSeq;
       const created = sock;
+      // Falha do Noise fecha só este socket em vez de derrubar o processo.
+      guardNoiseDecrypt(created, (error) => {
+        console.warn({ event: "whatsapp.noise_decrypt_failed", component: "managed-session", session_name: sessionId, session_instance_id: instanceId, socket_seq: seq, message: error.message });
+        observe(() => observer.count(sessionId, "noise_decrypt_failed"));
+      });
       observe(() => hooks.socketCreated(created, seq));
 
       sock.ev.on("creds.update", () => {
