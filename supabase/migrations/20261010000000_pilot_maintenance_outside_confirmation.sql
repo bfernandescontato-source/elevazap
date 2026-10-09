@@ -125,6 +125,185 @@ begin
 end;
 $function$;
 
+-- Trava da linha do Piloto: FOR NO KEY UPDATE em vez de FOR UPDATE (promoção, reorganização,
+-- captura e trabalhador). Continua exclusiva entre eles, mas não bloqueia a checagem de chave
+-- estrangeira: inserir oferta capturada, entrega ou lote do Piloto deixa de esperar quem está
+-- reorganizando (em 09/10 a captura do Eduardo ficou parada atrás da confirmação). As duas funções
+-- abaixo são idênticas às de produção, exceto por essa linha.
+CREATE OR REPLACE FUNCTION public.promote_waiting_pilot_offers(p_automation_id uuid, p_now timestamp with time zone DEFAULT now())
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+declare
+  v_automation public.offer_automations;
+  v_offer_id uuid;
+  v_slots integer;
+  v_promoted integer := 0;
+  v_result jsonb;
+begin
+  select * into v_automation
+    from public.offer_automations where id = p_automation_id for no key update;
+  if not found or not v_automation.enabled then return 0; end if;
+
+  -- waiting -> ignored não dispara os gatilhos de promoção/compactação (só saem de scheduled/sending).
+  update public.captured_offers
+     set status = 'ignored', error_code = 'QUEUE_EXPIRED',
+         error_message = 'Oferta ficou mais de 2 horas na fila sem vaga para envio.', updated_at = now()
+   where automation_id = v_automation.id
+     and account_id = v_automation.account_id
+     and status = 'waiting'
+     and captured_at < p_now - interval '2 hours';
+
+  loop
+    select count(*)::integer into v_slots
+      from public.captured_offers
+     where automation_id = v_automation.id
+       and account_id = v_automation.account_id
+       and status in ('scheduled', 'sending');
+    exit when v_slots >= 5;
+
+    select offer.id into v_offer_id
+      from public.captured_offers offer
+     where offer.automation_id = v_automation.id
+       and offer.account_id = v_automation.account_id
+       and offer.status = 'waiting'
+       and offer.captured_at >= v_automation.pilot_reset_at
+       and offer.captured_at >= p_now - interval '2 hours'
+       and offer.queue_quarantined_at is null
+       and offer.error_code is distinct from 'PILOT_QUEUE_QUARANTINED'
+       and not exists (select 1 from public.offer_deliveries delivery where delivery.offer_id = offer.id)
+     order by offer.captured_at desc, offer.id
+     for update skip locked
+     limit 1;
+    exit when v_offer_id is null;
+
+    begin
+      v_result := public.create_pilot_offer_schedule_locked(v_offer_id, p_now);
+      if v_result->>'status' = 'scheduled' then v_promoted := v_promoted + 1; end if;
+    exception when others then
+      update public.captured_offers
+         set error_code = 'WAITING_PROMOTION_FAILED',
+             error_message = left(sqlerrm, 1000), updated_at = now()
+       where id = v_offer_id and status = 'waiting';
+      raise warning 'Falha ao promover oferta waiting %: %', v_offer_id, sqlerrm;
+      exit;
+    end;
+    v_offer_id := null;
+  end loop;
+  return v_promoted;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.compact_pilot_schedule_locked(p_automation_id uuid, p_floor_at timestamp with time zone DEFAULT now())
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+declare
+  v_automation public.offer_automations;
+  v_offer record;
+  v_slot timestamptz;
+  v_local timestamp;
+  v_candidate timestamptz;
+  v_last_sent_at timestamptz;
+  v_lote_ids uuid[];
+  v_scheduled integer := 0;
+begin
+  select * into v_automation
+    from public.offer_automations
+   where id = p_automation_id
+   for no key update;
+  if not found then return; end if;
+
+  select max(offer.sent_at)
+    into v_last_sent_at
+    from public.captured_offers offer
+   where offer.automation_id = v_automation.id
+     and offer.account_id = v_automation.account_id
+     and offer.status = 'sent'
+     and offer.sent_at is not null;
+
+  v_candidate := greatest(
+    coalesce(p_floor_at, now()),
+    now(),
+    coalesce(v_last_sent_at + public.pilot_send_interval(v_automation), now())
+  );
+
+  for v_offer in
+    select offer.id
+      from public.captured_offers offer
+     where offer.automation_id = v_automation.id
+       and offer.account_id = v_automation.account_id
+       and offer.status = 'scheduled'
+     order by offer.scheduled_at nulls last, offer.captured_at, offer.id
+     for update
+  loop
+    v_local := v_candidate at time zone v_automation.timezone;
+    if v_local::time < v_automation.operating_start then
+      v_slot := (v_local::date + v_automation.operating_start) at time zone v_automation.timezone;
+    elsif v_local::time > v_automation.operating_end then
+      v_slot := ((v_local::date + 1) + v_automation.operating_start) at time zone v_automation.timezone;
+    else
+      v_slot := v_candidate;
+    end if;
+
+    select array_agg(distinct dispatch.lote_id)
+      into v_lote_ids
+      from public.offer_deliveries delivery
+      join public.envios_grupo dispatch on dispatch.id = delivery.group_dispatch_id
+     where delivery.offer_id = v_offer.id
+       and delivery.account_id = v_automation.account_id
+       and dispatch.lote_id is not null;
+
+    update public.envios_grupo dispatch
+       set scheduled_at = v_slot,
+           next_attempt_at = null,
+           updated_at = now()
+     where dispatch.account_id = v_automation.account_id
+       and dispatch.status = 'pendente'
+       and dispatch.id in (
+         select delivery.group_dispatch_id
+           from public.offer_deliveries delivery
+          where delivery.offer_id = v_offer.id
+            and delivery.account_id = v_automation.account_id
+            and delivery.group_dispatch_id is not null
+       );
+
+    update public.envios_grupo_lotes lote
+       set scheduled_at = v_slot,
+           updated_at = now()
+     where lote.account_id = v_automation.account_id
+       and lote.status = 'pendente'
+       and lote.id = any(coalesce(v_lote_ids, '{}'::uuid[]));
+
+    update public.offer_deliveries delivery
+       set scheduled_at = v_slot,
+           updated_at = now()
+     where delivery.offer_id = v_offer.id
+       and delivery.account_id = v_automation.account_id
+       and delivery.status = 'scheduled';
+
+    update public.captured_offers offer
+       set scheduled_at = v_slot,
+           updated_at = now()
+     where offer.id = v_offer.id
+       and offer.account_id = v_automation.account_id
+       and offer.status = 'scheduled';
+
+    v_scheduled := v_scheduled + 1;
+    v_candidate := v_slot + public.pilot_send_interval(v_automation);
+  end loop;
+
+  update public.offer_automations automation
+     set pilot_next_slot_at = v_candidate,
+         updated_at = now()
+   where automation.id = v_automation.id;
+end;
+$function$;
+
 -- Captura: igual à de produção; só a promoção final passa a ser pedido quando o modo é 'deferred'.
 CREATE OR REPLACE FUNCTION public.schedule_pilot_offer(p_offer_id uuid, p_worker_id text, p_now timestamp with time zone DEFAULT now())
  RETURNS jsonb
@@ -191,7 +370,7 @@ begin
   end if;
 
   select * into v_automation from public.offer_automations
-   where id = v_offer.automation_id and account_id = v_offer.account_id for update;
+   where id = v_offer.automation_id and account_id = v_offer.account_id for no key update;
   if not found then raise exception 'Automação não encontrada.' using errcode = 'P0002'; end if;
   if not v_automation.enabled or v_offer.captured_at < v_automation.pilot_reset_at then
     update public.captured_offers set status='ignored', error_code='PILOT_DISABLED',
@@ -267,9 +446,11 @@ begin
 end;
 $function$;
 
--- Trabalhador, passo 2: reorganiza UM Piloto. Não espera trava: ocupado devolve 'ocupado', não conta
--- a tentativa e volta em 2 s. Só apaga os pedidos que existiam quando começou; pedido que chegar
--- durante o trabalho continua na fila. Erro ou tempo esgotado desfaz tudo e o pedido continua.
+-- Trabalhador, passo 2: reorganiza UM Piloto. Nunca disputa trava com envio ou captura: espera no
+-- máximo 300 ms por qualquer trava (o detector de impasse do banco só age em 1 s, então quem cede é
+-- sempre a reorganização, nunca o envio). Ocupado devolve 'ocupado', desfaz o que fez, não conta a
+-- tentativa e volta em 2 s. Só apaga os pedidos que existiam quando começou; pedido que chegar
+-- durante o trabalho continua na fila. Outro erro ou tempo esgotado desfaz tudo e o pedido continua.
 create or replace function public.run_pilot_maintenance(p_automation_id uuid)
 returns text
 language plpgsql
@@ -278,25 +459,27 @@ set search_path to 'pg_catalog', 'public'
 as $function$
 declare v_last_request bigint; v_promoted integer;
 begin
-  perform 1 from public.offer_automations where id = p_automation_id for update skip locked;
-  if not found then
-    if not exists (select 1 from public.offer_automations where id = p_automation_id) then
+  perform set_config('lock_timeout', '300ms', true);
+  begin
+    perform 1 from public.offer_automations where id = p_automation_id for no key update nowait;
+    if not found then
       delete from public.pilot_maintenance_requests where automation_id = p_automation_id;
       delete from public.pilot_maintenance_state where automation_id = p_automation_id;
       return 'piloto inexistente';
     end if;
+    select max(id) into v_last_request from public.pilot_maintenance_requests where automation_id = p_automation_id;
+    v_promoted := public.promote_waiting_pilot_offers(p_automation_id, now());
+    perform public.compact_pilot_schedule_locked(p_automation_id, now());
+    delete from public.pilot_maintenance_requests where automation_id = p_automation_id and id <= coalesce(v_last_request, 0);
+    update public.pilot_maintenance_state
+       set attempts = 0, next_attempt_at = now(), last_error = null, exhausted_at = null, last_done_at = now()
+     where automation_id = p_automation_id;
+  exception when lock_not_available or deadlock_detected then
     update public.pilot_maintenance_state
        set attempts = greatest(attempts - 1, 0), next_attempt_at = now() + interval '2 seconds'
      where automation_id = p_automation_id;
     return 'ocupado';
-  end if;
-  select max(id) into v_last_request from public.pilot_maintenance_requests where automation_id = p_automation_id;
-  v_promoted := public.promote_waiting_pilot_offers(p_automation_id, now());
-  perform public.compact_pilot_schedule_locked(p_automation_id, now());
-  delete from public.pilot_maintenance_requests where automation_id = p_automation_id and id <= coalesce(v_last_request, 0);
-  update public.pilot_maintenance_state
-     set attempts = 0, next_attempt_at = now(), last_error = null, exhausted_at = null, last_done_at = now()
-   where automation_id = p_automation_id;
+  end;
   return 'feita: promovidas ' || coalesce(v_promoted, 0);
 end;
 $function$;
