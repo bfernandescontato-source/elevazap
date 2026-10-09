@@ -823,28 +823,21 @@ export class GlobalSendQueue {
     if (table === "envios_grupo") await this.syncOfferDelivery(row.id, "uncertain", message);
   }
 
-  private async syncOfferDelivery(dispatchId: string, status: "scheduled" | "sending" | "sent" | "failed" | "uncertain" | "cancelled", errorMessage?: string | null, sentAt?: string) {
-    const values = { status, error_message: errorMessage || null, sent_at: sentAt || null, updated_at: new Date().toISOString() };
-    const { data: delivery, error } = await supabase.from("offer_deliveries").update(values)
-      .eq("group_dispatch_id", dispatchId).select("offer_id,account_id").maybeSingle();
-    if (error) {
-      if (["42P01", "PGRST205"].includes(error.code || "")) return;
-      throw error;
+  // O status da entrega e da oferta do Piloto é derivado do envio pelo gatilho do banco
+  // (sync_pilot_delivery_from_group_dispatch). Gravar o status aqui também criava uma corrida:
+  // uma gravação atrasada de "scheduled" depois de o envio virar "incerto" deixava a oferta presa
+  // em "scheduled" para sempre (09/10: 18 ofertas em 14 pilotos). Aqui só complementa a mensagem
+  // de erro da nova tentativa, e só se a entrega ainda estiver aguardando.
+  private async syncOfferDelivery(dispatchId: string, status: "scheduled" | "sending" | "sent" | "failed" | "uncertain" | "cancelled", errorMessage?: string | null, _sentAt?: string) {
+    let offerId: string | undefined;
+    if (status === "scheduled" && errorMessage) {
+      const { data, error } = await supabase.from("offer_deliveries")
+        .update({ error_message: errorMessage, updated_at: new Date().toISOString() })
+        .eq("group_dispatch_id", dispatchId).eq("status", "scheduled").select("offer_id").maybeSingle();
+      if (error && !["42P01", "PGRST205"].includes(error.code || "")) throw error;
+      offerId = data?.offer_id;
     }
-    if (!delivery) return;
-    const { data: rows, error: rowsError } = await supabase.from("offer_deliveries").select("status,sent_at")
-      .eq("offer_id", delivery.offer_id).eq("account_id", delivery.account_id);
-    if (rowsError) throw rowsError;
-    const statuses = (rows || []).map((row) => row.status);
-    const allSent = statuses.length > 0 && statuses.every((value) => value === "sent");
-    const allCancelled = statuses.length > 0 && statuses.every((value) => value === "cancelled");
-    const allTerminal = statuses.every((value) => ["sent", "failed", "uncertain", "cancelled"].includes(value));
-    const hasSuccess = statuses.includes("sent");
-    const offerStatus = allCancelled ? "ignored" : allSent || (allTerminal && hasSuccess) ? "sent" : allTerminal ? "send_failed" : statuses.includes("sending") ? "sending" : "scheduled";
-    const offerValues: Record<string, unknown> = { status: offerStatus, updated_at: new Date().toISOString() };
-    if (offerStatus === "sent") offerValues.sent_at = sentAt || new Date().toISOString();
-    await supabase.from("captured_offers").update(offerValues).eq("id", delivery.offer_id).eq("account_id", delivery.account_id);
-    console.info({ event: status === "sent" ? "offer_sent" : status === "failed" ? "offer_send_failed" : `offer_${status}`, component: "offer-autopilot", offer_id: delivery.offer_id, destination_dispatch_id: correlationId(dispatchId) });
+    console.info({ event: status === "sent" ? "offer_sent" : status === "failed" ? "offer_send_failed" : `offer_${status}`, component: "offer-autopilot", offer_id: offerId, destination_dispatch_id: correlationId(dispatchId) });
   }
 
   private async recalc(loteId: string) {
