@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Boom } from "@hapi/boom";
-import { isClosedSocketRejection, isTimedOutQueryRejection, isWebSocketCloseCodeRejection } from "../utils/baileys-rejections.js";
+import { isClosedSocketRejection, isSocketWriteErrorRejection, isTimedOutQueryRejection, isWebSocketCloseCodeRejection } from "../utils/baileys-rejections.js";
 
 describe("rejeições de socket fechado do Baileys", () => {
   it("reconhece só o Connection Closed (428)", () => {
@@ -8,6 +8,16 @@ describe("rejeições de socket fechado do Baileys", () => {
     expect(isClosedSocketRejection(new Boom("Connection Lost", { statusCode: 408 }))).toBe(false);
     expect(isClosedSocketRejection(new Error("Connection Closed"))).toBe(false);
     expect(isClosedSocketRejection(undefined)).toBe(false);
+  });
+
+  it("reconhece erro de escrita em socket derrubado (EPIPE/ECONNRESET)", () => {
+    const erro = (code: string, syscall: string) => Object.assign(new Error(`${syscall} ${code}`), { code, syscall });
+    expect(isSocketWriteErrorRejection(erro("EPIPE", "write"))).toBe(true);
+    expect(isSocketWriteErrorRejection(erro("ECONNRESET", "write"))).toBe(true);
+    expect(isSocketWriteErrorRejection(erro("ECONNREFUSED", "connect"))).toBe(false);
+    expect(isSocketWriteErrorRejection(erro("EPIPE", "read"))).toBe(false);
+    expect(isSocketWriteErrorRejection(new Error("write EPIPE"))).toBe(false);
+    expect(isSocketWriteErrorRejection(undefined)).toBe(false);
   });
 
   it("reconhece só o Timed Out (408) de consulta do Baileys", () => {

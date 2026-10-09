@@ -48,6 +48,18 @@ export function isWebSocketCloseCodeRejection(reason: unknown): boolean {
   return typeof reason === "number" && Number.isInteger(reason) && reason >= 1000 && reason <= 4999;
 }
 
+/**
+ * Same family (2026-10-09, 20 crashes from 08:31 UTC, every 5-15 min): a write
+ * to a socket the other side already dropped rejects with a raw Node
+ * `write EPIPE` / `write ECONNRESET` that nobody awaits. Only that connection is
+ * dead (its own close handler reconnects it), but the rethrow killed the service
+ * and dropped every number, which then reconnected at once and broke more sockets.
+ */
+export function isSocketWriteErrorRejection(reason: unknown): boolean {
+  const error = reason as { code?: string; syscall?: string } | null;
+  return Boolean(error && error.syscall === "write" && (error.code === "EPIPE" || error.code === "ECONNRESET"));
+}
+
 export function installBaileysRejectionGuard() {
   process.on("uncaughtExceptionMonitor", (error, origin) => {
     try {
@@ -67,6 +79,10 @@ export function installBaileysRejectionGuard() {
     }
     if (isTimedOutQueryRejection(reason)) {
       console.warn({ event: "whatsapp.timed_out_query_rejection_ignored", component: "runtime" });
+      return;
+    }
+    if (isSocketWriteErrorRejection(reason)) {
+      console.warn({ event: "whatsapp.socket_write_error_ignored", component: "runtime", code: (reason as { code?: string }).code });
       return;
     }
     // Falha do Noise (07/10: 4 quedas): fecha só o socket afetado.
