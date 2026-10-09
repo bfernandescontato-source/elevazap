@@ -84,4 +84,26 @@ describe("retenção do registro de sessões Signal", () => {
     expect(trimSessionRecord(allOpen).removed).toBe(0);
     expect(trimSessionRecord(null).removed).toBe(0);
   });
+
+  // Mensagem atrasada: o contato responde numa sessão que já foi fechada do nosso lado.
+  async function delayedReply(extraSessions: number) {
+    const a = makeStore(201), b = makeStore(202);
+    const toB = new lib.ProtocolAddress("peer-b", 1), toA = new lib.ProtocolAddress("peer-a", 1);
+    await new lib.SessionBuilder(a, toB).initOutgoing(bundle(b, 202));
+    const first = await new lib.SessionCipher(a, toB).encrypt(Buffer.from("oi"));
+    await new lib.SessionCipher(b, toA).decryptPreKeyWhisperMessage(first.body);
+    const late = await new lib.SessionCipher(b, toA).encrypt(Buffer.from("resposta atrasada"));
+    for (let i = 0; i < extraSessions; i++) await new lib.SessionBuilder(a, toB).initOutgoing(bundle(b, 202));
+    const record = a.records.get(toB.toString());
+    a.records.set(toB.toString(), lib.SessionRecord.deserialize(trimSessionRecord(record.serialize()).data));
+    return new lib.SessionCipher(a, toB).decryptWhisperMessage(late.body);
+  }
+
+  it("mensagem atrasada numa sessão fechada que ficou entre as 40 continua decifrando", async () => {
+    expect(Buffer.from(await delayedReply(10)).toString()).toBe("resposta atrasada");
+  });
+
+  it("limite conhecido: sessão fechada além das 40 mais novas não decifra (mesma regra da libsignal)", async () => {
+    await expect(delayedReply(60)).rejects.toThrow();
+  });
 });

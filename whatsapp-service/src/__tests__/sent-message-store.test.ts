@@ -34,4 +34,11 @@ describe("loja de mensagens enviadas (getMessage do reenvio)", () => {
     expect(store.get({ id: "4" })).toBeUndefined();
     expect(store.size()).toBe(0);
   });
+
+  it("depois de reinício a loja começa vazia: pedido de mensagem antiga cai no caminho sem mensagem", () => {
+    const antes = createSentMessageStore();
+    antes.remember([sent("a")]);
+    const depois = createSentMessageStore();
+    expect(depois.get({ id: "a", remoteJid: "grupo@g.us" })).toBeUndefined();
+  });
 });
