@@ -12,6 +12,7 @@ import { isMissingRpc, queueSleep, randomDelay, retryDelay } from "./policy.js";
 import type { QueueItem, QueueReconciliation, QueueTableName } from "./types.js";
 import { amazonMessageIsSafe } from "./amazon-safety.js";
 import { confirmSent, type ConfirmRow } from "./confirm-sent.js";
+import { PilotMaintenanceWorker } from "./pilot-maintenance.js";
 import { normalizeWhatsappOfferText } from "../offers/whatsapp-copy.js";
 import { getUrlInfo, type WAUrlInfo } from "@whiskeysockets/baileys";
 import axios from "axios";
@@ -116,6 +117,7 @@ export class GlobalSendQueue {
   private lastStaleCleanupAt = 0;
   private activeSessions = new Map<string, { count: number; kind: QueueItem["kind"] }>();
   private reconciliation = new Map<string, QueueReconciliation>();
+  private maintenance = new PilotMaintenanceWorker((name, params) => withTimeout(`queue.${name}`, env.DB_TIMEOUT_MS, supabase.rpc(name, params)) as any, env.INSTANCE_ID);
   private metrics = new QueueMetrics();
   private shopeeUrlResolver = new ShopeeUrlResolver();
   private linkPreviewCache = new Map<string, { info: WAUrlInfo; expiresAt: number }>();
@@ -127,17 +129,20 @@ export class GlobalSendQueue {
   }
 
   stats() {
-    return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeCount()), media_cache: sharedMediaCache.snapshot() };
+    return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeCount()), media_cache: sharedMediaCache.snapshot(),
+      confirmation: { ...this.confirmCounters }, pilot_maintenance: this.maintenance.stats() };
   }
 
   start() {
     if (this.running) return;
     this.running = true;
+    this.maintenance.start();
     void this.loop();
   }
 
   stop() {
     this.running = false;
+    this.maintenance.stop();
   }
 
   private async resetStaleItems() {
@@ -162,7 +167,6 @@ export class GlobalSendQueue {
       try {
         await this.resetStaleItems();
         await this.flushReconciliation();
-        await this.sweepPilotMaintenance();
         const capacity = Math.max(0, env.SYSTEM_MAX_CONCURRENT_SENDS - this.activeCount() - this.buffer.length);
         if (capacity > 0) await this.claimBatch(Math.min(capacity, env.DISPATCH_BATCH_SIZE));
         this.dispatchBuffered();
@@ -728,7 +732,10 @@ export class GlobalSendQueue {
         .select("status,wa_message_id").eq("id", row.id).maybeSingle()),
       sleep: queueSleep
     });
+    if (outcome.attempts > 1) this.confirmCounters.retried++;
+    if (outcome.state === "already_confirmed") this.confirmCounters.alreadySaved++;
     if (outcome.state === "unconfirmed") {
+      this.confirmCounters.notSaved++;
       await this.markForReconciliation(table, row, messageId, outcome.cause);
       return;
     }
@@ -742,52 +749,20 @@ export class GlobalSendQueue {
     } catch (error) {
       console.error({ event: "queue.after_sent_failed", component: "queue", jobId: correlationId(row.id), ...errorFields(error) });
     }
-    await this.runPilotMaintenance();
+    this.maintenance.kick();
   }
 
-  private deferredConfirmAvailable = true;
+  private confirmCounters = { retried: 0, alreadySaved: 0, notSaved: 0 };
 
-  // Confirmação sem a manutenção do Piloto na mesma transação (ver migration
-  // 20261010000000). Sem a função no banco, usa a confirmação antiga.
   private async completeSent(table: QueueTableName, row: any, messageId: string) {
-    const params = {
+    return Boolean(await dbResult<boolean>("queue.persist-success", supabase.rpc("complete_whatsapp_job_sent", {
       p_worker_id: env.INSTANCE_ID,
       p_queue_table: table,
       p_message_id: row.id,
       p_claim_token: row.claim_token,
       p_lease_version: row.processing_lease_version,
       p_wa_message_id: messageId
-    };
-    if (this.deferredConfirmAvailable) {
-      try {
-        return Boolean(await dbResult<boolean>("queue.persist-success", supabase.rpc("complete_whatsapp_job_sent_deferred", params)));
-      } catch (error) {
-        if (!isMissingRpc(error, "complete_whatsapp_job_sent_deferred")) throw error;
-        this.deferredConfirmAvailable = false;
-      }
-    }
-    return Boolean(await dbResult<boolean>("queue.persist-success", supabase.rpc("complete_whatsapp_job_sent", params)));
-  }
-
-  private maintenanceAvailable = true;
-  private lastMaintenanceSweepAt = 0;
-
-  // Promove ofertas em espera e reorganiza a agenda dos Pilotos com envio confirmado. Pendência
-  // que falhar ou estiver ocupada fica no banco e volta na próxima chamada ou varredura.
-  private async runPilotMaintenance() {
-    if (!this.maintenanceAvailable) return;
-    this.lastMaintenanceSweepAt = Date.now();
-    try {
-      await dbResult("queue.pilot-maintenance", supabase.rpc("run_due_pilot_maintenance", { p_limit: 5 }));
-    } catch (error) {
-      if (isMissingRpc(error, "run_due_pilot_maintenance")) this.maintenanceAvailable = false;
-      else console.error({ event: "queue.pilot_maintenance_failed", component: "queue", ...errorFields(error) });
-    }
-  }
-
-  private async sweepPilotMaintenance() {
-    if (Date.now() - this.lastMaintenanceSweepAt < 10_000) return;
-    await this.runPilotMaintenance();
+    })));
   }
 
   private async markForReconciliation(table: QueueTableName, row: any, messageId: string | null, cause: unknown) {
@@ -803,7 +778,7 @@ export class GlobalSendQueue {
         claim_token: null,
         processing_deadline_at: null,
         updated_at: new Date().toISOString()
-      })).eq("id", row.id).neq("status", "sucesso"));
+      })).eq("id", row.id).eq("claim_token", row.claim_token).neq("status", "sucesso"));
       if (table === "envios_grupo") await this.recalc(row.lote_id);
     } catch (reconciliationError) {
       this.reconciliation.set(key, { table, row, messageId, reason });
@@ -824,7 +799,7 @@ export class GlobalSendQueue {
           claim_token: null,
           processing_deadline_at: null,
           updated_at: new Date().toISOString()
-        })).eq("id", item.row.id).neq("status", "sucesso"));
+        })).eq("id", item.row.id).eq("claim_token", item.row.claim_token).neq("status", "sucesso"));
         if (item.table === "envios_grupo") await this.recalc(item.row.lote_id);
         this.reconciliation.delete(key);
       } catch {
