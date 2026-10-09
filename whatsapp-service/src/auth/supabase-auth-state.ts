@@ -3,6 +3,8 @@ import { BufferJSON } from "@whiskeysockets/baileys";
 import { supabase } from "../supabase.js";
 import { dbResult } from "../utils/db.js";
 import { observer } from "../observability/observer.js";
+import { env } from "../env.js";
+import { trimSessionRecord } from "./signal-session-retention.js";
 
 function serialize(data: unknown) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
@@ -10,6 +12,15 @@ function serialize(data: unknown) {
 
 function deserialize<T>(data: unknown): T {
   return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
+}
+
+// Registro de sessões Signal com mais de 40 sessões: aplica a retenção da libsignal
+// (ver signal-session-retention.ts). Loga quanto saiu para dar para medir.
+function retainSessions(sessionName: string, type: string, _id: string, value: any, where: "read" | "write") {
+  if (type !== "session" || !env.SIGNAL_SESSION_RETENTION || value == null) return value;
+  const { data, removed } = trimSessionRecord(value);
+  if (removed) console.warn({ event: "auth.signal_sessions_trimmed", component: "auth", session_name: sessionName, where, removed, kept: Object.keys((data as any)._sessions || {}).length });
+  return data;
 }
 
 // Signal ratchets are read-modify-write state. Keep auth operations ordered so
@@ -123,7 +134,7 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
                 );
                 for (const id of batch) {
                   const row = (rows as any[])?.find((r) => r.key_id === id);
-                  if (row?.key_data) result[id] = deserialize(row.key_data);
+                  if (row?.key_data) result[id] = retainSessions(sessionName, type, id, deserialize(row.key_data), "read");
                 }
                 return;
               } catch (error) {
@@ -167,7 +178,7 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
               session_name: sessionName,
               key_type: type,
               key_id: id,
-              key_data: serialize(value),
+              key_data: serialize(retainSessions(sessionName, type, id, value, "write")),
               updated_at: new Date().toISOString()
             }));
 

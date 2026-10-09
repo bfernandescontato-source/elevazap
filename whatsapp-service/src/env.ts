@@ -43,6 +43,9 @@ const schema = z.object({
   // liga só com OBS_ENABLED=true ou por POST /obs/config. z.coerce.boolean
   // trata "false" como true, por isso a comparação explícita.
   OBS_ENABLED: z.string().default("false").transform((value) => value === "true"),
+  // Limite de 40 sessões por registro Signal também na leitura/gravação do banco
+  // (src/auth/signal-session-retention.ts). "off" volta ao comportamento antigo.
+  SIGNAL_SESSION_RETENTION: z.string().default("on").transform((value) => value !== "off"),
   OBS_PERSIST: z.string().default("true").transform((value) => value !== "false"),
   OBS_FLUSH_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(300_000),
   OBS_DETECT_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),

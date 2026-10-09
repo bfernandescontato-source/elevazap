@@ -12,6 +12,7 @@ import { observer } from "../observability/observer.js";
 import { createInstanceHooks } from "../observability/socket-hooks.js";
 import { guardNoiseDecrypt } from "../utils/noise-guard.js";
 import { guardOfflineBuffer } from "../utils/offline-buffer-guard.js";
+import { createSentMessageStore } from "./sent-message-store.js";
 
 export type WhatsAppSession = {
   sessionId: string;
@@ -52,6 +53,8 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   // vivas para o mesmo número (sessão órfã) aparecem como dois ids diferentes.
   const instanceId = randomUUID();
   let socketSeq = 0;
+  // Mensagens enviadas por este número: atende o pedido de reenvio do WhatsApp (getMessage).
+  const sentMessages = createSentMessageStore();
   // Ouvintes de observação: só registrados enquanto a observação estiver
   // ligada para este número (ver observability/socket-hooks.ts).
   const hooks = createInstanceHooks(sessionId, instanceId, accountId, () => ({
@@ -134,7 +137,10 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         // Baileys não cria preview no cliente: ele precisa montar os metadados
         // antes do envio. Com isso, links de ofertas recebem thumbnail em alta
         // qualidade quando a URL disponibiliza Open Graph acessível.
-        generateHighQualityLinkPreview: true
+        generateHighQualityLinkPreview: true,
+        // Reenvio pedido pelo WhatsApp: só com a mensagem original deste número.
+        // Sem ela, a correção do Baileys (scripts/patch-baileys-retry.mjs) não cria sessão nova.
+        getMessage: async (key: any) => sentMessages.get(key) as any
       });
       const seq = ++socketSeq;
       const created = sock;
@@ -191,6 +197,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
 
       sock.ev.on("messages.upsert", async ({ messages, type }: { messages: any[]; type?: string }) => {
         observe(() => observer.upsert(sessionId, type, messages, CIPHERTEXT_STUB, instanceId, seq));
+        try { sentMessages.remember(messages); } catch { /* a loja de reenvio nunca atrapalha o recebimento */ }
         try { await onMessages(messages, type); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
       });
       if (onGroupParticipants) {
