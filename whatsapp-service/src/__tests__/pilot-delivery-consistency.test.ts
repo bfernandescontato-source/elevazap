@@ -20,8 +20,8 @@ describe("consistência oferta x envio do Piloto (09/10)", () => {
   });
 
   it("reconciliação em lotes pequenos, sem criar nem reenviar mensagens", () => {
-    expect(migration).toContain("p_limit not between 1 and 100");
-    expect(migration).toContain("for update of delivery skip locked");
+    expect(migration).toContain("reconcile_pilot_delivery(p_delivery_id uuid)");
+    expect(migration).toContain("for update of delivery, dispatch skip locked");
     expect(migration).not.toMatch(/insert into public\.envios_grupo/i);
     expect(migration).not.toMatch(/update public\.envios_grupo/i);
   });

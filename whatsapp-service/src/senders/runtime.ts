@@ -7,6 +7,7 @@ import { monitorOfferMessages } from "../offers/whatsapp-monitor.js";
 import { env } from "../env.js";
 import { observer, PROCESS_SESSION } from "../observability/observer.js";
 import { forgetLease, recordLeaseRenewed, type SupervisorCycle } from "../observability/supervisor-trace.js";
+import { isLocallyHeld } from "./local-hold.js";
 
 // Observabilidade nunca interfere no ciclo de vida das sessões.
 function observe(action: () => void) {
@@ -69,6 +70,8 @@ function startSender(sender: { id: string; session_name: string; label: string; 
 }
 
 async function startSenderNow(sender: { id: string; session_name: string; label: string; account_id: string }, leaseVersion: number) {
+  // Contenção: número em espera local não sobe, nem com o banco fora (ver local-hold.ts).
+  if (isLocallyHeld(sender.session_name)) throw new Error("Número em espera local (contenção). Não será carregado.");
   const current = senders.get(sender.session_name);
   if (current?.leaseVersion === leaseVersion) return current;
   if (current) {
@@ -114,6 +117,14 @@ async function startSenderNow(sender: { id: string; session_name: string; label:
 }
 
 export async function syncSenderSessionOwnership(cycle?: SupervisorCycle) {
+  // Para antes de falar com o banco: funciona mesmo se o banco estiver fora.
+  for (const managed of Array.from(senders.values())) {
+    if (!isLocallyHeld(managed.sessionName)) continue;
+    console.warn({ event: "sender.local_hold_stop", component: "runtime", session_name: managed.sessionName });
+    cycle?.count("sessions_stopped");
+    await timed(cycle, "stop_local_hold", managed.sessionName, () => managed.session.stop());
+    senders.delete(managed.sessionName);
+  }
   const { data: leases, error } = await timed(cycle, "acquire_leases_rpc", undefined, async () => supabase.rpc("acquire_whatsapp_session_leases", {
     p_worker_id: env.INSTANCE_ID,
     p_limit: env.MAX_SESSIONS_PER_WORKER,
