@@ -10,11 +10,13 @@ import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
 import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
 import { installLibsignalLogFilter } from "./utils/libsignal-log-filter.js";
+import { installSignalEventLoopBreaks } from "./utils/signal-event-loop.js";
 import { startObservability } from "./observability/bootstrap.js";
 import { SupervisorCycle } from "./observability/supervisor-trace.js";
 import { observer } from "./observability/observer.js";
 
 installLibsignalLogFilter();
+installSignalEventLoopBreaks();
 installBaileysRejectionGuard();
 startObservability();
 
