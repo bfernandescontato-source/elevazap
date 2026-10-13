@@ -87,6 +87,11 @@ async function processFlowClickByRepliedMessageId(eventId: string, replyToMessag
     return true;
   }
   const action = flow.official_quick_reply_actions;
+  if (flow.delivery_mode === "direct_link" || !action) {
+    await markFlowRunStatus(run.id, "completed");
+    await markEventStatus(eventId, "ignored", "Este fluxo termina no link direto do template.", { quickReplyActionId: null });
+    return true;
+  }
   const initialStep = await getFlowStep(flow.id, "initial");
   const cta = await getFlowCta(flow.id, "initial", "quick_reply");
   const admin = supabaseAdmin();

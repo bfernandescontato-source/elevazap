@@ -35,10 +35,11 @@ type FlowAction = {
   button_config: { type: "url" | "quick_reply"; text: string; url?: string; payload?: string } | null;
 };
 type Flow = {
+  delivery_mode?: "quick_reply" | "direct_link";
   quick_reply_payload?: string | null;
   id: string; name: string; initial_template_name: string; initial_template_language: string; active: boolean;
   variable_mapping: { header?: Record<string, string>; body?: Record<string, string>; buttons?: Record<string, string>; _additionalMessages?: string[] };
-  official_quick_reply_actions: FlowAction;
+  official_quick_reply_actions: FlowAction | null;
 };
 
 function StaticTextArea({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -78,6 +79,7 @@ export default function FluxosPage() {
   const [toast, setToast] = useState("");
 
   const [name, setName] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState<"quick_reply" | "direct_link">("quick_reply");
   const [initialTemplateName, setInitialTemplateName] = useState("");
   const [mapping, setMapping] = useState<{ header: MappingSlot[]; body: MappingSlot[]; buttons: MappingSlot[] }>({ header: [], body: [], buttons: [] });
   const [qrPayload, setQrPayload] = useState("");
@@ -140,7 +142,7 @@ export default function FluxosPage() {
 
   function resetForm() {
     setEditingFlowId(null); setExistingMedia(null);
-    setName(""); setInitialTemplateName(""); setMapping({ header: [], body: [], buttons: [] });
+    setName(""); setDeliveryMode("quick_reply"); setInitialTemplateName(""); setMapping({ header: [], body: [], buttons: [] });
     setQrPayload(""); setQrLabel(""); setResponseType("text"); setResponseText(""); setCaption(""); setFile(null);
     setHasButton(false); setButtonType("url"); setButtonText(""); setButtonUrl(""); setButtonPayload("");
     setAdditionalMessages([]);
@@ -150,19 +152,20 @@ export default function FluxosPage() {
     const action = flow.official_quick_reply_actions;
     setEditingFlowId(flow.id);
     setName(flow.name);
+    setDeliveryMode(flow.delivery_mode || "quick_reply");
     selectTemplate(flow.initial_template_name, flow.variable_mapping);
-    setQrPayload(flow.quick_reply_payload || action.payload);
-    setQrLabel(action.button_label || "");
-    setResponseType(action.response_type);
-    setResponseText(action.response_text || "");
-    setCaption(action.caption || "");
+    setQrPayload(flow.quick_reply_payload || action?.payload || "");
+    setQrLabel(action?.button_label || "");
+    setResponseType(action?.response_type || "text");
+    setResponseText(action?.response_text || "");
+    setCaption(action?.caption || "");
     setFile(null);
-    setExistingMedia(action.media_bucket && action.media_path ? { bucket: action.media_bucket, path: action.media_path, mimeType: action.mime_type, fileName: action.file_name } : null);
-    setHasButton(Boolean(action.button_config));
-    setButtonType(action.button_config?.type || "url");
-    setButtonText(action.button_config?.text || "");
-    setButtonUrl(action.button_config?.type === "url" ? action.button_config.url || "" : "");
-    setButtonPayload(action.button_config?.type === "quick_reply" ? action.button_config.payload || "" : "");
+    setExistingMedia(action?.media_bucket && action.media_path ? { bucket: action.media_bucket, path: action.media_path, mimeType: action.mime_type, fileName: action.file_name } : null);
+    setHasButton(Boolean(action?.button_config));
+    setButtonType(action?.button_config?.type || "url");
+    setButtonText(action?.button_config?.text || "");
+    setButtonUrl(action?.button_config?.type === "url" ? action.button_config.url || "" : "");
+    setButtonPayload(action?.button_config?.type === "quick_reply" ? action.button_config.payload || "" : "");
     setAdditionalMessages(Array.isArray(flow.variable_mapping?._additionalMessages) ? flow.variable_mapping._additionalMessages : []);
     setShowForm(true);
   }
@@ -181,7 +184,7 @@ export default function FluxosPage() {
   async function saveFlow() {
     const selectedTemplate = templates.find((item) => item.name === initialTemplateName);
     const hasMedia = Boolean(file || existingMedia);
-    if (!name || !selectedTemplate || !qrPayload || (responseType === "text" && !responseText) || (responseType !== "text" && !hasMedia)) return;
+    if (!name || !selectedTemplate || (deliveryMode === "quick_reply" && (!qrPayload || (responseType === "text" && !responseText) || (responseType !== "text" && !hasMedia)))) return;
     setSaving(true);
     try {
       let media: { bucket: string; storage_path: string; mime_type: string; file_name: string | null } | null = existingMedia
@@ -199,7 +202,7 @@ export default function FluxosPage() {
       const response = await fetch(editingFlowId ? `/api/admin/official/flows/${editingFlowId}` : "/api/admin/official/flows", {
         method: editingFlowId ? "PATCH" : "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name, initialTemplateName: selectedTemplate.name, initialTemplateLanguage: selectedTemplate.language, variableMapping,
+          name, deliveryMode, initialTemplateName: selectedTemplate.name, initialTemplateLanguage: selectedTemplate.language, variableMapping,
           quickReplyPayload: qrPayload, quickReplyLabel: qrLabel || null,
           followupResponseType: responseType, followupResponseText: responseType === "text" ? responseText : null,
           followupMediaBucket: media?.bucket || null, followupMediaPath: media?.storage_path || null,
@@ -293,6 +296,16 @@ export default function FluxosPage() {
           </div> : null}
 
           <div className="mt-4 rounded-lg border border-line bg-wash p-4">
+            <div className="text-sm font-medium text-ink">O que acontece ao tocar no botão?</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className={`cursor-pointer rounded-lg border p-3 text-sm ${deliveryMode === "direct_link" ? "border-black bg-white" : "border-line"}`}><input type="radio" className="mr-2" checked={deliveryMode === "direct_link"} onChange={() => setDeliveryMode("direct_link")} />Abrir o link direto</label>
+              <label className={`cursor-pointer rounded-lg border p-3 text-sm ${deliveryMode === "quick_reply" ? "border-black bg-white" : "border-line"}`}><input type="radio" className="mr-2" checked={deliveryMode === "quick_reply"} onChange={() => setDeliveryMode("quick_reply")} />Enviar outra mensagem</label>
+            </div>
+            {deliveryMode === "direct_link" ? <p className="mt-3 text-sm text-muted">O fluxo envia somente o template inicial. O botão de URL configurado no próprio template abre o link, sem mensagem em seguida.</p> : null}
+          </div>
+
+          {deliveryMode === "quick_reply" ? <>
+          <div className="mt-4 rounded-lg border border-line bg-wash p-4">
             <div className="text-sm font-medium text-ink">Botão que inicia a resposta</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-sm text-ink">Texto do botão da mensagem inicial
@@ -381,6 +394,7 @@ export default function FluxosPage() {
               </div>)}
             </div> : <p className="mt-4 rounded-lg border border-dashed border-line bg-white px-4 py-3 text-sm text-muted">O fluxo termina na segunda mensagem. Adicione outra para continuar a sequência.</p>}
           </div>
+          </> : null}
 
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="rounded-lg border border-line px-4 py-2 text-sm">Cancelar</button>
@@ -393,7 +407,7 @@ export default function FluxosPage() {
           rows={flows.map((flow) => [
             flow.name,
             `${flow.initial_template_name} (${flow.initial_template_language})`,
-            flow.official_quick_reply_actions?.button_label || flow.quick_reply_payload || flow.official_quick_reply_actions?.payload || "—",
+            flow.delivery_mode === "direct_link" ? "Link direto" : flow.official_quick_reply_actions?.button_label || flow.quick_reply_payload || flow.official_quick_reply_actions?.payload || "—",
             <button key="toggle" type="button" onClick={() => toggleFlow(flow)} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${flow.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-line bg-wash text-muted"}`}>{flow.active ? "Ativo" : "Inativo"}</button>,
             <button key="edit" type="button" onClick={() => startEdit(flow)} className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash"><Pencil size={13} /> Editar</button>,
             <button key="test" type="button" onClick={() => setTestFlowId(testFlowId === flow.id ? null : flow.id)} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-wash">Testar</button>

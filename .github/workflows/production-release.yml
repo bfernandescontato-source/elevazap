@@ -1,0 +1,63 @@
+name: Release production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate-test-deploy:
+    name: Migrate database, test, and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the production database
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Apply pending migrations
+        run: supabase db push --linked --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run application tests
+        run: npm --prefix web test
+
+      - name: Build the production deployment
+        working-directory: web
+        run: |
+          npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Publish only the validated build
+        working-directory: web
+        run: npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

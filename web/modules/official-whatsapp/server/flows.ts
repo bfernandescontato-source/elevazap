@@ -9,21 +9,23 @@ export type OfficialFlow = {
   initial_template_name: string;
   initial_template_language: string;
   variable_mapping: VariableMapping;
-  quick_reply_action_id: string;
+  delivery_mode: "quick_reply" | "direct_link";
+  quick_reply_action_id: string | null;
   quick_reply_payload: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
 };
 
-export type OfficialFlowWithAction = OfficialFlow & { official_quick_reply_actions: QuickReplyAction };
+export type OfficialFlowWithAction = OfficialFlow & { official_quick_reply_actions: QuickReplyAction | null };
 
 export type FlowInput = {
+  deliveryMode: "quick_reply" | "direct_link";
   name: string;
   initialTemplateName: string;
   initialTemplateLanguage: string;
   variableMapping: VariableMapping;
-  quickReplyPayload: string;
+  quickReplyPayload: string | null;
   quickReplyLabel: string | null;
   followupResponseType: QuickReplyAction["response_type"];
   followupResponseText: string | null;
@@ -89,14 +91,15 @@ async function assertFlowHasNoPendingBroadcasts(id: string) {
 // Each flow revision gets a private action; never overwrite a legacy/global response
 // merely because the visible button text matches another product or flow.
 export async function createFlow(input: FlowInput): Promise<OfficialFlowWithAction> {
-  const action = await upsertFollowupAction(input);
+  const action = input.deliveryMode === "quick_reply" ? await upsertFollowupAction(input) : null;
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_flows").insert({
     name: input.name,
     initial_template_name: input.initialTemplateName,
     initial_template_language: input.initialTemplateLanguage,
     variable_mapping: mappingWithAdditionalMessages(input.variableMapping, input.additionalMessages),
-    quick_reply_action_id: action.id,
+    delivery_mode: input.deliveryMode,
+    quick_reply_action_id: action?.id || null,
     quick_reply_payload: input.quickReplyPayload,
     active: true
   }).select("*, official_quick_reply_actions(*)").single();
@@ -108,14 +111,15 @@ export async function createFlow(input: FlowInput): Promise<OfficialFlowWithActi
 // vinculada e os campos do fluxo. Não mexe em flow_runs já criados.
 export async function updateFlow(id: string, input: FlowInput): Promise<OfficialFlowWithAction> {
   await assertFlowHasNoPendingBroadcasts(id);
-  const action = await upsertFollowupAction(input);
+  const action = input.deliveryMode === "quick_reply" ? await upsertFollowupAction(input) : null;
   const admin = supabaseAdmin();
   const { data, error } = await admin.from("official_flows").update({
     name: input.name,
     initial_template_name: input.initialTemplateName,
     initial_template_language: input.initialTemplateLanguage,
     variable_mapping: mappingWithAdditionalMessages(input.variableMapping, input.additionalMessages),
-    quick_reply_action_id: action.id,
+    delivery_mode: input.deliveryMode,
+    quick_reply_action_id: action?.id || null,
     quick_reply_payload: input.quickReplyPayload,
     updated_at: new Date().toISOString()
   }).eq("id", id).select("*, official_quick_reply_actions(*)").single();
@@ -128,21 +132,25 @@ export function parseFlowInput(body: Record<string, any> | null): FlowInput | { 
   const name = String(body?.name || "").trim();
   const initialTemplateName = String(body?.initialTemplateName || "").trim();
   const initialTemplateLanguage = String(body?.initialTemplateLanguage || "").trim();
+  const deliveryMode = body?.deliveryMode === "direct_link" ? "direct_link" : "quick_reply";
   const quickReplyPayload = String(body?.quickReplyPayload || "").trim();
   const followupResponseType = String(body?.followupResponseType || "");
-  if (!name || !initialTemplateName || !initialTemplateLanguage || !quickReplyPayload || !["text", "image", "video", "audio", "document"].includes(followupResponseType)) {
+  if (!name || !initialTemplateName || !initialTemplateLanguage) {
+    return { error: "Nome e template inicial são obrigatórios." };
+  }
+  if (deliveryMode === "quick_reply" && (!quickReplyPayload || !["text", "image", "video", "audio", "document"].includes(followupResponseType))) {
     return { error: "Nome, template inicial, payload do Quick Reply e tipo de resposta são obrigatórios." };
   }
-  if (followupResponseType === "text" && !String(body?.followupResponseText || "").trim()) {
+  if (deliveryMode === "quick_reply" && followupResponseType === "text" && !String(body?.followupResponseText || "").trim()) {
     return { error: "Mensagem de resposta é obrigatória." };
   }
-  if (followupResponseType !== "text" && (!body?.followupMediaBucket || !body?.followupMediaPath)) {
+  if (deliveryMode === "quick_reply" && followupResponseType !== "text" && (!body?.followupMediaBucket || !body?.followupMediaPath)) {
     return { error: "Envie o arquivo de mídia da resposta." };
   }
-  if (body?.additionalMessages !== undefined && !Array.isArray(body.additionalMessages)) {
+  if (deliveryMode === "quick_reply" && body?.additionalMessages !== undefined && !Array.isArray(body.additionalMessages)) {
     return { error: "As mensagens adicionais são inválidas." };
   }
-  const additionalMessages = (body?.additionalMessages || []).map((message: unknown) => String(message).trim());
+  const additionalMessages = deliveryMode === "quick_reply" ? (body?.additionalMessages || []).map((message: unknown) => String(message).trim()) : [];
   if (additionalMessages.length > 10) return { error: "Adicione no máximo 10 mensagens extras." };
   if (additionalMessages.some((message: string) => !message)) return { error: "Preencha ou remova as mensagens extras vazias." };
   if (additionalMessages.some((message: string) => message.length > 4096)) return { error: "Cada mensagem extra pode ter no máximo 4.096 caracteres." };
@@ -153,9 +161,9 @@ export function parseFlowInput(body: Record<string, any> | null): FlowInput | { 
     else if (bc.type === "quick_reply" && bc.text && bc.payload) buttonConfig = { type: "quick_reply", text: String(bc.text), payload: String(bc.payload) };
   }
   return {
-    name, initialTemplateName, initialTemplateLanguage,
+    name, initialTemplateName, initialTemplateLanguage, deliveryMode,
     variableMapping: body?.variableMapping && typeof body.variableMapping === "object" ? body.variableMapping : {},
-    quickReplyPayload,
+    quickReplyPayload: deliveryMode === "quick_reply" ? quickReplyPayload : null,
     quickReplyLabel: body?.quickReplyLabel || null,
     followupResponseType: followupResponseType as QuickReplyAction["response_type"],
     followupResponseText: body?.followupResponseText || null,

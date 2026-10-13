@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     previewContacts,
     flow: {
       name: flow.name, templateName: flow.initial_template_name, templateCategory: template.category,
-      buttonLabel: flow.official_quick_reply_actions?.button_label || flow.official_quick_reply_actions?.payload
+      buttonLabel: flow.delivery_mode === "direct_link" ? "Link direto do template" : flow.official_quick_reply_actions?.button_label || flow.official_quick_reply_actions?.payload
     }
   });
 }

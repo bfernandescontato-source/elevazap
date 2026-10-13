@@ -7,6 +7,7 @@ function validBody(overrides: Record<string, unknown> = {}) {
     initialTemplateName: "quiz_confirmation",
     initialTemplateLanguage: "pt_BR",
     variableMapping: {},
+    deliveryMode: "quick_reply",
     quickReplyPayload: "VER DETALHES",
     quickReplyLabel: "Quero acessar",
     followupResponseType: "text",
@@ -21,6 +22,19 @@ describe("mensagens adicionais de fluxos", () => {
     const parsed = parseFlowInput(validBody());
     expect("error" in parsed).toBe(false);
     if (!("error" in parsed)) expect(parsed.additionalMessages).toEqual([]);
+  });
+
+  it("aceita fluxo somente com o link do botão do template", () => {
+    const parsed = parseFlowInput({
+      name: "Acesso direto", initialTemplateName: "convite", initialTemplateLanguage: "pt_BR",
+      deliveryMode: "direct_link", variableMapping: { buttons: { "0": "access_url" } }
+    });
+    expect("error" in parsed).toBe(false);
+    if (!("error" in parsed)) {
+      expect(parsed.deliveryMode).toBe("direct_link");
+      expect(parsed.quickReplyPayload).toBeNull();
+      expect(parsed.additionalMessages).toEqual([]);
+    }
   });
 
   it("aceita e normaliza mensagens separadas", () => {
