@@ -51,6 +51,7 @@ async function createLoteFallback(sb: any, accountId: string, body: any, groupJi
     file_name: media.file_name || null,
     mime_type: media.mime_type || null,
     file_size_bytes: media.file_size_bytes || null,
+    priority: "high",
     total: groupJids.length,
     pendentes: groupJids.length,
     scheduled_at: scheduledAt
@@ -74,6 +75,7 @@ async function createLoteFallback(sb: any, accountId: string, body: any, groupJi
     file_name: media.file_name || null,
     mime_type: media.mime_type || null,
     file_size_bytes: media.file_size_bytes || null,
+    priority: "high",
     scheduled_at: scheduledAt
   })));
   if (itemsError) {
