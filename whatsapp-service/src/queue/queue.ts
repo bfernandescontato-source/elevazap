@@ -451,7 +451,12 @@ export class GlobalSendQueue {
         .eq("id", pilotDelivery.offer_id).eq("account_id", row.account_id).maybeSingle();
       return { link, accountId: row.account_id, itemId: offer?.item_id || undefined, resolvedUrl: offer?.resolved_url || undefined };
     }
-    return { link, accountId: row.account_id, itemId: catalogDelivery?.provider === "SHOPEE" ? catalogDelivery.external_item_id : undefined };
+    // A extensão (carrinho na Shopee) grava o item como "shopId_itemId"; a API
+    // de afiliados só aceita o itemId, então fica com a parte final.
+    const shopeeItemId = catalogDelivery?.provider === "SHOPEE"
+      ? String(catalogDelivery.external_item_id || "").split("_").pop() || undefined
+      : undefined;
+    return { link, accountId: row.account_id, itemId: shopeeItemId };
   }
 
   /**
