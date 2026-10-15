@@ -17,6 +17,19 @@ export function normalizeBrazilianPhone(input: string) {
   return withCountry;
 }
 
+// A Meta pode devolver o wa_id de alguns celulares brasileiros sem o nono
+// dígito, mesmo quando o destinatário foi enviado e salvo com ele. Só trata
+// como equivalentes as duas representações válidas do mesmo número móvel.
+export function brazilianPhonesMatch(left: string, right: string) {
+  const a = normalizeBrazilianPhone(left);
+  const b = normalizeBrazilianPhone(right);
+  if (a === b) return true;
+  const withoutNinthDigit = (phone: string) => phone.length === 13 && phone[4] === "9"
+    ? `${phone.slice(0, 4)}${phone.slice(5)}`
+    : phone;
+  return withoutNinthDigit(a) === withoutNinthDigit(b);
+}
+
 export function maskPhone(phone: string) {
   const normalized = normalizeBrazilianPhone(phone);
   return `${normalized.slice(0, 2)} ${normalized.slice(2, 4)} *****-${normalized.slice(-4)}`;

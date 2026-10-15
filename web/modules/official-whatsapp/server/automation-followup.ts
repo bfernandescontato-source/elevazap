@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { normalizeBrazilianPhone } from "@/lib/phone";
+import { brazilianPhonesMatch, normalizeBrazilianPhone } from "@/lib/phone";
 import { automationStepButtonPayload, followupConfigSchema, type FollowupConfig, type FollowupStep } from "../automation-config";
 import { markEventStatus } from "./hubla-events";
 import { logMessageAttempt } from "./messages-store";
@@ -24,7 +24,7 @@ function expectedClickPayload(snapshot: AutomationSnapshot): string | null {
 
 export function isAutomationReplyMatch(snapshot: AutomationSnapshot, phone: string, connectionId: string | null, original: { phone: string; connection_id: string | null }, payload: string) {
   const expected = expectedClickPayload(snapshot);
-  return expected !== null && expected === payload && original.phone === phone && (original.connection_id || null) === connectionId;
+  return expected !== null && expected === payload && brazilianPhonesMatch(original.phone, phone) && (original.connection_id || null) === connectionId;
 }
 
 // Snapshot belongs to the original send, not the current editor or a shared button label.

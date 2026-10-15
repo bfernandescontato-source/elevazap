@@ -1,4 +1,4 @@
-import { normalizeBrazilianPhone } from "@/lib/phone";
+import { brazilianPhonesMatch, normalizeBrazilianPhone } from "@/lib/phone";
 import { additionalMessagesForFlow, getFlow } from "./flows";
 import { createFlowRun, findFlowRunByMessageId, markFlowRunStatus, setFlowRunFinalDestination, setFlowRunFinalMessageId } from "./flow-runs";
 import { findTemplate } from "./templates";
@@ -74,7 +74,7 @@ export async function processButtonClickEvent(eventId: string, click: { button: 
 async function processFlowClickByRepliedMessageId(eventId: string, replyToMessageId: string, connectionId: string | null, from: string): Promise<boolean> {
   const run = await findFlowRunByMessageId(replyToMessageId);
   if (!run) return false;
-  if ((run.connection_id || null) !== connectionId || normalizeBrazilianPhone(from) !== run.phone) {
+  if ((run.connection_id || null) !== connectionId || !brazilianPhonesMatch(from, run.phone)) {
     await markEventStatus(eventId, "ignored", "Resposta não pertence à conta e ao destinatário originais.");
     return true;
   }

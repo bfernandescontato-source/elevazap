@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { normalizeBrazilianPhone } from "@/lib/phone";
+import { brazilianPhonesMatch, normalizeBrazilianPhone } from "@/lib/phone";
 
 const ID_CANDIDATE_PATHS: string[][] = [
   ["event_id"], ["id"], ["transaction_id"], ["invoice_id"], ["payment_id"],
@@ -169,7 +169,7 @@ export async function findRecentHublaContextByPhone(normalizedPhone: string) {
   if (error) throw error;
   for (const row of data || []) {
     try {
-      if (normalizeBrazilianPhone(row.customer_phone as string) === normalizedPhone) return row;
+      if (brazilianPhonesMatch(row.customer_phone as string, normalizedPhone)) return row;
     } catch {
       continue;
     }

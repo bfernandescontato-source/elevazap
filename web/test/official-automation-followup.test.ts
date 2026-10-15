@@ -60,6 +60,9 @@ describe("segunda mensagem isolada e idempotente", () => {
     await processAutomationButtonClick("event", { ...click, button: { payload: automationButtonPayload("product-b") } }, null);
     expect(state.send).not.toHaveBeenCalled();
   });
+  it("aceita o wa_id da Meta sem o nono dígito do mesmo celular", () => {
+    expect(isAutomationReplyMatch(snapshot, "551199999999", null, state.original, click.button.payload)).toBe(true);
+  });
   it("não recorre a resposta global se a automação encerra na primeira mensagem", async () => {
     state.original.automation_snapshot.mode = "none";
     expect(await processAutomationButtonClick("event", click, null)).toBe(true);

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { normalizeBrazilianPhone } from "../lib/phone";
+import { brazilianPhonesMatch, normalizeBrazilianPhone } from "../lib/phone";
 import { isInternalAdmin } from "../lib/internal-admin";
 import { buildTestComponents, summarizeTemplateVariables, type WhatsAppTemplate } from "../modules/official-whatsapp/server/templates";
 import { extractEventType, extractProviderEventId, extractRelevantHeaders } from "../modules/official-whatsapp/server/hubla-events";
@@ -24,6 +24,11 @@ describe("normalização de telefone (reaproveitada no WhatsApp Oficial)", () =>
 
   it("não adiciona 55 quando o número já traz o código do país", () => {
     expect(normalizeBrazilianPhone("+55 19 99999-9999")).not.toBe("55" + "5519999999999");
+  });
+
+  it("reconhece o wa_id da Meta sem o nono dígito como o mesmo celular", () => {
+    expect(brazilianPhonesMatch("5511999999999", "551199999999")).toBe(true);
+    expect(brazilianPhonesMatch("5511999999999", "551198999999")).toBe(false);
   });
 
   it("rejeita telefone vazio ou inválido em vez de tentar adivinhar", () => {
