@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     if (!offer.productUrl) return NextResponse.json({ error: "A loja não forneceu o endereço deste produto." }, { status: 422 });
     try {
       const affiliateUrl = offer.provider === "AMAZON" ? await amazonAffiliateLink(context.database, context.accountId, offer.productUrl)
-        : offer.provider === "MAGALU" ? magaluAffiliateLink(offer.productUrl)
+        : offer.provider === "MAGALU" ? await magaluAffiliateLink(context.database, context.accountId, offer.productUrl)
         : await shopeeAffiliateLink(context.database, context.accountId, offer.productUrl);
       return NextResponse.json({ status: "completed", affiliateUrl });
     } catch (error) {

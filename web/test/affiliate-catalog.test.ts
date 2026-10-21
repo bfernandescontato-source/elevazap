@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeShopeeOffer } from "../modules/affiliate-catalog/server/shopee-provider";
 import { MercadoLivreAffiliateProvider, normalizeMercadoLivreOffer } from "../modules/affiliate-catalog/server/mercado-livre-provider";
 import { normalizeMercadoLivreProductUrl } from "../modules/affiliate-catalog/server/mercado-livre-link-service";
+import { magaluLinkForStore } from "../modules/affiliate-catalog/server/store-link-service";
 
 describe("catálogo de afiliados", () => {
   it("normaliza a Shopee sem acoplar a UI ao provider", () => {
@@ -23,6 +24,12 @@ describe("catálogo de afiliados", () => {
     const fetcher = (async (input: URL | RequestInfo) => { const url=String(input); calls.push(url); return new Response(JSON.stringify(url.includes("/trends/")?[{keyword:"fone bluetooth"}]:{results:[{id:"MLB1",title:"Fone",price:99,permalink:"https://produto.mercadolivre.com.br/MLB-1"}],paging:{total:1,offset:0,limit:20}}),{status:200}); }) as typeof fetch;
     const result = await new MercadoLivreAffiliateProvider("token-mercado-livre-valido", fetcher).searchProducts({ listing:"top", page:1, limit:20 });
     expect(calls[0]).toContain("/trends/MLB"); expect(calls[1]).toContain("q=fone+bluetooth"); expect(result.offers[0].provider).toBe("MERCADO_LIVRE");
+  });
+  it("gera o link Magalu com a loja da conta, não com a loja de quem coletou o catálogo", () => {
+    const coletado = "https://www.magazinevoce.com.br/magazineotaviodantas/chuveiro-lorenzetti/p/bb95hch3d9/cj/duxx/";
+    expect(magaluLinkForStore(coletado, "magazinepattyflr")).toBe("https://www.magazinevoce.com.br/magazinepattyflr/chuveiro-lorenzetti/p/bb95hch3d9/cj/duxx/");
+    expect(() => magaluLinkForStore("https://www.magazineluiza.com.br/chuveiro/p/bb95hch3d9/", "magazinepattyflr")).toThrow();
+    expect(() => magaluLinkForStore(coletado, "../outra")).toThrow();
   });
   it("aceita somente URL oficial de produto para gerar afiliado", () => {
     expect(normalizeMercadoLivreProductUrl("https://produto.mercadolivre.com.br/MLB-1?utm_source=x")).toBe("https://produto.mercadolivre.com.br/MLB-1");
