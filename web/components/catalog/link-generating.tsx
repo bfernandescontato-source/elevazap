@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-/** Caixa de "link sendo gerado": o link do Mercado Livre sai pela extensão e leva até ~30 s. */
-export function LinkGenerating({ current, total }: { current?: number; total?: number }) {
+/** Caixa de "link sendo gerado": o link do Mercado Livre sai pela extensão e leva até ~30 s; as outras lojas saem pelo servidor. */
+export function LinkGenerating({ current, total, provider = "MERCADO_LIVRE" }: { current?: number; total?: number; provider?: string }) {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     setSeconds(0);
@@ -15,7 +15,9 @@ export function LinkGenerating({ current, total }: { current?: number; total?: n
     <Loader2 className="mt-0.5 shrink-0 animate-spin" size={20}/>
     <div className="min-w-0 flex-1">
       <p className="font-semibold">{total && total > 1 ? `Gerando link afiliado ${current} de ${total}...` : "Seu link afiliado está sendo gerado..."}</p>
-      <p className="mt-1 text-sm">Aguarde um momento. Cada link do Mercado Livre leva até 30 segundos. Mantenha o Chrome aberto e logado no Mercado Livre.</p>
+      <p className="mt-1 text-sm">{provider === "MERCADO_LIVRE"
+        ? "Aguarde um momento. Cada link do Mercado Livre leva até 30 segundos. Mantenha o Chrome aberto e logado no Mercado Livre."
+        : "Aguarde um momento. Estamos gerando o link com a sua identificação de afiliado."}</p>
       <p className="mt-2 text-xs tabular-nums opacity-80">{seconds}s</p>
     </div>
   </div>;

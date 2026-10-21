@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { convertAmazonLink } from "@disparei/affiliate-links/amazon";
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
-import { getAmazonIntegration, getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
+import { getAmazonIntegration, getMagaluIntegration, getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 import { shopeeGraphQl } from "@/modules/offer-autopilot/server/shopee-client";
 import { isConfirmedAffiliateUrl, MAGAZINE_VOCE_PATH } from "../schemas";
 
@@ -11,6 +11,7 @@ export class StoreLinkError extends Error {
 }
 
 const graphQlString = (value: string) => JSON.stringify(value);
+const MAGAZINE_VOCE_PATH_STORE = /^\/magazine[a-z0-9_-]+\//i;
 
 /** Produto da Shopee capturado pela extensão: link curto pela API de afiliados da própria conta. */
 export async function shopeeAffiliateLink(database: SupabaseClient, accountId: string, productUrl: string) {
@@ -40,11 +41,19 @@ export async function amazonAffiliateLink(database: SupabaseClient, accountId: s
   catch (error) { throw new StoreLinkError(error instanceof Error ? error.message : "Não foi possível converter o link Amazon.", 400); }
 }
 
-/** Magalu: só produto aberto pela loja Magazine Você do afiliado; o link dela já paga comissão. */
-export function magaluAffiliateLink(productUrl: string) {
+/** Troca a loja do endereço pela loja Magazine Você do afiliado: a comissão vai para quem está na URL. */
+export function magaluLinkForStore(productUrl: string, store: string) {
   const url = new URL(productUrl);
   if (!/(^|\.)magazinevoce\.com\.br$/i.test(url.hostname) || !MAGAZINE_VOCE_PATH.test(url.pathname)) {
-    throw new StoreLinkError("Abra o produto pela sua loja Magazine Você (magazinevoce.com.br/sua-loja) para ter o link de afiliado.");
+    throw new StoreLinkError("Endereço da Magalu inválido.", 400);
   }
-  return `https://www.magazinevoce.com.br${url.pathname}`;
+  if (!/^magazine[a-z0-9_-]+$/i.test(store)) throw new StoreLinkError("Loja Magazine Você inválida. Confira em Integrações.", 409);
+  return `https://www.magazinevoce.com.br${url.pathname.replace(MAGAZINE_VOCE_PATH_STORE, `/${store}/`)}`;
+}
+
+/** Magalu: o catálogo é coletado pela loja de outra pessoa; o link sai sempre com a loja da conta (Integrações › Magalu). */
+export async function magaluAffiliateLink(database: SupabaseClient, accountId: string, productUrl: string) {
+  const integration = await getMagaluIntegration(database, accountId);
+  if (integration?.status !== "connected" || !integration.affiliate_tag) throw new StoreLinkError("Conecte sua loja Magazine Você em Integrações para gerar o link.", 409);
+  return magaluLinkForStore(productUrl, integration.affiliate_tag);
 }

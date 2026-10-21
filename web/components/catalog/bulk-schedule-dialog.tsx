@@ -139,7 +139,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
       <div className="flex flex-col p-5">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Prévia</h3>{duplicates.size > 0 && <label className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={running || finished} checked={skipDuplicates} onChange={e => setSkipDuplicates(e.target.checked)}/> Pular {duplicates.size} já agendada{duplicates.size > 1 ? "s" : ""} neste dia</label>}</div>
         {slots === null ? <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Hoje já passou das 22h. Escolha amanhã ou outra data.</p> : null}
-        {linkIndex >= 0 && <div className="mt-3"><LinkGenerating current={linkIndex + 1} total={needLink.length}/></div>}
+        {linkIndex >= 0 && <div className="mt-3"><LinkGenerating current={linkIndex + 1} total={needLink.length} provider={toSchedule.filter(offer => !offer.affiliateUrl)[linkIndex]?.provider}/></div>}
         {running && linkIndex < 0 && <p className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-wash p-3 text-sm"><Loader2 className="animate-spin" size={16}/> Salvando agendamentos... {doneCount} de {toSchedule.length} prontos.</p>}
         <ol className="mt-3 flex-1 space-y-2 overflow-y-auto">{offers.map(offer => { const key = offerKey(offer); const index = toSchedule.indexOf(offer); const row = rows[key]; const skipped = index < 0;
           return <li key={key} className={`rounded-lg border p-2 text-sm ${skipped ? "border-dashed border-line opacity-50" : "border-line"}`}><div className="flex items-center gap-3">
