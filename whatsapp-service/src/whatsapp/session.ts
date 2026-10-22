@@ -142,6 +142,15 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         // Sem ela, a correção do Baileys (scripts/patch-baileys-retry.mjs) não cria sessão nova.
         getMessage: async (key: any) => sentMessages.get(key) as any
       });
+      // Guarda a mensagem para o reenvio já no envio. O messages.upsert da própria mensagem
+      // passa pelo buffer de eventos do Baileys, que pode ficar minutos preso; o pedido de
+      // reenvio do grupo chega em segundos e, sem a mensagem, fica "Aguardando mensagem".
+      const sendMessage = sock.sendMessage.bind(sock);
+      sock.sendMessage = async (...args: any[]) => {
+        const sent = await sendMessage(...args);
+        try { sentMessages.remember([sent]); } catch { /* a loja de reenvio nunca atrapalha o envio */ }
+        return sent;
+      };
       const seq = ++socketSeq;
       const created = sock;
       // Falha do Noise fecha só este socket em vez de derrubar o processo.
