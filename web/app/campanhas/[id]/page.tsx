@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { ActionButton, AppShell, ConfirmModal, CopyButton, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
-import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, ImagePlus, Link2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Target, TrendingDown, TrendingUp, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, ChevronRight, Download, ExternalLink, GripVertical, ImagePlus, Link2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Target, Trash2, TrendingDown, TrendingUp, Users, X } from "lucide-react";
 
 type Group = {
   group_jid: string;
@@ -116,6 +116,8 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   const [addJids, setAddJids] = useState<string[]>([]);
   const [inviteLink, setInviteLink] = useState("");
   const [removeTarget, setRemoveTarget] = useState<Group | null>(null);
+  const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>([]);
+  const [removeSelectedOpen, setRemoveSelectedOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<Group | null>(null);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [draggedJid, setDraggedJid] = useState("");
@@ -137,6 +139,8 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
   const campaign = detail?.campaign;
   const groups = useMemo(() => campaign?.groups || [], [campaign?.groups]);
+  const selectedGroups = useMemo(() => groups.filter((group) => selectedGroupJids.includes(group.group_jid)), [groups, selectedGroupJids]);
+  const allGroupsSelected = groups.length > 0 && selectedGroups.length === groups.length;
   const publicUrl = campaign ? `${publicOrigin}/c/${campaign.public_slug}` : "";
 
   const periodRange = useMemo(() => getPeriodRange(period, customStart, customEnd), [period, customStart, customEnd]);
@@ -213,6 +217,8 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
   }
 
   useEffect(() => {
+    setSelectedGroupJids([]);
+    setRemoveSelectedOpen(false);
     setPublicOrigin(window.location.origin);
     load(true).catch((e) => showMessage(e.message)).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,6 +356,25 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
       if (!r.ok) throw new Error(d.error || "Falha ao remover o grupo.");
       setRemoveTarget(null); showMessage("Grupo removido."); await load();
     } catch (e: any) { showMessage(e.message); } finally { setSaving(""); }
+  }
+
+  async function removeSelectedGroups() {
+    if (!campaign || !selectedGroups.length || saving) return;
+    const removedJids = new Set(selectedGroups.map((group) => group.group_jid));
+    setSaving("remove-selected");
+    try {
+      const response = await fetch("/api/campanhas", {
+        method: "PATCH",
+        body: JSON.stringify({ id: campaign.id, group_jids: groups.map((group) => group.group_jid).filter((jid) => !removedJids.has(jid)) })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Falha ao remover os grupos selecionados.");
+      setSelectedGroupJids([]);
+      setRemoveSelectedOpen(false);
+      setDetail((current) => current ? { ...current, campaign: { ...current.campaign, groups: current.campaign.groups.filter((group) => !removedJids.has(group.group_jid)) } } : current);
+      showMessage(`${removedJids.size} grupo(s) removido(s) da campanha.`);
+      await load();
+    } catch (error: any) { showMessage(error.message); } finally { setSaving(""); }
   }
 
   async function reorder(nextJids: string[]) {
@@ -598,6 +623,33 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
           </div>
         ) : null}
 
+        {groups.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3">
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={allGroupsSelected}
+                ref={(input) => { if (input) input.indeterminate = selectedGroups.length > 0 && !allGroupsSelected; }}
+                disabled={Boolean(saving)}
+                onChange={(event) => setSelectedGroupJids(event.target.checked ? groups.map((group) => group.group_jid) : [])}
+                className="focus-ring h-4 w-4 rounded border-line accent-black"
+              />
+              Selecionar todos
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted" role="status">{selectedGroups.length} de {groups.length} selecionado(s)</span>
+              <ActionButton
+                icon={saving === "remove-selected" ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                disabled={!selectedGroups.length || Boolean(saving)}
+                onClick={() => setRemoveSelectedOpen(true)}
+                className="border border-red-200 bg-white text-red-600 hover:bg-red-50"
+              >
+                {saving === "remove-selected" ? "Removendo..." : "Remover selecionados"}
+              </ActionButton>
+            </div>
+          </div>
+        )}
+
         {!groups.length
           ? <EmptyState title="Nenhum grupo nesta campanha" description="Adicione grupos para ativar o link inteligente." />
           : <div className="space-y-4">
@@ -608,7 +660,7 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
               return (
                 <article
                   key={group.group_jid}
-                  draggable
+                  draggable={saving !== "remove-selected"}
                   onDragStart={() => setDraggedJid(group.group_jid)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => {
@@ -621,11 +673,19 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
                     }
                     setDraggedJid("");
                   }}
-                  className={`rounded-xl border bg-white shadow-soft transition ${isActive ? "border-emerald-300" : "border-line"}`}
+                  className={`rounded-xl border bg-white shadow-soft transition ${selectedGroupJids.includes(group.group_jid) ? "border-blue-400 ring-1 ring-blue-200" : isActive ? "border-emerald-300" : "border-line"}`}
                 >
                   <div className="p-5">
                     {/* Header */}
                     <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${group.nome || group.group_jid}`}
+                        checked={selectedGroupJids.includes(group.group_jid)}
+                        disabled={Boolean(saving)}
+                        onChange={(event) => setSelectedGroupJids((current) => event.target.checked ? [...current, group.group_jid] : current.filter((jid) => jid !== group.group_jid))}
+                        className="focus-ring mt-1 h-4 w-4 shrink-0 rounded border-line accent-black"
+                      />
                       <div className="hidden cursor-grab text-muted sm:block pt-0.5">
                         <GripVertical size={16} />
                       </div>
@@ -837,6 +897,9 @@ export default function CampanhaDetailPage({ params }: { params: Promise<{ id: s
 
       <ConfirmModal open={Boolean(removeTarget)} title="Remover grupo?" confirmLabel="Remover da campanha" destructive loading={saving === "remove"} onCancel={() => setRemoveTarget(null)} onConfirm={removeGroup}>
         O grupo continuará existindo no WhatsApp e no sistema. Apenas o vínculo com esta campanha será removido.
+      </ConfirmModal>
+      <ConfirmModal open={removeSelectedOpen} title={`Remover ${selectedGroups.length} grupo(s)?`} confirmLabel="Remover selecionados" destructive loading={saving === "remove-selected"} onCancel={() => setRemoveSelectedOpen(false)} onConfirm={removeSelectedGroups}>
+        Os {selectedGroups.length} grupo(s) selecionado(s) serão removidos apenas desta campanha. Eles continuarão existindo no WhatsApp e no sistema.
       </ConfirmModal>
       <ConfirmModal open={Boolean(resetTarget)} title="Zerar redirecionamentos?" confirmLabel="Zerar contador" destructive onCancel={() => setResetTarget(null)} onConfirm={() => { if (!resetTarget) return; patch({ action: "reset_redirect_count", group_jid: resetTarget.group_jid }, "Contador zerado.").then(() => setResetTarget(null)).catch((err) => showMessage(err.message)); }}>
         Essa ação zera somente a métrica de redirecionamentos do Disparei. A quantidade real de participantes não será alterada.
