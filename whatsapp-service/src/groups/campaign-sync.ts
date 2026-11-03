@@ -2,6 +2,7 @@ import { supabase } from "../supabase.js";
 import { syncSenderGroups } from "../senders/runtime.js";
 import type { SyncedGroup } from "./sync.js";
 import { dbResult } from "../utils/db.js";
+import { campaignSyncBatches } from "./campaign-sync-batches.js";
 
 async function persist(accountId: string, campaignIds: string[], senderId: string | null, rows: SyncedGroup[]) {
   for (const row of rows) {
@@ -29,25 +30,13 @@ async function persist(accountId: string, campaignIds: string[], senderId: strin
 
 export async function syncAllCampaignGroups() {
   const [{ data: campaigns, error }, { data: senderRows, error: sendersError }] = await Promise.all([
-    supabase.from("campanhas").select("id,account_id,campanha_grupos(group_jid)").eq("status", "ativa"),
+    supabase.from("campanhas").select("id,account_id,whatsapp_sender_id,campanha_grupos(group_jid)").eq("status", "ativa"),
     supabase.from("whatsapp_senders").select("id,account_id,session_name,created_at").order("created_at", { ascending: true })
   ]);
   if (error) throw error;
   if (sendersError) throw sendersError;
 
-  // Group sync uses any available sender for the account — never reads from campaign
-  const firstSenderByAccount = new Map<string, { id: string; session_name: string }>();
-  for (const sender of senderRows || []) if (!firstSenderByAccount.has(sender.account_id)) firstSenderByAccount.set(sender.account_id, sender);
-
-  const batches = new Map<string, { accountId: string; senderId: string | null; sessionName: string | null; campaignIds: string[]; groupJids: Set<string> }>();
-  for (const campaign of campaigns || []) {
-    const sender = firstSenderByAccount.get(campaign.account_id);
-    const key = `${campaign.account_id}:${sender?.session_name || "sem-sessao"}`;
-    const batch = batches.get(key) || { accountId: campaign.account_id, senderId: sender?.id || null, sessionName: sender?.session_name || null, campaignIds: [] as string[], groupJids: new Set<string>() };
-    batch.campaignIds.push(campaign.id);
-    for (const item of campaign.campanha_grupos || []) batch.groupJids.add((item as any).group_jid);
-    batches.set(key, batch);
-  }
+  const batches = campaignSyncBatches(campaigns || [], senderRows || []);
 
   for (const batch of batches.values()) {
     const groupJids = Array.from(batch.groupJids);
