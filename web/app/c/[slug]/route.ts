@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
+import { campaignFallbackGroupEligible } from "@/lib/campaign-routing";
 
 function messagePage(message: string, status = 200) {
   const safeMessage = message.replace(/[<>&"']/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[character] || character);
@@ -47,14 +48,7 @@ async function resolveRedirectFallback(sb: any, slug: string) {
   if (linksError) throw linksError;
 
   const selected = (links || [])
-    .filter((group: any) => {
-      if (group.manual_status && group.manual_status !== "disponivel") return false;
-      if (!group.invite_url || !/^https:\/\/chat\.whatsapp\.com\//.test(group.invite_url)) return false;
-      if (group.participant_count == null || !group.participants_synced_at) return Boolean(group.invite_url);
-      if (!campaign.reuse_available_groups && group.capacity_reached_at) return false;
-      if (group.participant_limit != null && Number(group.participant_count) >= Math.max(0, Number(group.participant_limit) - Number(group.safety_margin || 0))) return false;
-      return true;
-    })
+    .filter((group: any) => campaignFallbackGroupEligible(group, campaign))
     .sort((a: any, b: any) => Number(a.position || 0) - Number(b.position || 0))[0];
 
   if (!selected) {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { validateGroupJid } from "@/lib/phone";
 import { supabaseAdmin } from "@/lib/supabase";
+import { campaignGroupUnavailableReason, campaignRoutingGroups } from "@/lib/campaign-routing";
 
 const campaignSettingsSchema = z.object({
   action: z.literal("campaign_settings"),
@@ -40,15 +41,13 @@ const BLACK_FRIDAY_FACECLUB = {
   targetParticipants: 12_000
 } as const;
 
-function calculatedSituation(group: any, campaign: any, activeGroupJid?: string) {
-  if (group.manual_status === "cheio") return "Marcado manualmente como cheio";
-  if (group.manual_status === "pausado") return "Pausado";
-  if (group.participants_sync_error && !campaign.allow_stale_participant_count) return "Falha na sincronização";
-  if (group.participant_count == null) return "Quantidade de participantes indisponível";
-  if (!group.invite_url || !/^https:\/\/chat\.whatsapp\.com\//.test(group.invite_url)) return "Link de convite inválido";
-  if (group.participant_limit != null && group.participant_count >= Math.max(0, group.participant_limit - group.safety_margin)) return "Limite de participantes atingido";
-  if (!campaign.reuse_available_groups && group.capacity_reached_at) return "Limite atingido anteriormente";
-  return group.group_jid === activeGroupJid ? "Recebendo leads" : "Aguardando na fila";
+function calculatedSituation(group: any, campaign: any, activeGroupJid: string | undefined, now: number) {
+  if (group.group_jid === activeGroupJid) return "Recebendo leads";
+  const reason = campaignGroupUnavailableReason(group, campaign, now);
+  if (reason) return reason;
+  if (campaign.status !== "ativa") return campaign.status === "pausada" ? "Campanha pausada" : "Campanha encerrada";
+  if (!campaign.link_ativo) return "Link pausado";
+  return "Aguardando na fila";
 }
 
 function readDateParam(value: string | null) {
@@ -91,18 +90,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const sb = supabaseAdmin();
   const { data: campaign, error } = await sb.from("campanhas")
-    .select("id,nome,public_slug,status,link_ativo,fallback_type,fallback_url,reuse_available_groups,allow_stale_participant_count,total_accesses,total_redirects,whatsapp_sender_id,created_at,updated_at,whatsapp_senders(id,label,session_name),campanha_grupos(*,grupos(group_jid,nome,qtd_membros,foto_url))")
+    .select("id,nome,public_slug,status,link_ativo,fallback_type,fallback_url,reuse_available_groups,allow_stale_participant_count,participant_data_max_age_seconds,participant_data_stale_grace_seconds,stale_participant_safety_margin,total_accesses,total_redirects,whatsapp_sender_id,created_at,updated_at,whatsapp_senders(id,label,session_name),campanha_grupos(*,grupos(group_jid,nome,qtd_membros,foto_url))")
     .eq("id", id).eq("account_id", context.accountId).maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!campaign) return NextResponse.json({ error: "Campanha não encontrada." }, { status: 404 });
 
   const groups = (campaign.campanha_grupos || []).map((item: any) => ({ ...item, ...(item.grupos || {}) })).sort((a: any, b: any) => a.position - b.position);
-  const eligible = campaign.status === "ativa" && campaign.link_ativo ? groups.filter((group: any) => group.manual_status === "disponivel"
-    && group.participant_count != null
-    && /^https:\/\/chat\.whatsapp\.com\//.test(group.invite_url || "")
-    && (group.participant_limit == null || group.participant_count < Math.max(0, group.participant_limit - group.safety_margin))
-    && (campaign.reuse_available_groups || !group.capacity_reached_at)
-    && (campaign.allow_stale_participant_count || !group.participants_sync_error)) : [];
+  const now = Date.now();
+  const eligible = campaignRoutingGroups(groups, campaign, now);
   const activeGroupJid = eligible[0]?.group_jid;
 
   const currentStart = readDateParam(request.nextUrl.searchParams.get("participant_start"));
@@ -115,7 +110,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     listParticipantEvents(sb, campaign.id, context.accountId, previousStart, previousEnd),
     sb.rpc("get_campaign_redirect_metrics", { p_campaign_id: campaign.id })
   ]);
-  const responseGroups = groups.map((group: any) => ({ ...group, situacao: calculatedSituation(group, campaign, activeGroupJid) }));
+  const responseGroups = groups.map((group: any) => ({ ...group, situacao: calculatedSituation(group, campaign, activeGroupJid, now) }));
   const sender = Array.isArray(campaign.whatsapp_senders) ? campaign.whatsapp_senders[0] || null : campaign.whatsapp_senders;
   const blackFridayGoal = context.session.email.toLowerCase() === BLACK_FRIDAY_FACECLUB.accountEmail
     && campaign.id === BLACK_FRIDAY_FACECLUB.campaignId
@@ -133,7 +128,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       daily: metricBreakdown?.daily || [],
       sources: metricBreakdown?.sources || []
     }
-  });
+  }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -62,7 +62,7 @@ function localDateKey(value: string) {
 
 function situationTone(situation: string) {
   if (situation === "Recebendo leads") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (["Pausado", "Marcado manualmente como cheio", "Limite de participantes atingido", "Falha na sincronização", "Link de convite inválido"].includes(situation)) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (["Pausado", "Marcado manualmente como cheio", "Limite de participantes atingido", "Falha na sincronização", "Participantes desatualizados", "Link de convite inválido"].includes(situation)) return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-line bg-wash text-muted";
 }
 
