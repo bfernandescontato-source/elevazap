@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireTenantDatabase } from "@/lib/tenant-database";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { maskPhone } from "@/lib/phone";
-import { supabaseAdmin } from "@/lib/supabase";
 
 function maskedPhone(value?: string) {
   if (!value) return "";
@@ -24,11 +23,10 @@ export async function GET() {
     ))
   ]);
 
-  // Primeiros passos (04/11): Shopee conectada e Piloto ligado. Leitura com filtro explícito da conta.
-  const admin = supabaseAdmin();
+  // Primeiros passos (04/11): Shopee conectada e Piloto ligado (leitura pelo cliente da conta, com RLS).
   const [shopee, pilot] = await Promise.all([
-    admin.from("affiliate_integrations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("provider", "shopee").eq("status", "connected"),
-    admin.from("offer_automations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("enabled", true)
+    sb.from("affiliate_integrations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("provider", "shopee").eq("status", "connected"),
+    sb.from("offer_automations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("enabled", true)
   ]);
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
