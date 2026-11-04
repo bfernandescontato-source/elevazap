@@ -3,6 +3,7 @@ import { publicUrl } from "@/lib/public-url";
 import { createSession } from "@/lib/auth";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { getOrCreateUserProfile } from "@/lib/user-access";
+import { accountSessionFor } from "@/lib/account-session";
 
 export async function GET(request: NextRequest) {
   const auth = await supabaseAuth();
@@ -24,14 +25,21 @@ export async function GET(request: NextRequest) {
 
   const profile = await getOrCreateUserProfile(user);
   if (!profile) return NextResponse.redirect(publicUrl("/login?error=setup", request));
+  const access = accountSessionFor(profile);
   if (next === "/redefinir-senha") {
-    if (profile.status === "active") await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
+    if (access.ok) await createSession(access.session);
+    else if (profile.status === "active") await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
     return NextResponse.redirect(publicUrl(next, request));
   }
   if (profile.status !== "active") {
     await auth.auth.signOut();
     return NextResponse.redirect(publicUrl(`/auth/pending?status=${profile.status}`, request));
   }
-  await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
+  // 04/11: o link do e-mail agora grava a conta na sessão, igual ao login por senha
+  if (!access.ok) {
+    await auth.auth.signOut();
+    return NextResponse.redirect(publicUrl(`/login?error=${access.reason}`, request));
+  }
+  await createSession(access.session);
   return NextResponse.redirect(publicUrl(next.startsWith("/") ? next : "/dashboard", request));
 }

@@ -4,6 +4,7 @@ import { createSession } from "@/lib/auth";
 import { clientIp, persistentRateLimit, requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { getOrCreateUserProfile } from "@/lib/user-access";
+import { accountSessionFor } from "@/lib/account-session";
 
 const schema = z.object({
   access_token: z.string().min(20).max(5000),
@@ -29,13 +30,19 @@ export async function POST(request: NextRequest) {
 
   const profile = await getOrCreateUserProfile(data.user);
   if (!profile) return NextResponse.json({ error: "A estrutura de perfis ainda não foi ativada no banco." }, { status: 503 });
-  if (profile.status === "active") {
+  const access = accountSessionFor(profile);
+  if (access.ok) await createSession(access.session);
+  else if (profile.status === "active" && parsed.data.type === "recovery") {
     await createSession({ userId: profile.id, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
   }
   if (parsed.data.type === "recovery") return NextResponse.json({ redirectTo: "/redefinir-senha" });
   if (profile.status !== "active") {
     await auth.auth.signOut();
     return NextResponse.json({ redirectTo: `/auth/pending?status=${profile.status}` });
+  }
+  if (!access.ok) {
+    await auth.auth.signOut();
+    return NextResponse.json({ redirectTo: `/login?error=${access.reason}` });
   }
   return NextResponse.json({ redirectTo: "/dashboard" });
 }

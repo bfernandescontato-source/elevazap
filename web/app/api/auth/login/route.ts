@@ -4,6 +4,7 @@ import { createSession, verifyPassword } from "@/lib/auth";
 import { clientIp, persistentRateLimit, requireValidOrigin } from "@/lib/security";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { getOrCreateUserProfile } from "@/lib/user-access";
+import { accountSessionFor } from "@/lib/account-session";
 
 export async function POST(request: NextRequest) {
   const originError = requireValidOrigin(request);
@@ -19,16 +20,12 @@ export async function POST(request: NextRequest) {
   if (!error && data.user) {
     const profile = await getOrCreateUserProfile(data.user);
     if (!profile) return NextResponse.redirect(publicUrl("/login?error=setup", request), { status: 303 });
-    if (profile.status !== "active") {
+    const access = accountSessionFor(profile);
+    if (!access.ok) {
       await auth.auth.signOut();
-      return NextResponse.redirect(publicUrl(`/login?error=${profile.status}`, request), { status: 303 });
+      return NextResponse.redirect(publicUrl(`/login?error=${access.reason}`, request), { status: 303 });
     }
-    const account = Array.isArray(profile.accounts) ? profile.accounts[0] : profile.accounts;
-    if (!account || account.status !== "active") {
-      await auth.auth.signOut();
-      return NextResponse.redirect(publicUrl(`/login?error=${account?.status || "account"}`, request), { status: 303 });
-    }
-    await createSession({ userId: profile.id, accountId: profile.account_id, accountStatus: account.status, email: profile.email, name: profile.name, role: profile.role, source: "supabase" });
+    await createSession(access.session);
     return NextResponse.redirect(publicUrl("/dashboard", request), { status: 303 });
   }
 
