@@ -3,7 +3,7 @@
 import { ActionButton, AppShell, ConfirmModal, EmptyState, LoadingState, StatusBadge, Toast } from "@/components/ui";
 import { AlertTriangle, Phone, Plus, QrCode, RefreshCw, Trash2, Unplug } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { WhatsappConnectBox } from "@/components/whatsapp-connect";
 
 type Sender = {
   id: string;
@@ -184,7 +184,8 @@ export default function NumerosPage() {
         return <article key={sender.id} className="rounded-lg border border-line bg-panel p-5 shadow-soft">
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2 font-semibold text-ink"><Phone size={17} /> <span className="truncate">{sender.label}</span></div><div className="mt-1 text-sm text-muted">{sender.phone_number || "Número aguardando conexão"}</div></div><StatusBadge status={sender.status} /></div>
           <dl className="mt-5 grid gap-3 border-y border-line py-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted">Nome no WhatsApp</dt><dd className="text-right font-medium">{sender.display_name || "Não disponível"}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted">Adicionado em</dt><dd className="text-right">{formatDate(sender.created_at)}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted">Identificador</dt><dd className="max-w-48 truncate font-mono text-xs" title={sender.session_name}>{sender.session_name}</dd></div></dl>
-          {sender.qr ? <div className="mt-4"><p className="mb-3 text-center text-sm text-muted">Escaneie com o WhatsApp deste número</p><div className="flex justify-center rounded-lg bg-wash p-4"><Image src={sender.qr} alt={`QR Code de ${sender.label}`} width={224} height={224} unoptimized className="h-56 w-56 rounded-lg bg-white p-2" /></div></div> : null}
+          {/* 04/11: QR e código juntos (quem só tem o celular não consegue ler o QR da própria tela) */}
+          {sender.status !== "connected" ? <WhatsappConnectBox senderId={sender.id} label={sender.label} qr={sender.qr} phoneHint={sender.phone_number} /> : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <ActionButton icon={<QrCode size={15} />} disabled={busy} className="border border-line bg-white text-ink" onClick={() => runAction(sender, "connect").catch(fail)}>Gerar QR</ActionButton>
             <ActionButton icon={<RefreshCw size={15} />} disabled={busy || sender.status !== "connected"} className="border border-line bg-white text-ink" onClick={() => runAction(sender, "refresh-groups").catch(fail)}>Atualizar grupos</ActionButton>

@@ -13,6 +13,7 @@ import {
   listSenderGroupContacts,
   startSenderSessionByName,
   restartSenderSessionByName,
+  requestSenderPairingCode,
   getSenderRuntimeStats
 } from "../senders/runtime.js";
 import { waitForSessionReady } from "../utils/session-ready.js";
@@ -105,6 +106,16 @@ export function createHttpServer(
       return res.status(result.qr || result.status === "connected" ? 200 : 202).json({ ok: true, ...result });
     } catch (e: any) {
       return res.status(503).json({ error: e.message });
+    }
+  });
+
+  // Conectar digitando um código no celular (sem QR).
+  app.post("/senders/:sessionName/pairing-code", async (req, res) => {
+    try {
+      const result = await requestSenderPairingCode(req.params.sessionName, String(req.body?.phone_number || ""));
+      return res.json({ ok: true, ...result });
+    } catch (e: any) {
+      return res.status(400).json({ error: e?.message || "Não foi possível gerar o código." });
     }
   });
 
