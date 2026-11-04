@@ -1,4 +1,6 @@
 import { supabase } from "../supabase.js";
+import { waitForSessionReady } from "../utils/session-ready.js";
+import { formatPairingCode, pairingPhoneDigits } from "../utils/pairing-code.js";
 import { createWhatsAppSession, type WhatsAppSession } from "../whatsapp/session.js";
 import { discoverGroupByInvite, discoverParticipatingGroups, groupToStoredRow } from "../groups/discovery.js";
 import { regenerateGroupInviteLinks, syncGroupMetadata, updateGroupProfiles, type GroupProfileUpdate } from "../groups/sync.js";
@@ -259,6 +261,24 @@ export async function restartSenderSessionByName(sessionName: string, reason = "
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return startSender(sender, lease.lease_version);
+}
+
+/**
+ * Conectar digitando um código no celular, sem escanear o QR (quem só tem o celular não consegue ler
+ * o QR da própria tela). Usa a mesma sessão que gera o QR: só pede o código quando ela está esperando leitura.
+ */
+export async function requestSenderPairingCode(sessionName: string, phone: string) {
+  const digits = pairingPhoneDigits(phone);
+  if (!digits) throw new Error("Informe o número com DDD (ex.: 11 99999-8888).");
+  await startSenderSessionByName(sessionName);
+  const ready = await waitForSessionReady(() => getSenderStatus(sessionName));
+  if (ready.status === "connected") return { status: "connected" as const, code: "" };
+  const managed = senders.get(sessionName);
+  if (!managed || managed.session.getStatus() !== "waiting_qr" || !managed.session.sock?.requestPairingCode) {
+    throw new Error(ready.error || "O número ainda está iniciando. Tente de novo em alguns segundos.");
+  }
+  const code = await managed.session.sock.requestPairingCode(digits);
+  return { status: "waiting_code" as const, code: formatPairingCode(code) };
 }
 
 export async function disconnectSenderSession(sessionName: string) {
