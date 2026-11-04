@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { AppShell, ErrorState, LoadingState } from "@/components/ui";
+import { ActionButton, AppShell, ErrorState, LoadingState } from "@/components/ui";
+import { WhatsappConnectBox } from "@/components/whatsapp-connect";
 import { useEffect, useState, type ReactNode } from "react";
-import { BarChart3, Check, ChevronRight, Hourglass, Megaphone, Phone, Plus, RefreshCw, Users, X } from "lucide-react";
+import { BarChart3, Check, ChevronRight, Hourglass, Megaphone, Phone, Plus, QrCode, RefreshCw, Users, X } from "lucide-react";
 
 type DashboardData = {
-  connection: { connected: boolean; count: number; phone: string };
+  connection: { connected: boolean; count: number; phone: string; down?: DownSender[] };
   counts: { campaigns: number; groups: number };
   queue: { pendente: number; enfileirado: number; processando: number; sucesso: number; erro: number; incerto: number };
 };
+
+type DownSender = { id: string; label: string; status: string; qr: string };
 
 // Ao voltar para o Início, mostra na hora o último resumo e atualiza por trás.
 let lastSummary: DashboardData | null = null;
@@ -40,11 +43,12 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
 
   return <AppShell title="Início" subtitle="Sua operação num olhar só" greeting action={action} hideLogout>
     {error ? <ErrorState message={error} /> : !data ? <LoadingState /> : <div className="space-y-6 terra:space-y-5">
+      {data.connection.down?.length ? <ReconnectSection senders={data.connection.down} /> : null}
       {data.connection.connected ? <div className="border-l-2 border-emerald-500 pl-3 text-sm font-medium text-emerald-700 terra:flex terra:items-center terra:gap-3 terra:rounded-xl terra:border terra:border-emerald-200/70 terra:bg-emerald-100/60 terra:px-4 terra:py-2.5">
         <WhatsAppGlyph className="hidden h-7 w-7 shrink-0 terra:block"/>
         <span className="terra:flex-1 terra:text-ink">WhatsApp conectado{data.connection.phone ? ` · ${data.connection.phone}` : ""}</span>
         <span className="hidden items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink shadow-sm terra:inline-flex"><span className="h-2 w-2 rounded-full bg-emerald-500"/>Conectado</span>
-      </div> : <section className="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+      </div> : data.connection.down?.length ? null : <section className="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="font-semibold text-red-800">WhatsApp desconectado</h2><p className="mt-1 text-sm text-red-700">Suas campanhas estão pausadas até reconectar.</p></div>
         <Link href="/grupos/numeros" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
       </section>}
@@ -135,4 +139,45 @@ function Onboarding({ data }: { data: DashboardData }) {
       <span className={step.done ? "text-emerald-700" : "text-ink"}>{step.label}</span>
     </Link></li>)}
   </ol>;
+}
+
+// 04/11: número caído é envio zero. O aluno reconecta aqui mesmo, por QR ou por código, sem ir em Números.
+function ReconnectSection({ senders }: { senders: DownSender[] }) {
+  return <section className="rounded-lg border border-red-200 bg-red-50 p-4 terra:rounded-2xl">
+    <h2 className="font-semibold text-red-800">{senders.length === 1 ? "Um número está desconectado" : `${senders.length} números estão desconectados`}</h2>
+    <p className="mt-1 text-sm text-red-700">Enquanto ele estiver fora, nada sai por ele. Reconecte aqui mesmo.</p>
+    <div className="mt-3 grid gap-3 lg:grid-cols-2">{senders.map((sender) => <ReconnectCard key={sender.id} sender={sender} />)}</div>
+  </section>;
+}
+
+function ReconnectCard({ sender }: { sender: DownSender }) {
+  const [qr, setQr] = useState(sender.qr);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function showQr() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/whatsapp/senders/${sender.id}/connect`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Não foi possível gerar o QR Code.");
+      if (body.status === "connected") setMessage("Este número já conectou.");
+      else if (body.qr) setQr(body.qr);
+      else setMessage("Conexão iniciada. Toque de novo em alguns segundos para ver o QR.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Não foi possível gerar o QR Code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="rounded-lg border border-line bg-white p-4">
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex min-w-0 items-center gap-2 font-medium text-ink"><Phone size={16} /><span className="truncate">{sender.label}</span></span>
+      <ActionButton icon={<QrCode size={15} />} disabled={busy} className="border border-line bg-white text-ink" onClick={() => void showQr()}>{busy ? "Gerando..." : qr ? "Novo QR" : "Mostrar QR"}</ActionButton>
+    </div>
+    {message ? <p className="mt-2 text-sm text-muted">{message}</p> : null}
+    <WhatsappConnectBox senderId={sender.id} label={sender.label} qr={qr} />
+  </div>;
 }

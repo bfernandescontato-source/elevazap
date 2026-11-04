@@ -17,17 +17,23 @@ export async function GET() {
   const [campaigns, groups, senders, ...queueCounts] = await Promise.all([
     sb.from("campanhas").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
     sb.from("grupos").select("id", { count: "exact", head: true }).eq("account_id", context.accountId),
-    sb.from("whatsapp_senders").select("session_name").eq("account_id", context.accountId),
+    sb.from("whatsapp_senders").select("id,label,session_name").eq("account_id", context.accountId).order("created_at", { ascending: true }),
     ...statuses.flatMap((status) => ["envios", "envios_grupo"].map((table) =>
       sb.from(table).select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("status", status)
     ))
   ]);
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
-    callWhatsappService(`/senders/${sender.session_name}/status`).catch(() => ({ status: "disconnected", phone_number: "" }))
+    callWhatsappService(`/senders/${sender.session_name}/status`).catch(() => ({ status: "disconnected", phone_number: "", qr: "" }))
   ));
   const connectedAdditional = additionalStatuses.filter((sender) => sender.status === "connected");
   const firstConnectedPhone = connectedAdditional.find((sender) => sender.phone_number)?.phone_number;
+
+  // 04/11: números fora do ar aparecem no Início com QR e código, para reconectar ali mesmo
+  const down = (senders.data || []).flatMap((sender, index) => {
+    const live = additionalStatuses[index] || {};
+    return live.status === "connected" ? [] : [{ id: sender.id, label: sender.label, status: String(live.status || "disconnected"), qr: String(live.qr || "") }];
+  });
 
   const queue = Object.fromEntries(statuses.map((status, index) => [status,
     (queueCounts[index * 2]?.count || 0) + (queueCounts[index * 2 + 1]?.count || 0)
@@ -37,7 +43,8 @@ export async function GET() {
     connection: {
       connected: connectedAdditional.length > 0,
       count: connectedAdditional.length,
-      phone: maskedPhone(firstConnectedPhone)
+      phone: maskedPhone(firstConnectedPhone),
+      down
     },
     counts: {
       campaigns: campaigns.count || 0,
