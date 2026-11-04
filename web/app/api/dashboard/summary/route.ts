@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTenantDatabase } from "@/lib/tenant-database";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { maskPhone } from "@/lib/phone";
+import { supabaseAdmin } from "@/lib/supabase";
 
 function maskedPhone(value?: string) {
   if (!value) return "";
@@ -21,6 +22,13 @@ export async function GET() {
     ...statuses.flatMap((status) => ["envios", "envios_grupo"].map((table) =>
       sb.from(table).select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("status", status)
     ))
+  ]);
+
+  // Primeiros passos (04/11): Shopee conectada e Piloto ligado. Leitura com filtro explícito da conta.
+  const admin = supabaseAdmin();
+  const [shopee, pilot] = await Promise.all([
+    admin.from("affiliate_integrations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("provider", "shopee").eq("status", "connected"),
+    admin.from("offer_automations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("enabled", true)
   ]);
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
@@ -50,6 +58,7 @@ export async function GET() {
       campaigns: campaigns.count || 0,
       groups: groups.count || 0
     },
-    queue
+    queue,
+    setup: { shopee: (shopee.count || 0) > 0, pilot: (pilot.count || 0) > 0 }
   });
 }

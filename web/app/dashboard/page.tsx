@@ -10,6 +10,7 @@ type DashboardData = {
   connection: { connected: boolean; count: number; phone: string; down?: DownSender[] };
   counts: { campaigns: number; groups: number };
   queue: { pendente: number; enfileirado: number; processando: number; sucesso: number; erro: number; incerto: number };
+  setup?: { shopee: boolean; pilot: boolean };
 };
 
 type DownSender = { id: string; label: string; status: string; qr: string };
@@ -53,11 +54,13 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
         <Link href="/grupos/numeros" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-medium text-white transition hover:bg-red-800">Conectar agora</Link>
       </section>}
 
-      {!data.connection.connected && data.counts.campaigns === 0 ? <Onboarding data={data} /> : <div className="grid gap-4 sm:grid-cols-3 terra:grid-cols-3 terra:gap-2.5 terra:sm:gap-4">
+      <FirstSteps data={data} />
+
+      <div className="grid gap-4 sm:grid-cols-3 terra:grid-cols-3 terra:gap-2.5 terra:sm:gap-4">
         <Metric label="Números conectados" value={data.connection.count} icon={<Phone size={24} fill="currentColor" strokeWidth={1.5}/>} tone="olive" />
         <Metric label="Campanhas" value={data.counts.campaigns} icon={<Megaphone size={24} fill="currentColor" strokeWidth={1.5}/>} tone="coral" />
         <Metric label="Grupos" value={data.counts.groups} icon={<Users size={24} fill="currentColor" strokeWidth={1.5}/>} tone="lilac" />
-      </div>}
+      </div>
 
       <section className="rounded-lg border border-line bg-white p-5 terra:rounded-2xl">
         <div className="flex items-center justify-between"><h2 className="font-semibold text-ink">Saúde da fila</h2>
@@ -127,18 +130,30 @@ function GrowthArt() {
   </svg>;
 }
 
-function Onboarding({ data }: { data: DashboardData }) {
+// 04/11: checklist de primeiros passos. Some sozinho quando tudo estiver feito.
+function FirstSteps({ data }: { data: DashboardData }) {
   const steps = [
-    { label: "Conectar WhatsApp", href: "/grupos/numeros", done: data.connection.connected },
-    { label: "Escolher grupos", href: "/campanhas", done: data.counts.groups > 0 },
-    { label: "Criar primeira campanha", href: "/campanhas", done: data.counts.campaigns > 0 }
+    { label: "Conectar seu WhatsApp", href: "/grupos/numeros", done: data.connection.connected },
+    { label: "Conectar sua Shopee", href: "/integracoes", done: Boolean(data.setup?.shopee) },
+    { label: "Ligar o Piloto Automático", href: "/piloto-automatico", done: Boolean(data.setup?.pilot) },
+    { label: "Fazer o primeiro envio", href: "/catalogo", done: data.queue.sucesso > 0 }
   ];
-  return <ol className="divide-y divide-line rounded-lg border border-line bg-white">
-    {steps.map((step, index) => <li key={step.label}><Link href={step.href} className="flex items-center gap-3 px-4 py-4 text-sm font-medium transition hover:bg-wash">
-      <span className={`grid h-7 w-7 place-items-center rounded-full border text-xs ${step.done ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 text-muted"}`}>{step.done ? "✓" : index + 1}</span>
-      <span className={step.done ? "text-emerald-700" : "text-ink"}>{step.label}</span>
-    </Link></li>)}
-  </ol>;
+  const done = steps.filter((step) => step.done).length;
+  if (!data.setup || done === steps.length) return null;
+  return <section className="rounded-lg border border-line bg-white terra:rounded-2xl" data-testid="first-steps">
+    <div className="flex items-center justify-between gap-3 px-4 pt-4">
+      <h2 className="font-semibold text-ink">Primeiros passos</h2>
+      <span className="text-sm text-muted">{done} de {steps.length}</span>
+    </div>
+    <div className="mx-4 mt-3 h-2 overflow-hidden rounded-full bg-wash"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${(done / steps.length) * 100}%` }} /></div>
+    <ol className="mt-2 divide-y divide-line">
+      {steps.map((step, index) => <li key={step.label}><Link href={step.href} className="flex items-center gap-3 px-4 py-4 text-sm font-medium transition hover:bg-wash">
+        <span className={`grid h-7 w-7 place-items-center rounded-full border text-xs ${step.done ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 text-muted"}`}>{step.done ? "✓" : index + 1}</span>
+        <span className={step.done ? "text-emerald-700 line-through decoration-emerald-300" : "text-ink"}>{step.label}</span>
+        {step.done ? null : <ChevronRight size={16} className="ml-auto text-muted" />}
+      </Link></li>)}
+    </ol>
+  </section>;
 }
 
 // 04/11: número caído é envio zero. O aluno reconecta aqui mesmo, por QR ou por código, sem ir em Números.
