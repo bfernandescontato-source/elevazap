@@ -113,7 +113,13 @@ export async function disconnectIntegration(database: SupabaseClient, accountId:
     if (error) throw error;
     return { status: "disconnected" };
   }
-  const { error } = await database.from("affiliate_integrations").update({ status: "disconnected", extension_token_hash: null, encrypted_auth_data: null, auth_expires_at: null, last_error: null, updated_at: new Date().toISOString() }).eq("account_id", accountId).eq("provider", provider);
+  if (provider === "magalu") {
+    const { error } = await database.from("affiliate_integrations").update({ status: "disconnected", affiliate_tag: null, external_account_label: null, last_error: null, updated_at: new Date().toISOString() }).eq("account_id", accountId).eq("provider", provider);
+    if (error) throw error;
+    return { status: "disconnected" };
+  }
+  // Mercado Livre: limpa também etiqueta e sessão guardada, para a próxima conexão (inclusive de outra conta ML) começar do zero.
+  const { error } = await database.from("affiliate_integrations").update({ status: "disconnected", affiliate_tag: null, external_account_label: null, extension_token_hash: null, encrypted_auth_data: null, auth_expires_at: null, encrypted_session_cookies: null, session_status: null, session_synced_at: null, last_error: null, updated_at: new Date().toISOString() }).eq("account_id", accountId).eq("provider", provider);
   if (error) throw error;
   return { status: "disconnected" };
 }
