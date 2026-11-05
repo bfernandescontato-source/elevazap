@@ -302,11 +302,15 @@ export class GlobalSendQueue {
       this.metrics.success();
       observeSend(row, "send_ok", Date.now() - sendStartedAt);
     } catch (error) {
-      const potentiallyDelivered = error instanceof OperationTimeoutError &&
-        (error.operation === "whatsapp.sendMessage" || (error.operation === "queue.item" && row.send_started));
+      // Closing one socket also rejects other sends already in flight on it.
+      // Their outcome is unknown too; never put those messages back for retry.
+      const potentiallyDelivered = Boolean(row.send_started);
+      const timedOut = error instanceof OperationTimeoutError;
       observeSend(row, potentiallyDelivered ? "send_timeout" : "send_fail");
       if (potentiallyDelivered) {
-        await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
+        await this.markUncertain(table, row, timedOut
+          ? "O limite de tempo foi excedido durante o envio. Confirmação manual necessária."
+          : "Falha após iniciar a transmissão. Confirmação manual necessária.", timedOut ? "SEND_TIMEOUT" : "SEND_OUTCOME_UNKNOWN");
         this.metrics.uncertainResult(error);
       } else {
         const leaseValid = await this.hasValidLease(item);
