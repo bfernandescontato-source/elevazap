@@ -1,3 +1,5 @@
+import { groupPreparation, sendWithDeadline } from "./group-preparation.js";
+import { getOwnedSenderLeases } from "../senders/runtime.js";
 import { env } from "../env.js";
 import { supabase } from "../supabase.js";
 import { downloadMedia, buildBaileysMessage, convertVoiceToOpus, sharedMediaCache } from "../utils/media.js";
@@ -115,6 +117,9 @@ export class GlobalSendQueue {
   private running = false;
   private lastSendAtBySession = new Map<string, number>();
   private lastStaleCleanupAt = 0;
+  private preflightRunning = false;
+  private preflightTimer?: NodeJS.Timeout;
+  private lastPreflightError: string | null = null;
   private activeSessions = new Map<string, { count: number; kind: QueueItem["kind"] }>();
   private reconciliation = new Map<string, QueueReconciliation>();
   private maintenance = new PilotMaintenanceWorker((name, params) => withTimeout(`queue.${name}`, env.DB_TIMEOUT_MS, supabase.rpc(name, params)) as any, env.INSTANCE_ID);
@@ -130,6 +135,7 @@ export class GlobalSendQueue {
 
   stats() {
     return { ...this.metrics.snapshot(this.running, this.buffer, this.reconciliation.size, this.activeCount()), media_cache: sharedMediaCache.snapshot(),
+      preflight: { running: this.preflightRunning, last_error: this.lastPreflightError },
       confirmation: { ...this.confirmCounters }, pilot_maintenance: this.maintenance.stats() };
   }
 
@@ -137,12 +143,52 @@ export class GlobalSendQueue {
     if (this.running) return;
     this.running = true;
     this.maintenance.start();
+    this.preflightTimer = setInterval(() => void this.prepareUpcoming(), 5_000);
+    void this.prepareUpcoming();
     void this.loop();
   }
 
   stop() {
     this.running = false;
     this.maintenance.stop();
+    clearInterval(this.preflightTimer);
+  }
+
+  private async prepareUpcoming() {
+    if (this.preflightRunning || !this.running) return;
+    const owned = getOwnedSenderLeases().filter((lease) => lease.status === "connected");
+    if (!owned.length) return;
+    this.preflightRunning = true;
+    try {
+      const now = Date.now();
+      const rows = await dbResult<any[]>("queue.preflight", supabase.from("envios_grupo")
+        .select("id,account_id,whatsapp_session_id,whatsapp_session_name,whatsapp_sender_id,group_jid,scheduled_at")
+        .eq("status", "pendente")
+        .in("whatsapp_session_id", owned.map((lease) => lease.whatsapp_session_id))
+        .gt("scheduled_at", new Date(now).toISOString())
+        .lte("scheduled_at", new Date(now + 120_000).toISOString())
+        .order("scheduled_at").limit(200));
+      // At most two preparations at once; this runs independently of claiming due jobs.
+      const pending = [...(rows || [])];
+      await Promise.all([0, 1].map(async () => {
+        for (let row = pending.shift(); row && this.running; row = pending.shift()) {
+          if (Date.parse(row.scheduled_at) <= Date.now()) continue;
+          const sock = this.selectSocket(row, true);
+          if (groupPreparation.cached(sock, row.group_jid)) continue;
+          const started = Date.now();
+          try {
+            await withTimeout("queue.preflight.prepare", 60_000, groupPreparation.prepare(sock, row.group_jid));
+            console.info({ event: "queue.preflight_ready", jobId: correlationId(row.id), session_id: row.whatsapp_session_id, duration_ms: Date.now() - started });
+          } catch (error) {
+            this.lastPreflightError = error instanceof Error ? error.message : String(error);
+            console.error({ event: "queue.preflight_failed", jobId: correlationId(row.id), ...errorFields(error) });
+          }
+        }
+      }));
+    } catch (error) {
+      this.lastPreflightError = error instanceof Error ? error.message : String(error);
+      console.error({ event: "queue.preflight_failed", ...errorFields(error) });
+    } finally { this.preflightRunning = false; }
   }
 
   private async resetStaleItems() {
@@ -252,12 +298,12 @@ export class GlobalSendQueue {
       const { data: account } = await supabase.from("accounts").select("status").eq("id", row.account_id).maybeSingle();
       if (account?.status !== "active") throw new Error("Assinatura inativa; envio bloqueado.");
       const sendStartedAt = Date.now();
-      await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, this.execute(item, row));
+      await withTimeout("queue.item", env.QUEUE_PROCESSING_TIMEOUT_MS, (signal) => this.execute(item, row, signal));
       this.metrics.success();
       observeSend(row, "send_ok", Date.now() - sendStartedAt);
     } catch (error) {
       const potentiallyDelivered = error instanceof OperationTimeoutError &&
-        ["queue.item", "whatsapp.sendMessage"].includes(error.operation);
+        (error.operation === "whatsapp.sendMessage" || (error.operation === "queue.item" && row.send_started));
       observeSend(row, potentiallyDelivered ? "send_timeout" : "send_fail");
       if (potentiallyDelivered) {
         await this.markUncertain(table, row, "O limite de tempo foi excedido durante o envio. Confirmação manual necessária.", "SEND_TIMEOUT");
@@ -330,13 +376,13 @@ export class GlobalSendQueue {
     return true;
   }
 
-  private async execute(item: QueueItem, row: any) {
+  private async execute(item: QueueItem, row: any, signal: AbortSignal) {
     const lastSendAt = this.lastSendAtBySession.get(item.whatsapp_session_id) || 0;
     const throttleWait = Math.max(0, env.GLOBAL_SEND_THROTTLE_MS - (Date.now() - lastSendAt));
     if (throttleWait) await queueSleep(throttleWait);
     if (item.kind === "envio" && row.source !== "massa_manual") await queueSleep(randomDelay(3_000, 8_000));
-    if (item.kind === "envio") await this.sendWelcome(row);
-    else await this.sendGroup(row);
+    if (item.kind === "envio") await this.sendWelcome(row, signal);
+    else await this.sendGroup(row, signal);
     this.lastSendAtBySession.set(item.whatsapp_session_id, Date.now());
   }
 
@@ -357,14 +403,30 @@ export class GlobalSendQueue {
     return selected;
   }
 
-  private async sendWelcome(row: any) {
+  private async authorizeRelay(table: QueueTableName, row: any, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const current = await dbResult<any>("queue.authorize-relay", supabase.from(table)
+      .select("status,claim_token,processing_worker_id,processing_lease_version")
+      .eq("id", row.id).eq("account_id", row.account_id).maybeSingle());
+    signal.throwIfAborted();
+    if (current?.status !== "processando" || current.claim_token !== row.claim_token ||
+        current.processing_worker_id !== env.INSTANCE_ID || current.processing_lease_version !== row.processing_lease_version ||
+        !await this.hasValidLease({ whatsapp_session_id: row.whatsapp_session_id, lease_version: row.processing_lease_version } as QueueItem)) {
+      throw new Error("A autorização do envio expirou durante a preparação; transmissão bloqueada.");
+    }
+    signal.throwIfAborted();
+  }
+
+  private async sendWelcome(row: any, signal: AbortSignal) {
     const sock = this.selectSocket(row);
     if (!sock) throw new Error("Nenhum número conectado para disparo 1x1.");
     const optOuts = await dbResult<any[]>("queue.opt-out", supabase.from("opt_outs").select("id").eq("account_id", row.account_id).or(`telefone.eq.${row.telefone},email.eq.${row.email}`).limit(1));
     if (optOuts?.length) throw new Error("Contato em opt-out.");
     const jid = await this.resolveRecipientJid(sock, row);
     if (!jid) return;
-    const result = await withTimeout<any>("whatsapp.sendMessage", env.SEND_TIMEOUT_MS, sock.sendMessage(jid, { text: row.mensagem_enviada }));
+    await this.authorizeRelay("envios", row, signal);
+    row.send_started = true;
+    const result: any = await sendWithDeadline(sock, env.SEND_TIMEOUT_MS, () => sock.sendMessage(jid, { text: row.mensagem_enviada }), signal);
     await this.persistSuccess("envios", row, result?.key?.id || null);
   }
 
@@ -391,7 +453,7 @@ export class GlobalSendQueue {
     return null;
   }
 
-  private async sendGroup(row: any) {
+  private async sendGroup(row: any, signal: AbortSignal) {
     if (!validateGroupJid(row.group_jid)) throw new Error("JID de grupo inválido.");
     const sock = this.selectSocket(row, true);
     let media: Buffer | undefined;
@@ -405,7 +467,13 @@ export class GlobalSendQueue {
         media_id: sourceKey, media_size: media.byteLength, destinations_count: row.lote_id ? undefined : 1,
         ...sharedMediaCache.snapshot() });
     }
-    const mentions = row.mention_all ? await this.getGroupMentions(sock, row.group_jid) : [];
+    const preparationStarted = Date.now();
+    const metadata = await withTimeout("groups.prepare", env.QUEUE_PROCESSING_TIMEOUT_MS, groupPreparation.prepare(sock, row.group_jid));
+    signal.throwIfAborted();
+    const ownId = String(sock.user?.id || "").split(":")[0];
+    const mentions = row.mention_all ? metadata.participants.map((p: any) => p.id).filter((jid: string) => jid && !jid.startsWith(`${ownId}@`)) : [];
+    console.info({ event: "queue.prepared", jobId: correlationId(row.id), session_id: row.whatsapp_session_id,
+      schedule_delay_ms: Date.now() - Date.parse(row.scheduled_at), preparation_ms: Date.now() - preparationStarted, participants: metadata.participants.length });
     const offerPreview = row.tipo === "texto" ? await this.findOfferPreviewContext(row) : null;
     // Disparos manuais/agendados com link de loja ganham o mesmo card do
     // Piloto; o texto deles fica como o cliente escreveu.
@@ -417,11 +485,12 @@ export class GlobalSendQueue {
     const message: any = buildBaileysMessage(row, media, mentions);
     if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
     if (linkPreview && "text" in message) message.linkPreview = linkPreview;
-    const result = await withTimeout<any>(
-      "whatsapp.sendMessage",
-      env.SEND_TIMEOUT_MS,
-      sock.sendMessage(row.group_jid, message)
-    );
+    await this.authorizeRelay("envios_grupo", row, signal);
+    const sendStarted = Date.now();
+    row.send_started = true;
+    const result: any = await sendWithDeadline(sock, env.SEND_TIMEOUT_MS, () => sock.sendMessage(row.group_jid, message), signal);
+    console.info({ event: "queue.relay_complete", jobId: correlationId(row.id), session_id: row.whatsapp_session_id,
+      send_ms: Date.now() - sendStarted, schedule_delay_ms: Date.now() - Date.parse(row.scheduled_at) });
     if (previewContext) {
       console.info({
         event: "offer_media_delivery",

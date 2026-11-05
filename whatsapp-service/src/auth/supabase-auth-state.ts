@@ -1,3 +1,4 @@
+import { batchKeyStore } from "./batched-key-store.js";
 import { initAuthCreds, makeCacheableSignalKeyStore, proto, type AuthenticationCreds, type SignalDataSet } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys";
 import { supabase } from "../supabase.js";
@@ -119,7 +120,7 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
   return {
     state: {
       creds,
-      keys: makeCacheableSignalKeyStore({
+      keys: makeCacheableSignalKeyStore(batchKeyStore({
         get: async (type: string, ids: string[]) => withAuthOperationLock(lockKey, () => measureKeyOperation(sessionName, "signal_read", ids.length, async () => {
           if (!accountId) throw new Error("Conta da sessão WhatsApp não identificada.");
           if (!ids.length) return {};
@@ -161,9 +162,9 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
             }
           }
 
-          // Batch to 50 keys per request to keep URLs within server limits
-          for (let i = 0; i < ids.length; i += 50) {
-            await fetchBatch(ids.slice(i, i + 50));
+          // Batch to 100 keys per request to keep URLs within server limits
+          for (let i = 0; i < ids.length; i += 100) {
+            await fetchBatch(ids.slice(i, i + 100));
           }
           return result;
         }), sessionName),
@@ -203,7 +204,7 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
             supabase.from("whatsapp_auth_keys").delete().eq("session_name", sessionName).eq("account_id", accountId)
           );
         })
-      })
+      }))
     },
     saveCreds,
     clearAuth: async () => {

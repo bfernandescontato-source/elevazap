@@ -1,3 +1,4 @@
+import { groupPreparation } from "../queue/group-preparation.js";
 import makeWASocket, { DisconnectReason, proto } from "@whiskeysockets/baileys";
 import { randomUUID } from "crypto";
 import { pino } from "pino";
@@ -129,6 +130,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         auth = await useSupabaseAuthState(sessionId, accountId);
       }
       const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
+      let created: any;
       sock = makeWASocket({
         version,
         auth: auth.state,
@@ -138,6 +140,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         // antes do envio. Com isso, links de ofertas recebem thumbnail em alta
         // qualidade quando a URL disponibiliza Open Graph acessível.
         generateHighQualityLinkPreview: true,
+        cachedGroupMetadata: async (jid) => groupPreparation.cached(created, jid),
         // Reenvio pedido pelo WhatsApp: só com a mensagem original deste número.
         // Sem ela, a correção do Baileys (scripts/patch-baileys-retry.mjs) não cria sessão nova.
         getMessage: async (key: any) => sentMessages.get(key) as any
@@ -152,7 +155,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         return sent;
       };
       const seq = ++socketSeq;
-      const created = sock;
+      created = sock;
       // Falha do Noise fecha só este socket em vez de derrubar o processo.
       guardNoiseDecrypt(created, (error) => {
         console.warn({ event: "whatsapp.noise_decrypt_failed", component: "managed-session", session_name: sessionId, session_instance_id: instanceId, socket_seq: seq, message: error.message });
@@ -208,6 +211,12 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
         observe(() => observer.upsert(sessionId, type, messages, CIPHERTEXT_STUB, instanceId, seq));
         try { sentMessages.remember(messages); } catch { /* a loja de reenvio nunca atrapalha o recebimento */ }
         try { await onMessages(messages, type); } catch (error) { console.error(`[whatsapp:${sessionId}] message error`, error); }
+      });
+      sock.ev.on("groups.update", (updates: any[]) => {
+        for (const update of updates) if (update.id) groupPreparation.invalidate(created, update.id);
+      });
+      sock.ev.on("group-participants.update", (update: any) => {
+        if (update.id) groupPreparation.invalidate(created, update.id);
       });
       if (onGroupParticipants) {
         sock.ev.on("group-participants.update", async (update: any) => {
