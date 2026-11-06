@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { addDays, brasiliaInstant } from "../schedule-plan";
 import { CatalogDispatchError } from "./catalog-dispatch-service";
+import { effectiveSendAt, getSendRules } from "@/modules/send-guard/server/send-rules-service";
 
 export type AgendaStatus = "programado" | "enviando" | "enviado" | "parcial" | "erro" | "incerto" | "cancelado" | "pausado";
 
@@ -66,7 +67,9 @@ export async function scheduledItemKeys(accountId: string, day: string, items: A
 /** Muda o horário dos envios que ainda não saíram (função atômica no banco). */
 export async function rescheduleCatalogOffer(accountId: string, id: string, scheduledAt: string) {
   if (new Date(scheduledAt).getTime() < Date.now() - 60_000) throw new CatalogDispatchError("Escolha um horário a partir de agora.", 400);
-  const { data, error } = await supabaseAdmin().rpc("reschedule_catalog_offer", { p_account_id: accountId, p_offer_id: id, p_scheduled_at: scheduledAt });
+  // Pausa noturna: a Agenda guarda o horário em que o envio realmente vai sair.
+  const effectiveAt = effectiveSendAt(scheduledAt, await getSendRules(accountId));
+  const { data, error } = await supabaseAdmin().rpc("reschedule_catalog_offer", { p_account_id: accountId, p_offer_id: id, p_scheduled_at: effectiveAt });
   if (error) throw new CatalogDispatchError(error.code === "P0002" || error.code === "22023" ? error.message : "Não foi possível mudar o horário.", error.code === "P0002" ? 404 : error.code === "22023" ? 409 : 500);
   return Number(data || 0);
 }

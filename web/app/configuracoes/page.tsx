@@ -1,10 +1,11 @@
 "use client";
 
 import { AppShell, LoadingState } from "@/components/ui";
-import { Camera, CreditCard, KeyRound, Loader2, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Camera, CreditCard, KeyRound, Loader2, Moon, ShieldCheck, UserRound, Users } from "lucide-react";
+import { SendRulesSettings } from "@/components/send-rules-settings";
 import { useEffect, useState } from "react";
 
-type Tab = "account" | "users" | "security" | "billing";
+type Tab = "account" | "users" | "sending" | "security" | "billing";
 type AccountData = {
   name: string | null;
   avatarUrl: string | null;
@@ -23,6 +24,7 @@ type ManagedUser = { id: string; email: string; name: string | null; role: "admi
 const tabs = [
   { id: "account" as const, label: "Minha conta",      icon: UserRound },
   { id: "users"   as const, label: "Usuários",          icon: Users     },
+  { id: "sending" as const, label: "Envios",            icon: Moon      },
   { id: "security" as const, label: "Segurança",        icon: ShieldCheck },
   { id: "billing"  as const, label: "Planos e cobrança", icon: CreditCard  },
 ];
@@ -180,6 +182,8 @@ export default function ConfiguracoesPage() {
             {!users.length ? <div className="p-5 text-sm text-muted">Nenhum usuário cadastrado.</div> : null}
           </div>}
         </section> : null}
+
+        {account && tab === "sending" ? <SendRulesSettings /> : null}
 
         {account && tab === "security" ? <section className="max-w-2xl rounded-lg border border-line bg-panel p-6 shadow-soft">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-primary text-white"><KeyRound size={18} /></div><div><h2 className="text-lg font-semibold text-ink">Alterar senha</h2><p className="text-sm text-muted">Proteja seu acesso com uma senha exclusiva.</p></div></div>

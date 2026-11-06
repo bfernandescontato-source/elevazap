@@ -3,6 +3,7 @@ import { z } from "zod";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { validateGroupJid } from "@/lib/phone";
 import { supabaseAdmin } from "@/lib/supabase";
+import { effectiveSendAt, getSendRules } from "@/modules/send-guard/server/send-rules-service";
 
 const scheduleItemSchema = z.object({
   modelo_id: z.string().uuid(),
@@ -26,7 +27,10 @@ export async function POST(request: NextRequest) {
   const parsed = bulkScheduleSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Dados inválidos." }, { status: 400 });
 
-  const { nome, campanha_id, group_jids, whatsapp_sender_id, schedules } = parsed.data;
+  const { nome, campanha_id, group_jids, whatsapp_sender_id } = parsed.data;
+  // Pausa noturna da conta: horário que vai sair de verdade (o banco aplica igual na fila).
+  const rules = await getSendRules(context.accountId);
+  const schedules = parsed.data.schedules.map((s) => ({ ...s, scheduled_at: effectiveSendAt(s.scheduled_at, rules) }));
   const groupJids = Array.from(new Set(group_jids.filter(validateGroupJid)));
   if (!groupJids.length) return NextResponse.json({ error: "Nenhum grupo válido selecionado." }, { status: 400 });
 
