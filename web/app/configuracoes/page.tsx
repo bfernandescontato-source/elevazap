@@ -1,7 +1,8 @@
 "use client";
 
 import { AppShell, LoadingState } from "@/components/ui";
-import { Camera, CreditCard, KeyRound, Loader2, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Camera, CreditCard, KeyRound, Loader2, ShieldCheck, Store, UserRound, Users } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Tab = "account" | "users" | "security" | "billing";
@@ -127,6 +128,7 @@ export default function ConfiguracoesPage() {
           const Icon = item.icon;
           return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition ${tab === item.id ? "bg-primary text-white" : "border border-line bg-white text-muted hover:text-ink"}`}><Icon size={17} />{item.label}</button>;
         })}
+        <Link href="/configuracoes/vitrine" className="inline-flex h-11 shrink-0 items-center gap-3 rounded-lg border border-line bg-white px-3 text-left text-sm font-medium text-muted transition hover:text-ink"><Store size={17} />Minha vitrine</Link>
       </nav>
 
       <div className="min-w-0">

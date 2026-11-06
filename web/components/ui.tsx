@@ -34,6 +34,7 @@ import {
   Search,
   Send,
   Smartphone,
+  Store,
   Ticket,
   Upload,
   UserPlus,
@@ -60,7 +61,8 @@ const navSections = [
     { href: "/analytics/shopee", label: "Shopee Analytics", icon: BarChart3 }
   ] },
   { label: "Conta", items: [
-    { href: "/configuracoes", label: "Configurações", icon: Cog }
+    { href: "/configuracoes/vitrine", label: "Minha vitrine", icon: Store, badge: "NOVO" },
+    { href: "/configuracoes", label: "Configurações", icon: Cog, exact: true }
   ] }
 ];
 
