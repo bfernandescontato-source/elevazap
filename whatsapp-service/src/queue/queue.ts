@@ -25,6 +25,7 @@ import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolv
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, findMarketplaceLink, isAmazonCaptchaPage } from "./link-preview-page.js";
 import { buildLinkThumbnail } from "./link-thumbnail.js";
+import { STATUS_JID, buildStatusMessage, isStatusJob, prepareStatusAudience, statusAudienceGroups } from "./status-post.js";
 import { observer } from "../observability/observer.js";
 
 // Observabilidade por número (investigação do número surdo): nunca interfere no envio.
@@ -173,6 +174,8 @@ export class GlobalSendQueue {
       await Promise.all([0, 1].map(async () => {
         for (let row = pending.shift(); row && this.running; row = pending.shift()) {
           if (Date.parse(row.scheduled_at) <= Date.now()) continue;
+          // Status não é grupo: o público é preparado na hora do envio.
+          if (isStatusJob(row)) continue;
           const sock = this.selectSocket(row, true);
           if (groupPreparation.cached(sock, row.group_jid)) continue;
           const started = Date.now();
@@ -458,6 +461,7 @@ export class GlobalSendQueue {
   }
 
   private async sendGroup(row: any, signal: AbortSignal) {
+    if (isStatusJob(row)) return this.sendStatus(row, signal);
     if (!validateGroupJid(row.group_jid)) throw new Error("JID de grupo inválido.");
     const sock = this.selectSocket(row, true);
     let media: Buffer | undefined;
@@ -505,6 +509,34 @@ export class GlobalSendQueue {
         preview_url: linkPreview?.["canonical-url"] || previewContext.link
       });
     }
+    await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
+  }
+
+  /**
+   * Story no Status do WhatsApp: mesma reivindicação, cadência, autorização e
+   * confirmação dos envios de grupo. Muda só o destino (status@broadcast) e a
+   * lista de quem vê, montada a partir dos grupos escolhidos no painel.
+   */
+  private async sendStatus(row: any, signal: AbortSignal) {
+    const sock = this.selectSocket(row);
+    if (row.tipo !== "imagem" || !row.media_bucket || !row.media_path) throw new Error("Status sem imagem do story.");
+    const groups = statusAudienceGroups(row);
+    if (!groups.length) throw new Error("Status sem grupos para definir quem vê.");
+    const sourceKey = `${row.media_bucket}:${row.media_path}`;
+    const media = await sharedMediaCache.getOrLoad(sourceKey, () => downloadMedia(row.media_bucket, row.media_path));
+    const preparationStarted = Date.now();
+    const audience = await withTimeout("status.prepare", env.QUEUE_PROCESSING_TIMEOUT_MS, prepareStatusAudience(sock, groups));
+    signal.throwIfAborted();
+    if (audience.length <= 1) throw new Error("Nenhum contato com telefone encontrado nos grupos escolhidos para ver o status.");
+    console.info({ event: "queue.status_prepared", jobId: correlationId(row.id), session_id: row.whatsapp_session_id,
+      groups: groups.length, audience: audience.length, preparation_ms: Date.now() - preparationStarted });
+    const message = buildStatusMessage(row, media);
+    await this.authorizeRelay("envios_grupo", row, signal);
+    const sendStarted = Date.now();
+    row.send_started = true;
+    const result: any = await sendWithDeadline(sock, env.SEND_TIMEOUT_MS, () => sock.sendMessage(STATUS_JID, message, { statusJidList: audience }), signal);
+    console.info({ event: "queue.status_relay_complete", jobId: correlationId(row.id), session_id: row.whatsapp_session_id,
+      send_ms: Date.now() - sendStarted, audience: audience.length });
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
   }
 
