@@ -53,7 +53,7 @@ export function shopeeItemId(productUrl: string) {
 }
 
 /** Nome e preço do produto pela API de afiliados (melhor esforço: sem isso o link continua valendo). */
-async function shopeeProductInfo(database: SupabaseClient, accountId: string, productUrl: string) {
+export async function shopeeProductInfo(database: SupabaseClient, accountId: string, productUrl: string) {
   const itemId = shopeeItemId(productUrl);
   if (!itemId) return null;
   try {

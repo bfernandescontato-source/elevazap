@@ -23,12 +23,13 @@ export async function POST(request: NextRequest) {
   catch (error) { if (error instanceof CatalogDispatchError) return NextResponse.json({ error: error.message }, { status: error.status }); throw error; }
 
   const results = [];
-  for (const { offer, scheduledAt } of items) {
+  for (const { offer, scheduledAt, message: edited } of items) {
     const key = `${offer.provider}:${offer.externalItemId}`;
     try {
       if (!offer.affiliateUrl) throw new CatalogDispatchError("Link afiliado ainda não gerado.", 400);
       // Mesmo sorteio da prévia (produto + dia), para sair o texto que a pessoa viu.
-      const message = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date(scheduledAt))));
+      // Texto editado precisa manter o link afiliado; createCatalogDispatch confere.
+      const message = edited ?? buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date(scheduledAt))));
       const created = await createCatalogDispatch({ accountId: context.accountId, userId: context.session.userId ?? null, offer, message, target, imageMode, scheduledAt });
       results.push({ key, ok: true, agendaId: created.agendaId, scheduledAt: created.scheduledAt });
     } catch (error) {

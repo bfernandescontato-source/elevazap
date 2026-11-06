@@ -27,7 +27,8 @@ const agendaDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.
 
 // O navegador manda poucas ofertas por vez para mostrar o progresso e o resultado de cada uma.
 export const bulkScheduleSchema = z.object({
-  items: z.array(z.object({ offer: offerSchema, scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(10),
+  // message: texto editado pela pessoa (Lista de links). Sem ele, o servidor monta a copy do modelo fixo.
+  items: z.array(z.object({ offer: offerSchema, scheduledAt: z.string().datetime({ offset: true }), message: z.string().trim().min(1).max(4000).optional() })).min(1).max(10),
   senderId: z.string().uuid(), groupJids: z.array(z.string()).min(1).max(500),
   imageMode: z.enum(["original_image", "product_link_preview"]).default("original_image")
 });
