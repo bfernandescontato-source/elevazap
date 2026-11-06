@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
-import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
+import { buildCatalogOfferMessage, catalogMessageRandom, catalogOfferFacts } from "@/modules/affiliate-catalog/offer-message";
+import { resolveMessageHookChoices } from "@/modules/offer-hooks/server/hook-settings-service";
 import { brasiliaDate } from "@/modules/affiliate-catalog/schedule-plan";
 import { agendaDuplicatesSchema, bulkScheduleSchema } from "@/modules/affiliate-catalog/schemas";
 import { isCatalogAgendaEnabled, scheduledItemKeys } from "@/modules/affiliate-catalog/server/catalog-agenda-service";
@@ -22,13 +23,15 @@ export async function POST(request: NextRequest) {
   try { target = await resolveCatalogTarget(context.accountId, { senderId, groupJids, imageMode }); }
   catch (error) { if (error instanceof CatalogDispatchError) return NextResponse.json({ error: error.message }, { status: error.status }); throw error; }
 
+  // Gancho de cada oferta conforme a conta (rodízio reservado de uma vez, IA em paralelo).
+  const choices = await resolveMessageHookChoices(context.accountId, items.map(({ offer }) => catalogOfferFacts(offer)));
   const results = [];
-  for (const { offer, scheduledAt } of items) {
+  for (const [index, { offer, scheduledAt }] of items.entries()) {
     const key = `${offer.provider}:${offer.externalItemId}`;
     try {
       if (!offer.affiliateUrl) throw new CatalogDispatchError("Link afiliado ainda não gerado.", 400);
       // Mesmo sorteio da prévia (produto + dia), para sair o texto que a pessoa viu.
-      const message = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date(scheduledAt))));
+      const message = buildCatalogOfferMessage(offer, offer.affiliateUrl, catalogMessageRandom(offer, brasiliaDate(new Date(scheduledAt))), choices[index]);
       const created = await createCatalogDispatch({ accountId: context.accountId, userId: context.session.userId ?? null, offer, message, target, imageMode, scheduledAt });
       results.push({ key, ok: true, agendaId: created.agendaId, scheduledAt: created.scheduledAt });
     } catch (error) {

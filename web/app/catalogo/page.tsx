@@ -42,7 +42,7 @@ export default function CatalogPage() {
   useEffect(() => { void load(); }, [load]);
   return <AppShell title="Catálogo" subtitle="Encontre produtos com alto potencial e transforme em ofertas prontas para seus grupos.">
     <div className="space-y-5">
-      {agendaEnabled ? <CatalogTabs active="catalogo"/> : null}
+      <CatalogTabs active="catalogo" agenda={agendaEnabled}/>
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div className="relative max-w-2xl flex-1"><Search className="absolute left-4 top-3.5 text-muted" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produtos, marcas ou categorias..." className="focus-ring h-12 w-full rounded-xl border border-line bg-white pl-11 pr-4 text-sm shadow-sm" /></div><div className="inline-flex w-fit rounded-xl border border-line bg-white p-1">{[["ALL","Todos"],["SHOPEE","Shopee"],["MERCADO_LIVRE","Mercado Livre"],["AMAZON","Amazon"],["MAGALU","Magalu"]].map(([id,label])=><button key={id} onClick={()=>{setProvider(id as CatalogProviderFilter);setCategoryId(null);}} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${provider===id?"bg-primary text-white":"text-muted"}`}><ShoppingBag size={15}/>{label}</button>)}</div></div>
       {providerWarning ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{providerWarning}</div> : null}
       {categories.length > 1 ? <div className="flex items-center gap-2"><CategoryDropdown categories={categories} selected={categoryId} onPick={pickCategory}/></div> : null}

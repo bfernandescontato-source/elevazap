@@ -1,4 +1,5 @@
-import { buildOfferCopy } from "@disparei/affiliate-links/offer-copy";
+import { buildOfferCopy, type OfferCopyFacts } from "@disparei/affiliate-links/offer-copy";
+import { offerShownPercent, selectOfferHook, type HookSettings } from "@disparei/affiliate-links/offer-hooks";
 import type { AffiliateOffer } from "./types";
 
 const cents = (value?: number) => value === undefined || !Number.isFinite(value) || value <= 0 ? null : Math.round(value * 100);
@@ -19,14 +20,11 @@ export function catalogMessageRandom(offer: Pick<AffiliateOffer, "provider" | "e
   };
 }
 
-/**
- * Mensagem do agendamento em massa: o mesmo modelo fixo do Piloto (gancho
- * aprovado, De/Por, sem desconto 0%), montado só com os dados do marketplace.
- */
-export function buildCatalogOfferMessage(offer: AffiliateOffer, affiliateUrl: string, random: () => number = Math.random) {
+/** Dados da oferta do marketplace no formato que o modelo fixo usa. */
+export function catalogOfferFacts(offer: AffiliateOffer): OfferCopyFacts {
   const priceTo = cents(offer.priceMin);
   const priceFrom = cents(offer.originalPrice);
-  return buildOfferCopy({
+  return {
     productName: offer.name.trim(),
     priceFromCents: priceFrom && priceTo && priceFrom > priceTo ? priceFrom : null,
     priceToCents: priceTo,
@@ -34,5 +32,21 @@ export function buildCatalogOfferMessage(offer: AffiliateOffer, affiliateUrl: st
     statedDiscountPercent: offer.discountPercentage ? Math.floor(offer.discountPercentage) : null,
     coupon: null,
     extraLines: []
-  }, affiliateUrl, random);
+  };
+}
+
+/** Escolha do gancho já feita no servidor (posição do contador e gancho da IA). */
+export type CatalogHookChoice = { settings?: HookSettings | null; sequence?: number | null; aiHook?: string | null };
+
+/**
+ * Mensagem do Catálogo: o mesmo modelo fixo do Piloto (gancho, De/Por, sem
+ * desconto 0%), montado só com os dados do marketplace. O gancho segue a
+ * escolha da conta em Ganchos; sem configuração, sorteia da lista do sistema.
+ */
+export function buildCatalogOfferMessage(offer: AffiliateOffer, affiliateUrl: string, random: () => number = Math.random, choice: CatalogHookChoice = {}) {
+  const facts = catalogOfferFacts(offer);
+  const hook = choice.settings
+    ? selectOfferHook(choice.settings, { shownPercent: offerShownPercent(facts), random, sequence: choice.sequence ?? null, aiHook: choice.aiHook ?? null })
+    : undefined;
+  return buildOfferCopy(facts, affiliateUrl, random, { hook });
 }
