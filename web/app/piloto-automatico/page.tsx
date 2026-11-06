@@ -3,21 +3,25 @@
 import { AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { BarChart3, Clock3, ExternalLink, Eye, ImageIcon, Send, Zap } from "lucide-react";
 import { PilotCaminhos } from "@/components/pilot-caminhos";
-import { useCallback, useEffect, useState } from "react";
+import { CapacityNotice } from "@/components/capacity-notice";
+import { describeCapacity, estimateCapacity, SEND_IMMEDIATELY_INTERVAL_MINUTES } from "@/modules/dispatch-capacity/capacity";
+import { membershipByGroup, splitGroupsAcrossSenders } from "@/modules/dispatch-capacity/split";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-type Sender = { id: string; label: string; session_name: string };
+type Sender = { id: string; label: string; session_name: string; connection_status?: string };
 type Group = { group_jid: string; nome?: string; foto_url?: string };
 type Offer = { id: string; original_text?: string; processed_text?: string; original_link?: string; affiliate_link?: string; affiliate_conversion_status?: string; affiliate_conversion_error?: string; status: string; error_code?: string; error_message?: string; captured_at: string; scheduled_at?: string; source_group_id?: string; grupos?: { nome?: string } | { nome?: string }[] };
 type Data = {
-  automation?: { id: string; whatsapp_sender_id: string | null; enabled: boolean; interval_minutes: number; send_immediately?: boolean; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; mercado_livre_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
+  automation?: { id: string; whatsapp_sender_id: string | null; enabled: boolean; interval_minutes: number; send_immediately?: boolean; split_across_senders?: boolean; operating_start: string; operating_end: string; timezone: string; keep_original_text: boolean; keep_original_media: boolean; avoid_duplicates: boolean; ai_rewrite_enabled: boolean; shopee_conversion_enabled: boolean; mercado_livre_conversion_enabled: boolean; conversion_failure_policy: "pause" | "send_original" };
   shopee_integration?: { app_id: string; status: string; last_tested_at?: string; last_error?: string } | null;
   mercado_livre_integration?: { status: string; affiliate_tag?: string; last_tested_at?: string; last_error?: string } | null;
   senders: Sender[]; groups: Group[]; source_group_ids: string[]; destination_group_ids: string[]; offers: Offer[];
+  sender_memberships?: Array<{ whatsapp_sender_id: string; group_jid: string }>;
   metrics: { captured_today: number; converted: number; queued: number; sent_today: number; ignored: number; conversion_failed: number };
 };
 
-const defaults = { whatsapp_sender_id: "", enabled: false, interval_minutes: 30, send_immediately: false, operating_start: "07:30", operating_end: "22:30", timezone: "America/Sao_Paulo", keep_original_text: true, keep_original_media: true, avoid_duplicates: false, ai_rewrite_enabled: false, shopee_conversion_enabled: false, mercado_livre_conversion_enabled: false, conversion_failure_policy: "pause" as "pause" | "send_original", source_group_ids: [] as string[], destination_group_ids: [] as string[] };
+const defaults = { whatsapp_sender_id: "", enabled: false, interval_minutes: 30, send_immediately: false, split_across_senders: false, operating_start: "07:30", operating_end: "22:30", timezone: "America/Sao_Paulo", keep_original_text: true, keep_original_media: true, avoid_duplicates: false, ai_rewrite_enabled: false, shopee_conversion_enabled: false, mercado_livre_conversion_enabled: false, conversion_failure_policy: "pause" as "pause" | "send_original", source_group_ids: [] as string[], destination_group_ids: [] as string[] };
 const statusLabel: Record<string, string> = { captured: "Capturada", processing: "Processando", ready: "Pronta", waiting: "Aguardando vaga", scheduled: "Agendada", sending: "Enviando", sent: "Enviada", ignored: "Ignorada", duplicate: "Duplicada", processing_failed: "Falha no processamento", send_failed: "Falha no envio" };
 function offerStatusLabel(offer: { status?: string }) { return statusLabel[offer.status || ""] || offer.status || "—"; }
 
@@ -77,7 +81,9 @@ export default function AutopilotPage() {
     setSaving(true); setError(""); setNotice("");
     try {
       const wasEnabled = form.enabled === false && data?.automation?.enabled === true;
-      const response = await fetch("/api/piloto-automatico", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
+      // Banco sem a opção de dividir (migration pendente): não manda o campo.
+      const payload = splitSupported ? form : (({ split_across_senders: _split, ...rest }) => rest)(form);
+      const response = await fetch("/api/piloto-automatico", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Não foi possível salvar.");
       setNotice(wasEnabled ? "Piloto desativado. As mensagens automáticas pendentes foram canceladas." : "Configuração salva."); await load();
@@ -107,6 +113,18 @@ export default function AutopilotPage() {
     } catch (current) { setError(current instanceof Error ? current.message : "Não foi possível cancelar as ofertas."); }
     finally { setCancellingOffers(false); }
   }
+  const splitSupported = Boolean(data?.automation && "split_across_senders" in data.automation);
+  const capacity = useMemo(() => {
+    if (!data) return null;
+    const primary = form.whatsapp_sender_id;
+    const others = data.senders.filter((sender) => sender.id !== primary && sender.connection_status === "connected");
+    const split = splitGroupsAcrossSenders({ groups: membershipByGroup(data.sender_memberships || [], form.destination_group_ids), primarySenderId: primary, availableSenderIds: others.map((sender) => sender.id) });
+    const canSplit = splitSupported && split.sendersUsed > 1;
+    const splitting = canSplit && Boolean(form.split_across_senders);
+    const estimate = estimateCapacity({ groupsPerOffer: form.destination_group_ids.length, intervalMinutes: form.send_immediately ? SEND_IMMEDIATELY_INTERVAL_MINUTES : form.interval_minutes, senders: splitting ? split.sendersUsed : 1, largestShare: splitting ? split.largestShare : undefined });
+    const labelOf = new Map(data.senders.map((sender) => [sender.id, sender.label]));
+    return { canSplit, splitting, message: describeCapacity(estimate, { pilot: true, canSplit }), shares: split.shares.map((share) => ({ label: labelOf.get(share.senderId) || "Número", groups: share.groups })) };
+  }, [data, form.whatsapp_sender_id, form.destination_group_ids, form.interval_minutes, form.send_immediately, form.split_across_senders, splitSupported]);
   const visibleOffers = data?.offers.filter((offer) => ["scheduled", "sent"].includes(offer.status)) || [];
   const scheduledOffers = visibleOffers.filter((offer) => offer.status === "scheduled");
 
@@ -127,6 +145,7 @@ export default function AutopilotPage() {
       <PilotCaminhos groups={data.groups} saveMaster={saveMaster} onChanged={() => load(true)} Picker={GroupPicker} />
 
       <section className="rounded-xl border border-line bg-white p-5"><Heading title="Configuração da automação" description="Defina o ritmo e o horário em que as ofertas podem ser enviadas." /><div className="mt-5 grid gap-5 md:grid-cols-3"><Field label="Enviar 1 oferta a cada"><div className="flex flex-wrap items-center gap-x-4 gap-y-2"><div className={`flex items-center gap-2 ${form.send_immediately ? "opacity-40" : ""}`}><input type="number" min={5} max={1440} value={form.interval_minutes} disabled={form.send_immediately} onChange={(event) => setForm({ ...form, interval_minutes: Number(event.target.value) })} className="focus-ring h-11 w-24 rounded-lg border border-line px-3" /><span className="text-sm text-muted">minutos</span></div><label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(form.send_immediately)} onChange={(event) => setForm({ ...form, send_immediately: event.target.checked })} className="switch h-5 w-5 accent-primary" /><span>Enviar assim que chegar</span></label></div></Field><Field label="Início"><input type="time" value={form.operating_start} onChange={(event) => setForm({ ...form, operating_start: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field><Field label="Fim"><input type="time" value={form.operating_end} onChange={(event) => setForm({ ...form, operating_end: event.target.value })} className="focus-ring h-11 rounded-lg border border-line px-3" /></Field></div>
+        {capacity ? <div className="mt-5 space-y-3"><CapacityNotice message={capacity.message} />{capacity.canSplit || (splitSupported && form.split_across_senders) ? <SplitToggle checked={Boolean(form.split_across_senders)} onChange={(checked) => setForm({ ...form, split_across_senders: checked })} shares={capacity.shares} /> : null}</div> : null}
         <div className="mt-6 grid gap-3 sm:grid-cols-2"><Check label="Manter texto da oferta" checked={form.keep_original_text} onChange={(checked) => setForm({ ...form, keep_original_text: checked, ai_rewrite_enabled: checked ? form.ai_rewrite_enabled : false })} /><Check label="Trocar link Shopee automaticamente" checked={form.shopee_conversion_enabled} onChange={(checked) => setForm({ ...form, shopee_conversion_enabled: checked })} /><Check label="Trocar link Mercado Livre automaticamente" checked={form.mercado_livre_conversion_enabled} onChange={(checked) => setForm({ ...form, mercado_livre_conversion_enabled: checked })} /><Check label="Reescrever mensagem com IA" checked={form.ai_rewrite_enabled} onChange={(checked) => setForm({ ...form, ai_rewrite_enabled: checked, keep_original_text: checked ? true : form.keep_original_text })} /></div>
         <fieldset className="mt-5"><legend className="text-sm font-medium">Imagem da oferta</legend><div className="mt-2 grid gap-2 sm:grid-cols-2"><label className={`cursor-pointer rounded-lg border p-3 text-sm ${form.keep_original_media ? "border-primary bg-wash" : "border-line"}`}><input type="radio" className="mr-2 accent-primary" checked={form.keep_original_media} onChange={() => setForm({ ...form, keep_original_media: true })} />Usar imagem original</label><label className={`cursor-pointer rounded-lg border p-3 text-sm ${!form.keep_original_media ? "border-primary bg-wash" : "border-line"}`}><input type="radio" className="mr-2 accent-primary" checked={!form.keep_original_media} onChange={() => setForm({ ...form, keep_original_media: false })} />Usar imagem do produto pelo link</label></div><p className="mt-2 text-xs text-muted">O card é criado com os dados públicos da URL; se não houver preview, a oferta segue somente com texto e link.</p></fieldset>
         {form.shopee_conversion_enabled || form.mercado_livre_conversion_enabled ? <div className="mt-5"><div className="mb-2 text-sm font-medium">Em caso de erro na conversão</div><label className="mr-5 inline-flex min-h-11 items-center text-sm sm:min-h-0"><input type="radio" className="mr-2 accent-primary" checked={form.conversion_failure_policy === "pause"} onChange={() => setForm({ ...form, conversion_failure_policy: "pause" })} />Pausar esta oferta</label><label className="inline-flex min-h-11 items-center text-sm sm:min-h-0"><input type="radio" className="mr-2 accent-primary" checked={form.conversion_failure_policy === "send_original"} onChange={() => setForm({ ...form, conversion_failure_policy: "send_original" })} />Enviar mesmo assim</label></div> : null}
@@ -138,6 +157,18 @@ export default function AutopilotPage() {
   </AppShell>;
 }
 
+// Opção "Dividir os grupos entre meus números": só aparece quando outro número
+// conectado está em pelo menos um dos grupos de destino (ou quando já está ligada,
+// para poder desligar). Padrão desligado.
+function SplitToggle({ checked, onChange, shares }: { checked: boolean; onChange: (checked: boolean) => void; shares: Array<{ label: string; groups: number }> }) {
+  return <div className="rounded-lg border border-line p-3 text-sm terra:rounded-xl terra:bg-panel">
+    <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium"><span>Dividir os grupos entre meus números</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="switch h-5 w-5 shrink-0 accent-primary" /></label>
+    <p className="mt-1 text-muted">Cada oferta sai por mais de um número ao mesmo tempo, e chega mais rápido em todos os grupos. Cada número envia só para os grupos em que ele está. Grupo que só um número tem fica com esse número.</p>
+    <p className="mt-2 text-muted">{checked ? "Vai ficar assim:" : "Ligado, ficaria assim:"}</p>
+    <ul className="mt-1 space-y-1">{shares.map((share, index) => <li key={`${share.label}-${index}`} className="flex justify-between gap-3 rounded-lg bg-wash px-3 py-2"><span className="min-w-0 truncate">{share.label}</span><span className="shrink-0 font-medium text-ink">{share.groups === 1 ? "1 grupo" : `${share.groups} grupos`}</span></li>)}</ul>
+    <p className="mt-2 text-xs text-muted">Número desconectado na hora da oferta fica de fora. Os grupos dele vão para os outros números que estão neles.</p>
+  </div>;
+}
 function Heading({ title, description }: { title: string; description: string }) { return <div><h2 className="font-semibold text-ink">{title}</h2><p className="mt-1 text-sm text-muted">{description}</p></div>; }
 // Ícone redondo só no tema terra.
 function Metric({ label, value, icon, tone = "" }: { label: string; value: React.ReactNode; icon?: React.ReactNode; tone?: string }) { return <div className={`rounded-xl border border-line bg-white p-4 terra:flex terra:items-center terra:gap-4 terra:rounded-2xl terra:px-5 ${tone.split(" ").filter(c => c.startsWith("terra:")).join(" ")}`}>{icon ? <span className={`hidden h-10 w-10 shrink-0 place-items-center terra:grid ${tone.split(" ").filter(c => !c.startsWith("terra:")).join(" ")}`}>{icon}</span> : null}<div><div className="text-2xl font-semibold text-ink">{value}</div><div className="mt-1 text-sm text-muted">{label}</div></div></div>; }

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ActionButton, AppShell, ErrorState, LoadingState } from "@/components/ui";
 import { WhatsappConnectBox } from "@/components/whatsapp-connect";
+import { CapacityNotice } from "@/components/capacity-notice";
+import { describeLateQueue } from "@/modules/dispatch-capacity/capacity";
 import { useEffect, useState, type ReactNode } from "react";
 import { BarChart3, Check, ChevronRight, Hourglass, Megaphone, Phone, Plus, QrCode, RefreshCw, Users, X } from "lucide-react";
 
@@ -11,6 +13,7 @@ type DashboardData = {
   counts: { campaigns: number; groups: number };
   queue: { pendente: number; enfileirado: number; processando: number; sucesso: number; erro: number; incerto: number };
   setup?: { shopee: boolean; pilot: boolean };
+  late_queue?: { count: number; oldest_minutes: number };
 };
 
 type DownSender = { id: string; label: string; status: string; qr: string };
@@ -55,6 +58,10 @@ function DashboardView({ data, error = "" }: { data: DashboardData | null; error
       </section>}
 
       <FirstSteps data={data} />
+
+      {data.late_queue?.count ? <CapacityNotice message={describeLateQueue(data.late_queue.count, data.late_queue.oldest_minutes)}>
+        <div className="flex flex-wrap gap-2 pt-2"><Link href="/piloto-automatico" className="inline-flex min-h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-white">Ajustar o Piloto</Link><Link href="/lotes" className="inline-flex min-h-10 items-center rounded-lg border border-amber-300 bg-white px-4 text-sm font-medium text-amber-900">Ver envios</Link></div>
+      </CapacityNotice> : null}
 
       <div className="grid gap-4 sm:grid-cols-3 terra:grid-cols-3 terra:gap-2.5 terra:sm:gap-4">
         <Metric label="Números conectados" value={data.connection.count} icon={<Phone size={24} fill="currentColor" strokeWidth={1.5}/>} tone="olive" />

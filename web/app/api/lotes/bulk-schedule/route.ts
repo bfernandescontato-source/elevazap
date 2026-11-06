@@ -3,6 +3,7 @@ import { z } from "zod";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { validateGroupJid } from "@/lib/phone";
 import { supabaseAdmin } from "@/lib/supabase";
+import { planSenderSplit } from "@/modules/dispatch-capacity/server/split-service";
 
 const scheduleItemSchema = z.object({
   modelo_id: z.string().uuid(),
@@ -14,6 +15,8 @@ const bulkScheduleSchema = z.object({
   campanha_id: z.string().uuid().optional(),
   group_jids: z.array(z.string()).min(1).max(500),
   whatsapp_sender_id: z.string().uuid().optional(),
+  // "Dividir os grupos entre meus números" (opt-in): 1 lote por número em cada horário.
+  split_across_senders: z.boolean().optional(),
   schedules: z.array(scheduleItemSchema).min(1).max(300)
 });
 
@@ -26,7 +29,7 @@ export async function POST(request: NextRequest) {
   const parsed = bulkScheduleSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || "Dados inválidos." }, { status: 400 });
 
-  const { nome, campanha_id, group_jids, whatsapp_sender_id, schedules } = parsed.data;
+  const { nome, campanha_id, group_jids, whatsapp_sender_id, split_across_senders, schedules } = parsed.data;
   const groupJids = Array.from(new Set(group_jids.filter(validateGroupJid)));
   if (!groupJids.length) return NextResponse.json({ error: "Nenhum grupo válido selecionado." }, { status: 400 });
 
@@ -79,6 +82,24 @@ export async function POST(request: NextRequest) {
     if (modelo.tipo !== "texto" && !modelo.media_path) return NextResponse.json({ error: `Modelo "${modelo.nome}" não tem mídia obrigatória.` }, { status: 400 });
   }
 
+  // Partes do envio: sem divisão, todos os grupos com o número escolhido. Com divisão,
+  // cada número recebe só os grupos em que está (planSenderSplit nunca dá grupo a quem não está nele).
+  let parts: Array<{ sender: { id: string; session_name: string | null }; jids: string[] }> = [{ sender, jids: groupJids }];
+  if (split_across_senders) {
+    try {
+      const plan = await planSenderSplit(accountId, sender.id, groupJids);
+      if (plan.sendersUsed > 1) {
+        parts = plan.shares.map((share) => ({
+          sender: share.senderId === sender.id ? sender : { id: share.senderId, session_name: plan.senders.get(share.senderId)?.session_name ?? null },
+          jids: plan.assignments.get(share.senderId) || []
+        }));
+        if (parts.some((part) => !part.sender.session_name)) return NextResponse.json({ error: "Um dos números está sem sessão. Atualize a página e tente de novo." }, { status: 400 });
+      }
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Não foi possível dividir os grupos entre os números." }, { status: 500 });
+    }
+  }
+
   // Create bulk_schedule record
   const firstAt = schedules[0].scheduled_at;
   const nextAt = schedules.find((s) => new Date(s.scheduled_at) > new Date())?.scheduled_at || firstAt;
@@ -97,51 +118,22 @@ export async function POST(request: NextRequest) {
   const bulkScheduleId = bulkSchedule.id;
   const lotesCreated: string[] = [];
 
-  // Create one lote per scheduled item
+  let itemsCreated = 0;
+  // Create one lote per scheduled item (and per number when splitting)
   for (const item of schedules) {
     const modelo = modeloMap.get(item.modelo_id);
     if (!modelo) continue;
+    for (const part of parts) {
+      const partSender = part.sender;
 
-    const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({
-      account_id: accountId,
-      titulo: modelo.nome,
-      campanha_id: campanha_id || null,
-      modelo_mensagem_id: modelo.id,
-      bulk_schedule_id: bulkScheduleId,
-      whatsapp_sender_id: sender?.id || null,
-      whatsapp_session_name: sender?.session_name || null,
-      tipo: modelo.tipo,
-      texto: modelo.texto || null,
-      legenda: (modelo.tipo === "imagem" || modelo.tipo === "video") ? modelo.texto || null : null,
-      mention_all: false,
-      media_bucket: modelo.media_bucket || null,
-      media_path: modelo.media_path || null,
-      file_name: modelo.file_name || null,
-      mime_type: modelo.mime_type || null,
-      file_size_bytes: modelo.file_size_bytes || null,
-      priority: "high",
-      total: groupJids.length,
-      pendentes: groupJids.length,
-      scheduled_at: item.scheduled_at
-    }).select("id").single();
-
-    if (loteError) {
-      // Clean up: cancel already created lotes and the bulk_schedule
-      if (lotesCreated.length) {
-        await sb.from("envios_grupo_lotes").delete().in("id", lotesCreated).eq("account_id", accountId);
-      }
-      await sb.from("bulk_schedules").delete().eq("id", bulkScheduleId).eq("account_id", accountId);
-      return NextResponse.json({ error: `Erro ao criar lote para "${modelo.nome}": ${loteError.message}` }, { status: 500 });
-    }
-
-    const { error: itemsError } = await sb.from("envios_grupo").insert(
-      groupJids.map((jid) => ({
+      const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({
         account_id: accountId,
-        lote_id: lote.id,
-        whatsapp_sender_id: sender?.id || null,
-        whatsapp_session_name: sender?.session_name || null,
-        group_jid: jid,
-        nome_grupo: groupByJid.get(jid)?.nome || jid,
+        titulo: modelo.nome,
+        campanha_id: campanha_id || null,
+        modelo_mensagem_id: modelo.id,
+        bulk_schedule_id: bulkScheduleId,
+        whatsapp_sender_id: partSender.id,
+        whatsapp_session_name: partSender.session_name || null,
         tipo: modelo.tipo,
         texto: modelo.texto || null,
         legenda: (modelo.tipo === "imagem" || modelo.tipo === "video") ? modelo.texto || null : null,
@@ -152,21 +144,55 @@ export async function POST(request: NextRequest) {
         mime_type: modelo.mime_type || null,
         file_size_bytes: modelo.file_size_bytes || null,
         priority: "high",
+        total: part.jids.length,
+        pendentes: part.jids.length,
         scheduled_at: item.scheduled_at
-      }))
-    );
+      }).select("id").single();
 
-    if (itemsError) {
-      await sb.from("envios_grupo_lotes").delete().eq("id", lote.id).eq("account_id", accountId);
-      if (lotesCreated.length) {
-        await sb.from("envios_grupo_lotes").delete().in("id", lotesCreated).eq("account_id", accountId);
+      if (loteError) {
+        // Clean up: cancel already created lotes and the bulk_schedule
+        if (lotesCreated.length) {
+          await sb.from("envios_grupo_lotes").delete().in("id", lotesCreated).eq("account_id", accountId);
+        }
+        await sb.from("bulk_schedules").delete().eq("id", bulkScheduleId).eq("account_id", accountId);
+        return NextResponse.json({ error: `Erro ao criar lote para "${modelo.nome}": ${loteError.message}` }, { status: 500 });
       }
-      await sb.from("bulk_schedules").delete().eq("id", bulkScheduleId).eq("account_id", accountId);
-      return NextResponse.json({ error: `Erro ao criar envios para "${modelo.nome}".` }, { status: 500 });
-    }
 
-    lotesCreated.push(lote.id);
+      const { error: itemsError } = await sb.from("envios_grupo").insert(
+        part.jids.map((jid) => ({
+          account_id: accountId,
+          lote_id: lote.id,
+          whatsapp_sender_id: partSender.id,
+          whatsapp_session_name: partSender.session_name || null,
+          group_jid: jid,
+          nome_grupo: groupByJid.get(jid)?.nome || jid,
+          tipo: modelo.tipo,
+          texto: modelo.texto || null,
+          legenda: (modelo.tipo === "imagem" || modelo.tipo === "video") ? modelo.texto || null : null,
+          mention_all: false,
+          media_bucket: modelo.media_bucket || null,
+          media_path: modelo.media_path || null,
+          file_name: modelo.file_name || null,
+          mime_type: modelo.mime_type || null,
+          file_size_bytes: modelo.file_size_bytes || null,
+          priority: "high",
+          scheduled_at: item.scheduled_at
+        }))
+      );
+
+      if (itemsError) {
+        await sb.from("envios_grupo_lotes").delete().eq("id", lote.id).eq("account_id", accountId);
+        if (lotesCreated.length) {
+          await sb.from("envios_grupo_lotes").delete().in("id", lotesCreated).eq("account_id", accountId);
+        }
+        await sb.from("bulk_schedules").delete().eq("id", bulkScheduleId).eq("account_id", accountId);
+        return NextResponse.json({ error: `Erro ao criar envios para "${modelo.nome}".` }, { status: 500 });
+      }
+
+      lotesCreated.push(lote.id);
+    }
+    itemsCreated += 1;
   }
 
-  return NextResponse.json({ ok: true, bulk_schedule_id: bulkScheduleId, total: lotesCreated.length });
+  return NextResponse.json({ ok: true, bulk_schedule_id: bulkScheduleId, total: itemsCreated, lotes: lotesCreated.length, senders: parts.length });
 }

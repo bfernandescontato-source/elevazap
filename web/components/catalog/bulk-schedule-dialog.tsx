@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, Check, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { LinkGenerating } from "@/components/catalog/link-generating";
+import { CapacityNotice } from "@/components/capacity-notice";
+import { describeCapacity, estimateCapacity, smallestIntervalMinutes } from "@/modules/dispatch-capacity/capacity";
 import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
 import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
 import { addDays, brasiliaDate, brasiliaTime, everyInterval, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
@@ -61,6 +63,12 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
   const day = dayChoice === "today" || dayChoice === "now" ? today : dayChoice === "tomorrow" ? addDays(today, 1) : customDay;
   const toSchedule = useMemo(() => offers.filter(offer => !(skipDuplicates && duplicates.has(offerKey(offer)))), [offers, duplicates, skipDuplicates]);
   const slots = useMemo(() => dayChoice === "now" ? toSchedule.map((_, index) => new Date(Date.now() + index * 60_000)) : timing === "spread" ? spreadInDay(toSchedule.length, day) : everyInterval(toSchedule.length, day, firstTime, interval), [dayChoice, toSchedule, timing, day, firstTime, interval]);
+  // Aviso antes de agendar: o trecho mais apertado da agenda contra o tempo que o número leva em todos os grupos.
+  const capacityMessage = useMemo(() => {
+    const tightest = slots ? smallestIntervalMinutes(slots) : null;
+    if (!tightest || !selectedGroups.length) return null;
+    return describeCapacity(estimateCapacity({ groupsPerOffer: selectedGroups.length, intervalMinutes: tightest }));
+  }, [slots, selectedGroups.length]);
   const filteredGroups = useMemo(() => groups.filter(group => (group.nome || group.group_jid).toLowerCase().includes(query.toLowerCase())), [groups, query]);
 
   useEffect(() => { fetch("/api/whatsapp/senders").then(r => r.json()).then(body => { const list: Sender[] = body.senders || []; setSenders(list); setSenderId(list.some(s => s.id === saved.senderId) ? saved.senderId! : list[0]?.id || ""); }).catch(() => setError("Não foi possível carregar seus números.")); }, [saved]);
@@ -135,6 +143,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
         <fieldset><legend className="text-sm font-medium">Dia</legend><div className="mt-2 flex flex-wrap gap-2">{([...(initialDay === "now" ? [["now", "Agora"]] as const : []), ["today", "Hoje"], ["tomorrow", "Amanhã"], ["date", "Outra data"]] as const).map(([id, label]) => <button key={id} disabled={running || finished} onClick={() => setDayChoice(id)} className={`rounded-lg border px-4 py-2 text-sm ${dayChoice === id ? "border-primary bg-primary text-white" : "border-line"}`}>{label}</button>)}{dayChoice === "date" && <input type="date" min={today} value={customDay} disabled={running || finished} onChange={e => setCustomDay(e.target.value)} className="focus-ring h-10 rounded-lg border border-line px-3 text-sm"/>}</div><p className="mt-2 text-xs capitalize text-muted">{dayLabel}</p></fieldset>
         {dayChoice !== "now" && <fieldset><legend className="text-sm font-medium">Horários</legend><div className="mt-2 grid grid-cols-2 gap-2"><button disabled={running || finished} onClick={() => setTiming("spread")} className={`rounded-lg border p-3 text-left text-sm ${timing === "spread" ? "border-primary bg-wash font-medium" : "border-line"}`}>Espalhar entre 07h e 22h</button><button disabled={running || finished} onClick={() => setTiming("interval")} className={`rounded-lg border p-3 text-left text-sm ${timing === "interval" ? "border-primary bg-wash font-medium" : "border-line"}`}>Intervalo fixo</button></div>
           {timing === "interval" && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">A partir das <input type="time" value={firstTime} onChange={e => setFirstTime(e.target.value)} className="focus-ring h-10 rounded-lg border border-line px-2"/> a cada <select value={interval} onChange={e => setIntervalMinutes(Number(e.target.value))} className="focus-ring h-10 rounded-lg border border-line px-2">{[5, 10, 15, 20, 30, 45, 60, 90, 120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`}</option>)}</select></div>}</fieldset>}
+        <CapacityNotice message={capacityMessage} />
       </div>
       <div className="flex flex-col p-5">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Prévia</h3>{duplicates.size > 0 && <label className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={running || finished} checked={skipDuplicates} onChange={e => setSkipDuplicates(e.target.checked)}/> Pular {duplicates.size} já agendada{duplicates.size > 1 ? "s" : ""} neste dia</label>}</div>

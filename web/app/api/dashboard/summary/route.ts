@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTenantDatabase } from "@/lib/tenant-database";
 import { callWhatsappService } from "@/lib/whatsapp-service";
 import { maskPhone } from "@/lib/phone";
+import { LATE_QUEUE_ALERT_MINUTES } from "@/modules/dispatch-capacity/capacity";
 
 function maskedPhone(value?: string) {
   if (!value) return "";
@@ -24,10 +25,16 @@ export async function GET() {
   ]);
 
   // Primeiros passos (04/11): Shopee conectada e Piloto ligado (leitura pelo cliente da conta, com RLS).
-  const [shopee, pilot] = await Promise.all([
+  // Fila atrasada (06/11): envios de grupo pendentes que passaram do horário há mais de 30 min.
+  // Índice envios_grupo_account_status_idx (account_id, status); só olha os pendentes da conta.
+  const lateCutoff = new Date(Date.now() - LATE_QUEUE_ALERT_MINUTES * 60_000).toISOString();
+  const [shopee, pilot, lateCount, oldestLate] = await Promise.all([
     sb.from("affiliate_integrations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("provider", "shopee").eq("status", "connected"),
-    sb.from("offer_automations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("enabled", true)
+    sb.from("offer_automations").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("enabled", true),
+    sb.from("envios_grupo").select("id", { count: "exact", head: true }).eq("account_id", context.accountId).eq("status", "pendente").lt("scheduled_at", lateCutoff),
+    sb.from("envios_grupo").select("scheduled_at").eq("account_id", context.accountId).eq("status", "pendente").lt("scheduled_at", lateCutoff).order("scheduled_at", { ascending: true }).limit(1).maybeSingle()
   ]);
+  const oldestLateAt = oldestLate.data?.scheduled_at ? Date.parse(oldestLate.data.scheduled_at) : NaN;
 
   const additionalStatuses = await Promise.all((senders.data || []).map((sender) =>
     callWhatsappService(`/senders/${sender.session_name}/status`).catch(() => ({ status: "disconnected", phone_number: "", qr: "" }))
@@ -57,6 +64,7 @@ export async function GET() {
       groups: groups.count || 0
     },
     queue,
+    late_queue: { count: lateCount.count || 0, oldest_minutes: Number.isFinite(oldestLateAt) ? Math.round((Date.now() - oldestLateAt) / 60_000) : 0 },
     setup: { shopee: (shopee.count || 0) > 0, pilot: (pilot.count || 0) > 0 }
   });
 }

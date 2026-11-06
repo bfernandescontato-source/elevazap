@@ -6,6 +6,8 @@ export const automationConfigSchema = z.object({
   interval_minutes: z.number().int().min(5).max(1440),
   // Ausente = mantém o que está salvo (painel antigo aberto no navegador).
   send_immediately: z.boolean().optional(),
+  // Dividir os grupos entre os números da conta (opt-in). Ausente = mantém o salvo.
+  split_across_senders: z.boolean().optional(),
   operating_start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/, "Informe um horário inicial válido."),
   operating_end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/, "Informe um horário final válido."),
   timezone: z.string().min(3).max(100),

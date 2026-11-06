@@ -6,15 +6,17 @@ import { assertOwnedGroupSelection } from "../ownership";
 export async function loadAutopilot(database: SupabaseClient, accountId: string) {
   const [{ data: automation, error: automationError }, { data: senders, error: sendersError }, shopeeIntegration, mercadoLivreIntegration] = await Promise.all([
     database.from("offer_automations").select("*").eq("account_id", accountId).maybeSingle(),
-    database.from("whatsapp_senders").select("id,label,session_name").eq("account_id", accountId).order("created_at"),
+    database.from("whatsapp_senders").select("id,label,session_name,connection_status").eq("account_id", accountId).order("created_at"),
     getShopeeIntegration(database, accountId), getMercadoLivreIntegration(database, accountId)
   ]);
   if (automationError) throw automationError;
   if (sendersError) throw sendersError;
   const senderId = automation?.whatsapp_sender_id || senders?.[0]?.id;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [{ data: groups, error: groupsError }, { data: sources }, { data: destinations }, { data: offers, error: offersError }, capturedCount, convertedCount, queuedCount, sentCount, ignoredCount, conversionFailedCount] = await Promise.all([
+  const [{ data: groups, error: groupsError }, { data: memberships }, { data: sources }, { data: destinations }, { data: offers, error: offersError }, capturedCount, convertedCount, queuedCount, sentCount, ignoredCount, conversionFailedCount] = await Promise.all([
     senderId ? database.from("whatsapp_sender_grupos").select("group_jid,grupos(group_jid,nome,foto_url)").eq("account_id", accountId).eq("whatsapp_sender_id", senderId) : Promise.resolve({ data: [], error: null }),
+    // Quem está em cada grupo, para a divisão entre números (só com mais de 1 número).
+    (senders || []).length > 1 ? database.from("whatsapp_sender_grupos").select("whatsapp_sender_id,group_jid").eq("account_id", accountId).limit(10000) : Promise.resolve({ data: [] }),
     automation ? database.from("automation_source_groups").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
     automation ? database.from("automation_destinations").select("whatsapp_group_id").eq("account_id", accountId).eq("automation_id", automation.id).eq("enabled", true) : Promise.resolve({ data: [] }),
     database.from("captured_offers").select("id,original_text,processed_text,original_media_url,media_bucket,media_path,original_link,affiliate_link,affiliate_conversion_status,affiliate_conversion_error,status,error_code,error_message,captured_at,scheduled_at,sent_at,source_group_id,grupos!captured_offers_account_id_source_group_id_fkey(nome)")
@@ -42,6 +44,7 @@ export async function loadAutopilot(database: SupabaseClient, accountId: string)
     source_group_ids: (sources || []).map((row) => row.whatsapp_group_id).filter((id) => ownedGroupIds.has(id)),
     destination_group_ids: (destinations || []).map((row) => row.whatsapp_group_id).filter((id) => ownedGroupIds.has(id)),
     offers: offers || [],
+    sender_memberships: memberships || [],
     metrics: {
       captured_today: capturedCount.count || 0,
       converted: convertedCount.count || 0,
@@ -75,7 +78,22 @@ export async function saveAutopilot(database: SupabaseClient, accountId: string,
   if (error) throw error;
   const automation = Array.isArray(data) ? data[0] : data;
   if (!automation) throw new Error("Não foi possível salvar as alterações.");
+  if (typeof input.split_across_senders === "boolean") return { ...automation, ...await saveSplitAcrossSenders(accountId, automation.id, input.split_across_senders) };
   return automation;
+}
+
+// A RPC de salvamento é de produção e não conhece a opção: gravada à parte, com a
+// conta da sessão. Banco sem a coluna (migration ainda não aplicada) não bloqueia o
+// salvamento do resto da configuração.
+async function saveSplitAcrossSenders(accountId: string, automationId: string, enabled: boolean) {
+  const { error } = await supabaseAdmin().from("offer_automations").update({ split_across_senders: enabled })
+    .eq("account_id", accountId).eq("id", automationId);
+  if (!error) return { split_across_senders: enabled };
+  if (["42703", "PGRST204"].includes(error.code || "")) {
+    console.warn({ event: "pilot_split_column_missing", account_id: accountId });
+    return {};
+  }
+  throw error;
 }
 
 export async function loadOffer(database: SupabaseClient, accountId: string, offerId: string) {
