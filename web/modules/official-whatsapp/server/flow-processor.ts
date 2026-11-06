@@ -17,9 +17,23 @@ import { processAutomationButtonClick } from "./automation-followup";
 
 // Envia o template inicial de um fluxo pra UM contato e cria o flow_run que vai permitir achar
 // o contexto certo quando o clique chegar (fase B/C vão chamar isto em lote, um contato por vez).
-export async function startFlow(input: { flowId: string; rawPhone: string; context: EventContext; source: string; sourceReference: string | null; connectionId?: string | null }) {
-  const flow = await getFlow(input.flowId);
+export async function prepareFlowStart(flowId: string, connectionId?: string | null, broadcastId?: string) {
+  const flow = await getFlow(flowId);
   if (!flow || !flow.active) throw new OfficialWhatsAppError("NO_AUTOMATION", "Fluxo não encontrado ou inativo.");
+  const [template, initialStep] = await Promise.all([
+    findTemplate(flow.initial_template_name, flow.initial_template_language, connectionId),
+    getFlowStep(flow.id, "initial")
+  ]);
+  return { flow, template, initialStep, connectionId: connectionId || null, broadcastId: broadcastId || null };
+}
+
+type PreparedFlowStart = Awaited<ReturnType<typeof prepareFlowStart>>;
+
+// O contexto pertence apenas à rodada atual, nunca é cache global entre contas.
+export async function startFlow(input: { flowId: string; rawPhone: string; context: EventContext; source: string; sourceReference: string | null; connectionId?: string | null }, prepared?: PreparedFlowStart, onAccepted?: () => void) {
+  const setup = prepared || await prepareFlowStart(input.flowId, input.connectionId);
+  if (setup.flow.id !== input.flowId || setup.connectionId !== (input.connectionId || null)) throw new Error("Contexto de envio incompatível.");
+  const { flow, template, initialStep } = setup;
 
   let phone: string;
   try {
@@ -28,7 +42,6 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
     throw new OfficialWhatsAppError("INVALID_PHONE", "Telefone inválido.");
   }
 
-  const template = await findTemplate(flow.initial_template_name, flow.initial_template_language, input.connectionId);
   const missingMappings = missingTemplateMappings({ mapping: flow.variable_mapping, parameterFormat: template.parameterFormat, header: template.variables.header, body: template.variables.body, namedHeader: template.namedVariables.header, namedBody: template.namedVariables.body, dynamicButtons: template.dynamicUrlButtonIndexes });
   if (missingMappings.length) throw new OfficialWhatsAppError("MISSING_TEMPLATE_VARIABLE", `Configure o mapeamento: ${missingMappings.join(", ")}.`);
   const missing = missingRequiredVariables(flow.variable_mapping, input.context);
@@ -36,9 +49,9 @@ export async function startFlow(input: { flowId: string; rawPhone: string; conte
 
   const components = buildTemplateComponents(flow.variable_mapping, input.context, template.parameterFormat);
   const result = await sendWhatsAppTemplate({ phone, templateName: flow.initial_template_name, language: flow.initial_template_language, components, connectionId: input.connectionId });
-  const initialStep = await getFlowStep(flow.id, "initial");
-  let broadcastId: string | null = null;
-  if (input.source === "broadcast" && input.sourceReference) {
+  onAccepted?.();
+  let broadcastId: string | null = setup.broadcastId;
+  if (!broadcastId && input.source === "broadcast" && input.sourceReference) {
     const { data } = await supabaseAdmin().from("official_broadcast_recipients").select("broadcast_id").eq("id", input.sourceReference).maybeSingle();
     broadcastId = data?.broadcast_id || null;
   }

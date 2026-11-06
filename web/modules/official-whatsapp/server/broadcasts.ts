@@ -1,8 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { appUrl, env } from "@/lib/env";
-import { startFlow } from "./flow-processor";
+import { prepareFlowStart, startFlow } from "./flow-processor";
+import { runBroadcastWorkers } from "./broadcast-workers";
+import { pauseBroadcastsOnProcessingFailure } from "./broadcast-safety";
 import { type ValidContact } from "./broadcast-contacts";
-import { officialErrorCode, officialErrorMessage, officialErrorMetaDetails } from "./errors";
+import { officialErrorCode, officialErrorMessage } from "./errors";
 import { getMetaMessageThroughput } from "./meta-client";
 import { URGENT_BROADCAST_MAX_CONCURRENCY, urgentBroadcastConcurrency } from "./throughput";
 import { connectionIdSchema, resolveOfficialConnection } from "./official-connections";
@@ -59,14 +61,8 @@ export async function createBroadcastAndStart(input: {
   return { broadcastId: broadcastId as string, skippedForPriorRun: 0, scheduled: isScheduled };
 }
 
-// O modo urgente usa até 60 chamadas paralelas, limitado pelo throughput consultado
-// no próprio número; o padrão segue a configuração conservadora.
-// A Meta ainda é a autoridade final: se responder 429 o disparo pausa, sem continuar
-// pressionando a conta.
-// Processa um lote pequeno (tamanho = OFFICIAL_BROADCAST_CONCURRENCY) e devolve se ainda há
-// mais gente na fila. Reaproveita startFlow() inteiro — envio, log, flow_run, tudo já testado
-// na fase A. Se algum envio do lote voltar 429 da Meta, pausa o disparo em vez de continuar
-// batendo na API (fica pro admin retomar manualmente depois).
+// Processa uma janela de até 240 contatos com concorrência limitada.
+// Recusas da Meta ficam registradas por destinatário e não pausam a campanha.
 export async function processBroadcastBatch(broadcastId: string): Promise<{ hasMore: boolean }> {
   const admin = supabaseAdmin();
   const { data: broadcast, error: broadcastError } = await admin.from("official_broadcasts").select("*").eq("id", broadcastId).maybeSingle();
@@ -91,11 +87,13 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
       await admin.from("official_broadcasts").update({ dispatch_concurrency: concurrency }).eq("id", broadcastId);
     }
   }
+  concurrency = Math.min(60, Math.max(1, Math.trunc(concurrency)));
+  const prepared = await prepareFlowStart(broadcast.flow_id, broadcast.connection_id, broadcastId);
   const workerToken = randomUUID();
   const { data: batch, error: batchError } = await admin.rpc("claim_official_broadcast_batch", {
     p_broadcast_id: broadcastId,
     p_worker_token: workerToken,
-    p_limit: concurrency,
+    p_limit: Math.min(concurrency * 4, 240),
     p_lease_seconds: 600
   });
   if (batchError) throw batchError;
@@ -109,56 +107,64 @@ export async function processBroadcastBatch(broadcastId: string): Promise<{ hasM
     return { hasMore: Boolean(finished?.[0]?.has_more) };
   }
 
-  let rateLimited = false;
-  await Promise.all((batch as ClaimedBroadcastRecipient[]).map(async (recipient) => {
-    const rowData = recipient.row_data || { name: null, email: null, product: null };
-    let acceptedByMeta = false;
-    try {
-      const result = await startFlow({
-        flowId: broadcast.flow_id,
-        rawPhone: recipient.phone,
-        context: { customerName: rowData.name, productName: rowData.product, customerEmail: rowData.email, customerPhone: recipient.phone, amountCents: null, paymentUrl: null, accessUrl: null },
-        source: "broadcast",
-        connectionId: broadcast.connection_id,
-        sourceReference: recipient.id
-      });
-      acceptedByMeta = true;
-      const { error: recipientError } = await admin.from("official_broadcast_recipients").update({
-        status: "accepted", meta_message_id: result.messageId || null, flow_run_id: result.flowRunId, sent_at: new Date().toISOString()
-      }).eq("id", recipient.id).eq("status", "processing").eq("lease_token", workerToken);
-      if (recipientError) throw recipientError;
-      // Fecha a corrida em que o status da Meta chega antes de o recipient receber o wamid.
-      if (result.messageId) {
-        const { data: latestMessage } = await admin.from("official_messages")
-          .select("status,error,delivered_at,read_at,failed_at,status_payload")
-          .eq("meta_message_id", result.messageId)
-          .limit(1)
-          .maybeSingle();
-        if (latestMessage && latestMessage.status !== "accepted") {
-          await admin.from("official_broadcast_recipients").update({
-            status: latestMessage.status,
-            error: latestMessage.error,
-            delivered_at: latestMessage.delivered_at,
-            read_at: latestMessage.read_at,
-            failed_at: latestMessage.failed_at,
-            status_payload: latestMessage.status_payload
-          }).eq("id", recipient.id).eq("lease_token", workerToken);
-        }
+  const results: Array<Record<string, unknown>> = [];
+  const deadline = Date.now() + 90_000;
+  let checkedAt = 0;
+  let running = true;
+  let checking: Promise<boolean> | undefined;
+  const canStart = async () => {
+    if (Date.now() >= deadline) return false;
+    if (Date.now() - checkedAt < 1_000) return running;
+    checking ||= (async () => {
+      const { data, error } = await admin.from("official_broadcasts").select("status").eq("id", broadcastId).single();
+      if (error) throw error;
+      running = data.status === "processing";
+      checkedAt = Date.now();
+      return running;
+    })().finally(() => { checking = undefined; });
+    return await checking && Date.now() < deadline;
+  };
+
+  try {
+    const unstarted = await runBroadcastWorkers(batch as ClaimedBroadcastRecipient[], concurrency, canStart, async (recipient) => {
+      const rowData = recipient.row_data || { name: null, email: null, product: null };
+      let acceptedByMeta = false;
+      try {
+        const result = await startFlow({
+          flowId: broadcast.flow_id,
+          rawPhone: recipient.phone,
+          context: { customerName: rowData.name, productName: rowData.product, customerEmail: rowData.email, customerPhone: recipient.phone, amountCents: null, paymentUrl: null, accessUrl: null },
+          source: "broadcast", connectionId: broadcast.connection_id, sourceReference: recipient.id
+        }, prepared, () => { acceptedByMeta = true; });
+        results.push({ id: recipient.id, status: "accepted", meta_message_id: result.messageId || null, flow_run_id: result.flowRunId, sent_at: new Date().toISOString() });
+      } catch (error) {
+        // A aceitação é sinalizada antes dos writes locais: uma falha posterior nunca vira reenviável.
+        if (acceptedByMeta) throw error;
+        results.push({ id: recipient.id, status: "failed", error: `${officialErrorCode(error)}: ${officialErrorMessage(error)}`.slice(0, 500) });
       }
-    } catch (error) {
-      // Depois que a Meta aceitou, qualquer falha local deixa o resultado ambíguo. Mantemos
-      // processing para o lease expirado virar UNCERTAIN_DELIVERY, nunca uma falha reenviável.
-      if (acceptedByMeta) throw error;
-      const code = officialErrorCode(error);
-      if (officialErrorMetaDetails(error)?.httpStatus === 429) rateLimited = true;
-      const summary = `${code}: ${officialErrorMessage(error)}`.slice(0, 500);
-      await admin.from("official_broadcast_recipients").update({ status: "failed", error: summary, failed_at: new Date().toISOString() })
-        .eq("id", recipient.id).eq("status", "processing").eq("lease_token", workerToken);
+    });
+    if (results.length) {
+      const { error } = await admin.rpc("settle_official_broadcast_recipients", {
+        p_broadcast_id: broadcastId, p_worker_token: workerToken, p_results: results
+      });
+      if (error) throw error;
     }
-  }));
+    // Só volta à fila quem comprovadamente não iniciou uma tentativa de envio.
+    if (unstarted.length) {
+      const { error } = await admin.from("official_broadcast_recipients")
+        .update({ status: "queued", lease_token: null, lease_expires_at: null })
+        .eq("broadcast_id", broadcastId).eq("status", "processing").eq("lease_token", workerToken)
+        .in("id", unstarted.map((recipient) => recipient.id));
+      if (error) throw error;
+    }
+  } catch (error) {
+    // Não libera o lease de resultados ambíguos. A recuperação persistente impede reenvio.
+    await pauseBroadcastsOnProcessingFailure(broadcast.connection_id || null);
+    throw error;
+  }
 
   const { data: finished, error: finishError } = await admin.rpc("finish_official_broadcast_batch", {
-    p_broadcast_id: broadcastId, p_worker_token: workerToken, p_pause: rateLimited
+    p_broadcast_id: broadcastId, p_worker_token: workerToken, p_pause: false
   });
   if (finishError) throw finishError;
   if (!finished?.length) throw new Error("O lease do lote expirou antes da finalização.");
