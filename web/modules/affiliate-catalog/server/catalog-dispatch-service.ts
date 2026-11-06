@@ -66,9 +66,9 @@ export async function createCatalogDispatch(input: {
   const content = { tipo: type, texto: type === "texto" ? message : null, legenda: type === "imagem" ? message : null, media_bucket: media?.bucket, media_path: media?.path, mime_type: media?.mime, file_name: media?.fileName, file_size_bytes: media?.size };
   const sb = supabaseAdmin();
 
-  const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({ account_id: accountId, titulo: `Oferta · ${offer.name.slice(0, 90)}`, whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name, ...content, status: "pendente", total: groupJids.length, pendentes: groupJids.length, scheduled_at: when }).select("id").single();
+  const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({ account_id: accountId, titulo: `Oferta · ${offer.name.slice(0, 90)}`, whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name, ...content, status: "pendente", priority: "high", total: groupJids.length, pendentes: groupJids.length, scheduled_at: when }).select("id").single();
   if (loteError) throw new CatalogDispatchError("Não foi possível criar o envio.", 500);
-  const { data: jobs, error: jobsError } = await sb.from("envios_grupo").insert(groupJids.map(groupJid => ({ account_id: accountId, lote_id: lote.id, whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name, group_jid: groupJid, nome_grupo: groupNames.get(groupJid), ...content, status: "pendente", scheduled_at: when }))).select("id,group_jid");
+  const { data: jobs, error: jobsError } = await sb.from("envios_grupo").insert(groupJids.map(groupJid => ({ account_id: accountId, lote_id: lote.id, whatsapp_sender_id: sender.id, whatsapp_session_name: sender.session_name, group_jid: groupJid, nome_grupo: groupNames.get(groupJid), ...content, status: "pendente", priority: "high", scheduled_at: when }))).select("id,group_jid");
   if (jobsError) {
     await sb.from("envios_grupo_lotes").delete().eq("id", lote.id).eq("account_id", accountId);
     throw new CatalogDispatchError("Não foi possível criar os envios.", 500);

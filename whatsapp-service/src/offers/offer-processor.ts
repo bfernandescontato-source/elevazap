@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { isSupportedMarketplaceUrl, parseOffer } from "./offer-parser.js";
+import { expandRedirectorLinks } from "./redirector-links.js";
 import type { RawOfferMessage } from "./types.js";
 import { ShopeeOfferConverter } from "./shopee-conversion.js";
 import { offerFeatureFlags } from "./feature-flags.js";
@@ -108,6 +109,7 @@ export class OfferProcessor {
 
   async process(automation: Automation, message: RawOfferMessage, existingOffer?: any) {
     if (!(await this.automationEnabled(automation))) return null;
+    if (!existingOffer) message = { ...message, text: await expandRedirectorLinks(message.text), caption: await expandRedirectorLinks(message.caption) };
     const parsed = parseOffer(message);
     if (!parsed.text && !parsed.media && !message.hasMedia) return null;
     const common = { account_id: automation.account_id, automation_id: automation.id, source_group_id: parsed.sourceGroupId };

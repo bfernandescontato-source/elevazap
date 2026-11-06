@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       file_name: modelo.file_name || null,
       mime_type: modelo.mime_type || null,
       file_size_bytes: modelo.file_size_bytes || null,
+      priority: "high",
       total: groupJids.length,
       pendentes: groupJids.length,
       scheduled_at: item.scheduled_at
@@ -150,6 +151,7 @@ export async function POST(request: NextRequest) {
         file_name: modelo.file_name || null,
         mime_type: modelo.mime_type || null,
         file_size_bytes: modelo.file_size_bytes || null,
+        priority: "high",
         scheduled_at: item.scheduled_at
       }))
     );

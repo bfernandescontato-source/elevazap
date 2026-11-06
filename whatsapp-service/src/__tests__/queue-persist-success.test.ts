@@ -22,7 +22,7 @@ function builder(table: string) {
       if (!blocked && table === "envios_grupo") Object.assign(db.row, { status: state.values.status ?? db.row.status });
       return { data: null, error: null };
     }
-    return { data: { status: db.row.status, wa_message_id: db.row.wa_message_id }, error: null };
+    return { data: { status: table === "accounts" ? "active" : db.row.status, wa_message_id: db.row.wa_message_id }, error: null };
   };
   const chain: any = {
     update: (values: any) => { state.values = values; return chain; },
@@ -39,6 +39,7 @@ vi.mock("../supabase.js", () => ({
   supabase: {
     rpc: vi.fn(async (name: string) => {
       db.rpcCalls.push(name);
+      if (name === "mark_whatsapp_job_sending") return { data: { ...job, ...db.row, account_id: "account-1" }, error: null };
       if (name === "complete_whatsapp_job_sent") {
         const step = db.completeSteps.shift() ?? "ok";
         if (step === "timeout") return { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } };
@@ -115,5 +116,34 @@ describe("fila: gravação da confirmação de mensagem já aceita", () => {
     expect(db.row.status).toBe("processando"); // não virou sucesso nem foi sobrescrito
     const mark = db.updates.find((u) => u.values.status === "incerto")!;
     expect(mark.filters).toContain("eq:claim_token=ficha"); // no banco real, a ficha diferente não casa
+  });
+});
+
+
+describe("fila: conexão encerrada com envios concorrentes", () => {
+  it("não recoloca na fila um envio iniciado cuja conexão foi encerrada", async () => {
+    const q = newQueue();
+    q.cancelIfPilotDisabled = async () => false;
+    q.cancelIfAmazonUnavailable = async () => false;
+    q.syncOfferDelivery = async () => {};
+    q.execute = async (_item: any, row: any) => { row.send_started = true; throw new Error("Connection Closed"); };
+    q.markUncertain = vi.fn(async () => {});
+    q.markFailure = vi.fn(async () => {});
+    await q.process({ kind: "grupo" });
+    expect(q.markFailure).not.toHaveBeenCalled();
+    expect(q.markUncertain).toHaveBeenCalledWith("envios_grupo", expect.anything(), expect.any(String), "SEND_OUTCOME_UNKNOWN");
+  });
+  it("permite retry de falha de preparação antes de iniciar a transmissão", async () => {
+    const q = newQueue();
+    q.cancelIfPilotDisabled = async () => false;
+    q.cancelIfAmazonUnavailable = async () => false;
+    q.syncOfferDelivery = async () => {};
+    q.hasValidLease = async () => true;
+    q.execute = async () => { throw new Error("Falha ao preparar participantes"); };
+    q.markUncertain = vi.fn(async () => {});
+    q.markFailure = vi.fn(async () => {});
+    await q.process({ kind: "grupo" });
+    expect(q.markUncertain).not.toHaveBeenCalled();
+    expect(q.markFailure).toHaveBeenCalledTimes(1);
   });
 });
