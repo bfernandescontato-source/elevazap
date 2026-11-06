@@ -1,6 +1,7 @@
 import axios from "axios";
 import sharp from "sharp";
 import { prepareWAMessageMedia } from "@whiskeysockets/baileys";
+import { applyBadges, type OfferBadges } from "./offer-image-badges.js";
 
 /** Every offer card photo is rendered on this square canvas, so all cards look the same. */
 export const LINK_THUMBNAIL_SIZE = 800;
@@ -13,11 +14,14 @@ const BACKGROUND = { r: 255, g: 255, b: 255, alpha: 1 };
  * JPEG — the only format WhatsApp renders on link cards. Also returns the
  * small embedded thumbnail the phone falls back to if the large one fails.
  */
-export async function standardizeLinkImage(source: Buffer): Promise<{ image: Buffer; thumbnail: Buffer }> {
-  const image = await sharp(source)
+export async function standardizeLinkImage(source: Buffer, badges?: OfferBadges | null): Promise<{ image: Buffer; thumbnail: Buffer }> {
+  const square = await sharp(source)
     .rotate()
     .resize(LINK_THUMBNAIL_SIZE, LINK_THUMBNAIL_SIZE, { fit: "contain", background: BACKGROUND })
     .flatten({ background: BACKGROUND })
+    .toBuffer();
+  // Selos (desconto, frete grátis) entram depois do quadrado pronto, sempre na mesma posição.
+  const image = await (await applyBadges(sharp(square), LINK_THUMBNAIL_SIZE, LINK_THUMBNAIL_SIZE, badges))
     .jpeg({ quality: 85 })
     .toBuffer();
   const thumbnail = await sharp(image).resize(SMALL_THUMBNAIL_SIZE, SMALL_THUMBNAIL_SIZE).jpeg({ quality: 60 }).toBuffer();
@@ -30,13 +34,13 @@ export async function standardizeLinkImage(source: Buffer): Promise<{ image: Buf
  * explicitly: Baileys sometimes leaves them empty, and WhatsApp then shows a
  * small card or no photo at all.
  */
-export async function buildLinkThumbnail(imageUrl: string, upload: unknown) {
+export async function buildLinkThumbnail(imageUrl: string, upload: unknown, badges?: OfferBadges | null) {
   const response = await axios.get<ArrayBuffer>(imageUrl, {
     timeout: 10_000, responseType: "arraybuffer", maxContentLength: 5_000_000, validateStatus: () => true
   });
   if (response.status < 200 || response.status >= 300) throw new Error(`Imagem do produto respondeu HTTP ${response.status}.`);
   if (!String(response.headers["content-type"] || "").startsWith("image/")) throw new Error("A URL da imagem do produto não devolveu uma imagem.");
-  const { image, thumbnail } = await standardizeLinkImage(Buffer.from(response.data));
+  const { image, thumbnail } = await standardizeLinkImage(Buffer.from(response.data), badges);
   const { imageMessage } = await prepareWAMessageMedia({ image }, {
     upload: upload as never,
     mediaTypeOverride: "thumbnail-link",

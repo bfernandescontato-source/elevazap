@@ -25,6 +25,8 @@ import { extractFeaturedSocialProduct } from "../offers/mercado-livre-url-resolv
 import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon";
 import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, findMarketplaceLink, isAmazonCaptchaPage } from "./link-preview-page.js";
 import { buildLinkThumbnail } from "./link-thumbnail.js";
+import { decideOfferBadges, offerBadgeFactsFromText, offerBadgesKey, sanitizeOfferBadges, type OfferBadges } from "@disparei/affiliate-links/offer-badges";
+import { offerImageSettings } from "./offer-image-settings.js";
 import { observer } from "../observability/observer.js";
 
 // Observabilidade por número (investigação do número surdo): nunca interfere no envio.
@@ -110,6 +112,8 @@ type OfferPreviewContext = {
   accountId: string;
   itemId?: string;
   resolvedUrl?: string;
+  /** Selos da foto do card (desconto, frete grátis); nulo = foto sem selo. */
+  badges?: OfferBadges | null;
 };
 
 export class GlobalSendQueue {
@@ -515,21 +519,27 @@ export class GlobalSendQueue {
   private async findOfferPreviewContext(row: any): Promise<OfferPreviewContext | null> {
     const [{ data: pilotDelivery }, { data: catalogDelivery }] = await Promise.all([
       supabase.from("offer_deliveries").select("link_used,offer_id").eq("group_dispatch_id", row.id).maybeSingle(),
-      supabase.from("affiliate_offer_deliveries").select("affiliate_url,external_item_id,provider").eq("group_dispatch_id", row.id).maybeSingle()
+      // "*" de propósito: image_badges pode ainda não existir no banco, e pedir a
+      // coluna pelo nome derrubaria a consulta e o card inteiro.
+      supabase.from("affiliate_offer_deliveries").select("*").eq("group_dispatch_id", row.id).maybeSingle()
     ]);
     const link = String(pilotDelivery?.link_used || catalogDelivery?.affiliate_url || "").trim();
     if (!link) return null;
     if (pilotDelivery?.offer_id) {
       const { data: offer } = await supabase.from("captured_offers").select("item_id,resolved_url")
         .eq("id", pilotDelivery.offer_id).eq("account_id", row.account_id).maybeSingle();
-      return { link, accountId: row.account_id, itemId: offer?.item_id || undefined, resolvedUrl: offer?.resolved_url || undefined };
+      // Piloto: os selos saem do texto da oferta, com a configuração da conta (em cache).
+      const settings = await offerImageSettings.get(row.account_id);
+      const badges = decideOfferBadges(offerBadgeFactsFromText(row.texto), settings);
+      return { link, accountId: row.account_id, itemId: offer?.item_id || undefined, resolvedUrl: offer?.resolved_url || undefined, badges };
     }
     // A extensão (carrinho na Shopee) grava o item como "shopId_itemId"; a API
     // de afiliados só aceita o itemId, então fica com a parte final.
     const shopeeItemId = catalogDelivery?.provider === "SHOPEE"
       ? String(catalogDelivery.external_item_id || "").split("_").pop() || undefined
       : undefined;
-    return { link, accountId: row.account_id, itemId: shopeeItemId };
+    // Catálogo: o painel já decidiu os selos no envio e gravou junto da entrega.
+    return { link, accountId: row.account_id, itemId: shopeeItemId, badges: sanitizeOfferBadges(catalogDelivery?.image_badges) };
   }
 
   /**
@@ -540,7 +550,7 @@ export class GlobalSendQueue {
    * photo are reused, so a failed attempt is retried on the next send.
    */
   private async cachedLinkPreview(text: string, context: OfferPreviewContext, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
-    const key = `${context.accountId}:${text.match(URL_IN_TEXT)?.[0] || context.link}`;
+    const key = `${context.accountId}:${offerBadgesKey(context.badges)}:${text.match(URL_IN_TEXT)?.[0] || context.link}`;
     const now = Date.now();
     for (const [cachedKey, entry] of this.linkPreviewCache) if (entry.expiresAt <= now) this.linkPreviewCache.delete(cachedKey);
     const cached = this.linkPreviewCache.get(key);
@@ -565,7 +575,7 @@ export class GlobalSendQueue {
         metadataUrl = context.resolvedUrl || await this.shopeeUrlResolver.resolveUrl(matched);
         const itemId = context.itemId || extractShopeeProductIdentifiers(metadataUrl).itemId;
         if (itemId) {
-          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId, sock);
+          const product = await this.getShopeeProductPreview(context.accountId, itemId, dispatchId, sock, context.badges);
           if (product) return { ...product, "matched-text": matched };
         }
       } else if (isAmazonUrl(matched)) {
@@ -585,6 +595,7 @@ export class GlobalSendQueue {
       // deixa o metadataUrl como o link original pra cair nela naturalmente
       // (o scraper genérico segue o redirect e sabe extrair essa vitrine).
       let info: WAUrlInfo | undefined;
+      let imageBuiltHere = false;
       try {
         info = await getUrlInfo(metadataUrl, {
           thumbnailWidth: 720,
@@ -619,9 +630,10 @@ export class GlobalSendQueue {
         // bloqueado ao buscar) a og:image dessas páginas. Raspa a página nós
         // mesmos com cabeçalhos de navegador antes de desistir da imagem,
         // sem descartar o que o Baileys já tiver conseguido (título/descrição).
-        const fallback = await this.scrapeOgImageAndMeta(metadataUrl, dispatchId, sock);
+        const fallback = await this.scrapeOgImageAndMeta(metadataUrl, dispatchId, sock, context.badges);
         if (fallback) {
           const preferFallbackImage = imageIsUntrustworthy ? hasImage(fallback) : !hasImage(info);
+          if (preferFallbackImage) imageBuiltHere = true;
           info = {
             ...(info || {}),
             "canonical-url": info?.["canonical-url"] || fallback["canonical-url"],
@@ -634,6 +646,16 @@ export class GlobalSendQueue {
         }
       }
       if (!info?.title) throw new Error("A página do produto não retornou metadados para o preview.");
+      if (context.badges && info.highQualityThumbnail && !imageBuiltHere) {
+        // A foto veio pronta do Baileys (sem selos): refaz pelo nosso padrão com selos.
+        // Se falhar, segue com a foto sem selo em vez de perder o card.
+        try {
+          const source = info.originalThumbnailUrl ? new URL(info.originalThumbnailUrl) : null;
+          if (source?.protocol === "https:") Object.assign(info, await buildLinkThumbnail(source.toString(), sock.waUploadToServer, context.badges));
+        } catch (badgeError) {
+          console.warn({ event: "offer_badges_skipped", component: "queue", dispatch_id: correlationId(dispatchId), ...errorFields(badgeError) });
+        }
+      }
       info["matched-text"] = matched;
       return info;
     } catch (error) {
@@ -654,7 +676,7 @@ export class GlobalSendQueue {
    * preview — so every failure is caught and logged with its exact reason
    * here, never left to bubble up as a silent "no preview at all".
    */
-  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
+  private async getShopeeProductPreview(accountId: string, itemId: string, dispatchId: string, sock: any, badges?: OfferBadges | null): Promise<WAUrlInfo | undefined> {
     const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
       console.warn({ event: "offer_shopee_product_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), item_id: itemId, reason, ...extra });
       return undefined;
@@ -682,7 +704,7 @@ export class GlobalSendQueue {
       if (!product.productName || !product.imageUrl || !product.productLink) return logSkip("incomplete_product_fields");
       const imageUrl = new URL(product.imageUrl);
       if (imageUrl.protocol !== "https:" || imageUrl.hostname !== "cf.shopee.com.br") return logSkip("unexpected_image_host", { host: imageUrl.hostname });
-      const { jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer);
+      const { jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer, badges);
       return {
         "canonical-url": product.productLink,
         "matched-text": "",
@@ -705,7 +727,7 @@ export class GlobalSendQueue {
    * without the real og:image/og:title — the same failure mode already
    * handled for Shopee via its official API instead.
    */
-  private async scrapeOgImageAndMeta(url: string, dispatchId: string, sock: any): Promise<WAUrlInfo | undefined> {
+  private async scrapeOgImageAndMeta(url: string, dispatchId: string, sock: any, badges?: OfferBadges | null): Promise<WAUrlInfo | undefined> {
     const logSkip = (reason: string, extra: Record<string, unknown> = {}) => {
       console.warn({ event: "offer_generic_og_preview_skipped", component: "queue", dispatch_id: correlationId(dispatchId), preview_url: url, reason, ...extra });
       return undefined;
@@ -769,7 +791,7 @@ export class GlobalSendQueue {
         try {
           const imageUrl = new URL(imageRaw, effectiveUrl);
           if (imageUrl.protocol === "https:") {
-            ({ jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer));
+            ({ jpegThumbnail, highQualityThumbnail } = await buildLinkThumbnail(imageUrl.toString(), sock.waUploadToServer, badges));
             originalThumbnailUrl = imageUrl.toString();
           }
         } catch (imageError) {

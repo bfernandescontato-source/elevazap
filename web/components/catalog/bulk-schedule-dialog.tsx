@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, Check, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { LinkGenerating } from "@/components/catalog/link-generating";
+import { ImageModePicker, useOfferImageMode } from "@/components/offer-image-settings";
 import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
 import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
 import { addDays, brasiliaDate, brasiliaTime, everyInterval, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
@@ -20,7 +21,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Link do Mercado Livre só existe depois de gerado; na prévia fica este marcador.
 const LINK_PLACEHOLDER = "[seu link de afiliado]";
 
-function readSavedTarget(): { senderId?: string; groupJids?: string[]; imageMode?: string } {
+function readSavedTarget(): { senderId?: string; groupJids?: string[] } {
   try { return JSON.parse(localStorage.getItem(TARGET_KEY) || "{}"); } catch { return {}; }
 }
 function saveTarget(value: object) {
@@ -50,7 +51,8 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
   const saved = useMemo(readSavedTarget, []);
   const [senders, setSenders] = useState<Sender[]>([]); const [senderId, setSenderId] = useState("");
   const [groups, setGroups] = useState<Group[]>([]); const [selectedGroups, setSelectedGroups] = useState<string[]>([]); const [query, setQuery] = useState("");
-  const [imageMode, setImageMode] = useState<"original_image" | "product_link_preview">(saved.imageMode === "product_link_preview" ? "product_link_preview" : "original_image");
+  // Começa no formato padrão da conta (Configurações); a troca vale só para este envio.
+  const [imageMode, setImageMode] = useOfferImageMode();
   const [dayChoice, setDayChoice] = useState<DayChoice>(initialDay); const [customDay, setCustomDay] = useState(addDays(brasiliaDate(), 1));
   const [timing, setTiming] = useState<"spread" | "interval">("spread"); const [firstTime, setFirstTime] = useState("08:00"); const [interval, setIntervalMinutes] = useState(30);
   const [duplicates, setDuplicates] = useState<Set<string>>(new Set()); const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -81,7 +83,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
   const run = async () => {
     if (!slots || !slots.length) return;
     setRunning(true); setError("");
-    saveTarget({ senderId, groupJids: selectedGroups, imageMode });
+    saveTarget({ senderId, groupJids: selectedGroups });
     const plan = toSchedule.map((offer, index) => ({ offer, at: slots[index] }));
     plan.forEach(({ offer }) => setRow(offerKey(offer), { state: "waiting" }));
     const done: string[] = [];
@@ -131,7 +133,7 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
           <div className="relative mt-2"><Search className="absolute left-3 top-3 text-muted" size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Pesquisar grupo" className="focus-ring h-10 w-full rounded-lg border border-line pl-9 pr-3 text-sm"/></div>
           <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-line"><label className="flex cursor-pointer items-center gap-3 border-b border-line bg-wash p-3 text-sm font-medium"><input type="checkbox" disabled={running || finished} checked={filteredGroups.length > 0 && filteredGroups.every(g => selectedGroups.includes(g.group_jid))} onChange={e => setSelectedGroups(e.target.checked ? Array.from(new Set([...selectedGroups, ...filteredGroups.map(g => g.group_jid)])) : selectedGroups.filter(id => !filteredGroups.some(g => g.group_jid === id)))}/> Selecionar todos os resultados</label>
             {filteredGroups.map(g => <label key={g.group_jid} className="flex cursor-pointer items-center gap-3 border-b border-line p-3 text-sm last:border-0"><input type="checkbox" disabled={running || finished} checked={selectedGroups.includes(g.group_jid)} onChange={e => setSelectedGroups(e.target.checked ? [...selectedGroups, g.group_jid] : selectedGroups.filter(id => id !== g.group_jid))}/><span className="truncate">{g.nome || g.group_jid}</span></label>)}</div></div>
-        <fieldset><legend className="text-sm font-medium">Imagem</legend><div className="mt-2 grid grid-cols-2 gap-2">{([["original_image", "Imagem original"], ["product_link_preview", "Card do link"]] as const).map(([id, label]) => <button key={id} disabled={running || finished} onClick={() => setImageMode(id)} className={`rounded-lg border p-3 text-sm ${imageMode === id ? "border-primary bg-wash font-medium" : "border-line"}`}>{label}</button>)}</div></fieldset>
+        <ImageModePicker value={imageMode} onChange={setImageMode} disabled={running || finished}/>
         <fieldset><legend className="text-sm font-medium">Dia</legend><div className="mt-2 flex flex-wrap gap-2">{([...(initialDay === "now" ? [["now", "Agora"]] as const : []), ["today", "Hoje"], ["tomorrow", "Amanhã"], ["date", "Outra data"]] as const).map(([id, label]) => <button key={id} disabled={running || finished} onClick={() => setDayChoice(id)} className={`rounded-lg border px-4 py-2 text-sm ${dayChoice === id ? "border-primary bg-primary text-white" : "border-line"}`}>{label}</button>)}{dayChoice === "date" && <input type="date" min={today} value={customDay} disabled={running || finished} onChange={e => setCustomDay(e.target.value)} className="focus-ring h-10 rounded-lg border border-line px-3 text-sm"/>}</div><p className="mt-2 text-xs capitalize text-muted">{dayLabel}</p></fieldset>
         {dayChoice !== "now" && <fieldset><legend className="text-sm font-medium">Horários</legend><div className="mt-2 grid grid-cols-2 gap-2"><button disabled={running || finished} onClick={() => setTiming("spread")} className={`rounded-lg border p-3 text-left text-sm ${timing === "spread" ? "border-primary bg-wash font-medium" : "border-line"}`}>Espalhar entre 07h e 22h</button><button disabled={running || finished} onClick={() => setTiming("interval")} className={`rounded-lg border p-3 text-left text-sm ${timing === "interval" ? "border-primary bg-wash font-medium" : "border-line"}`}>Intervalo fixo</button></div>
           {timing === "interval" && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">A partir das <input type="time" value={firstTime} onChange={e => setFirstTime(e.target.value)} className="focus-ring h-10 rounded-lg border border-line px-2"/> a cada <select value={interval} onChange={e => setIntervalMinutes(Number(e.target.value))} className="focus-ring h-10 rounded-lg border border-line px-2">{[5, 10, 15, 20, 30, 45, 60, 90, 120].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`}</option>)}</select></div>}</fieldset>}

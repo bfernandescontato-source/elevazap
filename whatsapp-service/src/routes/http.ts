@@ -22,6 +22,14 @@ import { observer } from "../observability/observer.js";
 import { recentEventLoop, recentSupervisorCycles } from "../observability/supervisor-trace.js";
 import { runtimeHookState } from "../observability/bootstrap.js";
 import { liveInstanceCount, observabilityListenerCount } from "../observability/socket-hooks.js";
+import { sanitizeOfferBadges } from "@disparei/affiliate-links/offer-badges";
+import { composeOriginalOfferImage, sampleProductImage } from "../queue/offer-image-badges.js";
+import { standardizeLinkImage } from "../queue/link-thumbnail.js";
+
+/** Selos vindos da query (?discount=52&freeShipping=1), já validados. */
+function badgesFromQuery(query: express.Request["query"]) {
+  return sanitizeOfferBadges({ discountPercent: Number(query.discount) || undefined, freeShipping: query.freeShipping === "1" });
+}
 
 function requireInternalKey(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.path === "/health" || req.path === "/ready") return next();
@@ -211,6 +219,35 @@ export function createHttpServer(
     } catch (error) {
       console.error({ event: "shopee_conversion_retry_failed", component: "offer-autopilot", offer_id: req.params.offerId, error_type: error instanceof Error ? error.name : "unknown" });
       return res.status(400).json({ error: error instanceof Error ? error.message : "Não foi possível tentar novamente." });
+    }
+  });
+
+  // Selos na foto da oferta. O painel manda a foto (até 5 MB) e recebe o JPEG pronto;
+  // o desenho fica só aqui, onde o sharp já roda em produção.
+  const imageBody = express.raw({ type: ["image/*", "application/octet-stream"], limit: "6mb" });
+  app.post("/media/offer-image", imageBody, async (req, res) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "Imagem vazia." });
+      const badges = badgesFromQuery(req.query);
+      const image = req.query.mode === "card"
+        ? (await standardizeLinkImage(req.body, badges)).image
+        : await composeOriginalOfferImage(req.body, badges);
+      res.type("image/jpeg").send(image);
+    } catch (error) {
+      console.warn({ event: "offer_image_compose_failed", component: "offer-badges", error_type: error instanceof Error ? error.name : "unknown" });
+      res.status(422).json({ error: "Não foi possível preparar a imagem." });
+    }
+  });
+  app.get("/media/offer-badges/sample", async (req, res) => {
+    try {
+      const sample = await sampleProductImage();
+      const badges = badgesFromQuery(req.query);
+      const image = req.query.mode === "card"
+        ? (await standardizeLinkImage(sample, badges)).image
+        : await composeOriginalOfferImage(sample, badges);
+      res.set("cache-control", "no-store").type("image/jpeg").send(image);
+    } catch {
+      res.status(500).json({ error: "Não foi possível gerar a prévia." });
     }
   });
 

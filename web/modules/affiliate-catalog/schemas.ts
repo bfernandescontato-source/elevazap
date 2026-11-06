@@ -6,7 +6,8 @@ export const offerSchema = z.object({
   originalPrice: z.number().nonnegative().optional(), discountPercentage: z.number().min(0).max(100).optional(), sales: z.number().nonnegative().optional(),
   rating: z.number().min(0).max(5).optional(), commissionRate: z.number().nonnegative().optional(), commissionAmount: z.number().nonnegative().optional(),
   shopId: z.string().optional(), shopName: z.string().optional(), productUrl: z.string().url().optional(), affiliateUrl: z.string().url().optional(),
-  categoryIds: z.array(z.string()).optional(), offerStartsAt: z.string().optional(), offerEndsAt: z.string().optional()
+  categoryIds: z.array(z.string()).optional(), offerStartsAt: z.string().optional(), offerEndsAt: z.string().optional(),
+  freeShipping: z.boolean().optional()
 });
 
 export const aiMessageSchema = z.object({
@@ -18,7 +19,8 @@ export const aiMessageSchema = z.object({
 export const dispatchOfferSchema = z.object({
   offer: offerSchema, message: z.string().trim().min(1).max(4000), senderId: z.string().uuid(),
   groupJids: z.array(z.string()).min(1).max(500), scheduledAt: z.string().datetime().optional(),
-  imageMode: z.enum(["original_image", "product_link_preview"]).default("original_image")
+  // Sem imageMode, vale o formato padrão da conta (Configurações).
+  imageMode: z.enum(["original_image", "product_link_preview"]).optional()
 });
 
 export const affiliateLinkSchema = z.object({ offer: offerSchema });
@@ -29,7 +31,8 @@ const agendaDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.
 export const bulkScheduleSchema = z.object({
   items: z.array(z.object({ offer: offerSchema, scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(10),
   senderId: z.string().uuid(), groupJids: z.array(z.string()).min(1).max(500),
-  imageMode: z.enum(["original_image", "product_link_preview"]).default("original_image")
+  // Sem imageMode, vale o formato padrão da conta (Configurações).
+  imageMode: z.enum(["original_image", "product_link_preview"]).optional()
 });
 
 export const agendaQuerySchema = z.object({ day: agendaDaySchema });
