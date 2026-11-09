@@ -7,7 +7,7 @@
 --
 -- CONCURRENTLY não trava a fila de envios; por isso este arquivo fica fora de
 -- transação e separado da migration principal. Aplicar ANTES de
--- 20261106120100_offer_page.sql.
+-- 20261106120900_offer_page.sql.
 
 create index concurrently if not exists envios_grupo_account_sent_success_idx
   on public.envios_grupo(account_id, sent_at desc, id desc)

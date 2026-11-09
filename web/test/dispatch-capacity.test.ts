@@ -121,7 +121,7 @@ describe("alerta de fila atrasada", () => {
 
 describe("migration da divisão no Piloto", () => {
   const root = new URL("../../supabase/migrations/", import.meta.url);
-  const migration = readFileSync(new URL("20261106120000_split_pilot_groups_across_senders.sql", root), "utf8");
+  const migration = readFileSync(new URL("20261106120500_split_pilot_groups_across_senders.sql", root), "utf8");
   const previous = readFileSync(new URL("20261005200000_pilot_send_immediately.sql", root), "utf8");
 
   it("é a versão anterior inteira, só com o bloco novo acrescentado", () => {

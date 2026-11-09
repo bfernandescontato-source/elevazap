@@ -44,7 +44,7 @@ describe("endereço da vitrine", () => {
   });
 
   it("a regra do banco é a mesma da tela", () => {
-    const sql = readFileSync(new URL("../../supabase/migrations/20261106120100_offer_page.sql", import.meta.url), "utf8");
+    const sql = readFileSync(new URL("../../supabase/migrations/20261106120900_offer_page.sql", import.meta.url), "utf8");
     expect(sql).toContain("char_length(slug) between 3 and 40 and slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'");
   });
 });
