@@ -8,6 +8,7 @@ import { detectDatabaseCapabilities } from "./database-capabilities.js";
 import { repairPendingGroupJobsWithoutSession } from "./queue/repair-pending-groups.js";
 import { TemporaryMediaGarbageCollector } from "./queue/temporary-media-gc.js";
 import { recoverInterruptedPilotOffers } from "./offers/offer-recovery.js";
+import { RecurringMessageMaterializer } from "./queue/recurring-materializer.js";
 import { installBaileysRejectionGuard } from "./utils/baileys-rejections.js";
 import { installLibsignalLogFilter } from "./utils/libsignal-log-filter.js";
 import { installSignalEventLoopBreaks } from "./utils/signal-event-loop.js";
@@ -73,6 +74,13 @@ async function main() {
     setInterval(() => periodicReclaim(databaseCapabilities).catch((error) => {
       readiness.lastError = error instanceof Error ? error.message : "Falha na recuperação da fila.";
     }), 60_000);
+    // Mensagens automáticas diárias: só banco, nunca mexe em sessão.
+    const recurringMessages = new RecurringMessageMaterializer();
+    const runRecurringMessages = () => recurringMessages.tick().catch((error) => {
+      console.error({ event: "recurring_messages.materialize_failed", component: "recurring-messages", error: error instanceof Error ? error.message : String(error?.message || "unknown") });
+    });
+    setTimeout(runRecurringMessages, 45_000);
+    setInterval(runRecurringMessages, 5 * 60_000);
     setInterval(() => recoverInterruptedPilotOffers().catch((error) => {
       console.error({ event: "offer_recovery_loop_failed", component: "offer-autopilot", error: error instanceof Error ? error.message : "unknown" });
     }), 60_000);

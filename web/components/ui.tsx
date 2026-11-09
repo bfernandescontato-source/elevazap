@@ -31,6 +31,7 @@ import {
   Play,
   QrCode,
   RefreshCw,
+  Repeat,
   Search,
   Send,
   Smartphone,
@@ -53,6 +54,7 @@ const navSections = [
     { href: "/integracoes", label: "Integrações", icon: Cable },
     { href: "/grupos/modelos", label: "Modelos", icon: FolderOpen },
     { href: "/disparos", label: "Disparos", icon: Send },
+    { href: "/mensagens-automaticas", label: "Mensagens automáticas", icon: Repeat, badge: "NOVO" },
     { href: "/piloto-automatico", label: "Piloto Automático", icon: Zap },
     { href: "/comunidade", label: "Comunidade", icon: MessageCircle }
   ] },

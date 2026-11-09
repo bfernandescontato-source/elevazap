@@ -26,6 +26,7 @@ import { isAmazonUrl, resolveAmazonUrl } from "@disparei/affiliate-links/amazon"
 import { BROWSER_USER_AGENT, WHATSAPP_PREVIEW_USER_AGENT, findMarketplaceLink, isAmazonCaptchaPage } from "./link-preview-page.js";
 import { buildLinkThumbnail } from "./link-thumbnail.js";
 import { observer } from "../observability/observer.js";
+import { applyGroupLinkPlaceholder, groupInviteLinks, hasGroupLinkPlaceholder } from "../groups/invite-link-placeholder.js";
 
 // Observabilidade por número (investigação do número surdo): nunca interfere no envio.
 function observeSend(row: any, outcome: "send_ok" | "send_timeout" | "send_fail", durationMs?: number) {
@@ -487,6 +488,7 @@ export class GlobalSendQueue {
       ? await this.cachedLinkPreview(offerPreview ? row.texto || "" : manualLink!, previewContext, row.id, sock)
       : undefined;
     const message: any = buildBaileysMessage(row, media, mentions);
+    await this.fillGroupInviteLink(sock, row, message);
     if (offerPreview && "text" in message) message.text = normalizeWhatsappOfferText(message.text);
     if (linkPreview && "text" in message) message.linkPreview = linkPreview;
     await this.authorizeRelay("envios_grupo", row, signal);
@@ -506,6 +508,23 @@ export class GlobalSendQueue {
       });
     }
     await this.persistSuccess("envios_grupo", row, result?.key?.id || null);
+  }
+
+  /**
+   * {link_do_grupo} vira o link de convite atual deste grupo. Sem link, a linha
+   * sai da mensagem. Roda antes de iniciar a transmissão, então falha aqui nunca
+   * deixa o envio "incerto".
+   */
+  private async fillGroupInviteLink(sock: any, row: any, message: any) {
+    const field = "text" in message ? "text" : "caption" in message ? "caption" : null;
+    if (!field || !hasGroupLinkPlaceholder(message[field])) return;
+    const sessionKey = String(row.whatsapp_session_id || row.whatsapp_session_name || "");
+    const link = await groupInviteLinks.resolve(sessionKey, row.group_jid, () =>
+      withTimeout("groups.invite-link", Math.min(env.GROUP_SYNC_TIMEOUT_MS, 10_000), sock.groupInviteCode(row.group_jid)));
+    const text = applyGroupLinkPlaceholder(message[field], link);
+    if (!link) console.warn({ event: "queue.group_invite_link_missing", jobId: correlationId(row.id), group_jid: row.group_jid });
+    if (field === "text" && !text) throw new Error("Não foi possível obter o link do grupo. Confira se o número é admin do grupo.");
+    message[field] = text || undefined;
   }
 
   /**

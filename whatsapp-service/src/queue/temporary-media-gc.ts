@@ -45,16 +45,18 @@ export class TemporaryMediaGarbageCollector {
   }
 
   private async pathsToKeep() {
-    const [jobs, lots, offers, templates, quickReplies] = await Promise.all([
+    const [jobs, lots, offers, templates, quickReplies, recurring] = await Promise.all([
       supabase.from("envios_grupo").select("media_bucket,media_path").in("status", ACTIVE_GROUP_STATUSES),
       supabase.from("envios_grupo_lotes").select("media_bucket,media_path").in("status", ["pendente", "processando", "pausado", "incerto"]),
       supabase.from("captured_offers").select("media_bucket,media_path").in("status", ACTIVE_OFFER_STATUSES),
       supabase.from("modelos_mensagem").select("media_bucket,media_path"),
-      supabase.from("official_quick_reply_actions").select("media_bucket,media_path")
+      supabase.from("official_quick_reply_actions").select("media_bucket,media_path"),
+      // Imagem de mensagem automática é reenviada todo dia: nunca é temporária.
+      supabase.from("recurring_group_messages").select("media_bucket,media_path").not("media_path", "is", null)
     ]);
-    for (const result of [jobs, lots, offers, templates, quickReplies]) if (result.error && !["42P01", "PGRST205"].includes(result.error.code || "")) throw result.error;
+    for (const result of [jobs, lots, offers, templates, quickReplies, recurring]) if (result.error && !["42P01", "PGRST205"].includes(result.error.code || "")) throw result.error;
     const paths = new Set<string>();
-    for (const result of [jobs, lots, offers, templates, quickReplies]) {
+    for (const result of [jobs, lots, offers, templates, quickReplies, recurring]) {
       for (const row of (result.data || []) as PathRef[]) if (row.media_bucket && row.media_path) paths.add(`${row.media_bucket}:${row.media_path}`);
     }
     return paths;
