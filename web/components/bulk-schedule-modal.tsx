@@ -2,11 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, GripVertical, Loader2, X } from "lucide-react";
+import { CapacityNotice } from "@/components/capacity-notice";
+import { describeCapacity, estimateCapacity } from "@/modules/dispatch-capacity/capacity";
 
 type Pasta = { id: string; nome: string };
 type Modelo = { id: string; nome: string; tipo: string; pasta_id?: string | null; texto?: string | null; media_path?: string | null; created_at?: string | null };
 type Campaign = { id: string; nome: string; whatsapp_sender_id?: string | null; grupos: { group_jid: string; nome?: string }[] };
 type Sender = { id: string; label: string };
+type SplitPreview = { senders_used: number; largest_share: number; shares: Array<{ sender_id: string; label: string; groups: number }> };
 type ScheduleItem = { modelo: Modelo; scheduledAt: Date | null };
 
 const INTERVALS = [
@@ -113,6 +116,8 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
   const [selectedJids, setSelectedJids] = useState<string[]>([]);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [senderId, setSenderId] = useState("");
+  const [splitAcross, setSplitAcross] = useState(false);
+  const [splitPreview, setSplitPreview] = useState<SplitPreview | null>(null);
 
   // Step 3 — Schedule
   const [firstDate, setFirstDate] = useState(tomorrowDate);
@@ -129,7 +134,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
   function reset() {
     setStep(1); setError(""); setDone(false); setDoneCount(0); setSaving(false);
     setPastaId(""); setAllModelos([]); setSelectedIds(new Set()); setManualOrder([]);
-    setOrderMode("pasta"); setCampaignId(""); setSelectedJids([]); setSenderId("");
+    setOrderMode("pasta"); setCampaignId(""); setSelectedJids([]); setSenderId(""); setSplitAcross(false); setSplitPreview(null);
     setFirstDate(tomorrowDate()); setFirstTime("07:30"); setIntervalSel(30);
     setDailyLimit(false); setLimitTime("22:00"); setOverflow("next_day"); setRestartTime("07:30");
   }
@@ -181,6 +186,24 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
     setSelectedJids(camp ? camp.grupos.map((g) => g.group_jid) : []);
   }, [campaignId, campaigns]);
 
+  // "Dividir os grupos entre meus números": prévia de quantos grupos cada número recebe.
+  useEffect(() => {
+    setSplitPreview(null);
+    if (!open || !senderId || !selectedJids.length || senders.length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetch("/api/lotes/divisao", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ whatsapp_sender_id: senderId, group_jids: selectedJids }), signal: controller.signal })
+        .then((r) => r.ok ? r.json() : null).then((body) => setSplitPreview(body)).catch(() => undefined);
+    }, 400);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [open, senderId, selectedJids, senders.length]);
+  const canSplit = Boolean(splitPreview && splitPreview.senders_used > 1);
+  const splitting = canSplit && splitAcross;
+  const capacityMessage = useMemo(() => describeCapacity(estimateCapacity({
+    groupsPerOffer: selectedJids.length, intervalMinutes,
+    senders: splitting ? splitPreview!.senders_used : 1, largestShare: splitting ? splitPreview!.largest_share : undefined
+  }), { canSplit }), [selectedJids.length, intervalMinutes, splitting, splitPreview, canSplit]);
+
   // displayList: order shown in step 1 list AND used for send order
   const displayList = useMemo(() => {
     if (orderMode === "antigas") return [...allModelos].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
@@ -231,6 +254,7 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
         campanha_id: campaignId || undefined,
         group_jids: selectedJids,
         whatsapp_sender_id: senderId || undefined,
+        split_across_senders: splitting || undefined,
         schedules: scheduled.map((p) => ({
           modelo_id: p.modelo.id,
           scheduled_at: p.scheduledAt!.toISOString()
@@ -388,6 +412,17 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                 </select>
                 {!senderId && <p className="mt-1 text-xs text-red-600">Selecione o número que será usado no envio.</p>}
               </div>
+
+              {canSplit && splitPreview ? (
+                <div className="rounded-xl border border-line p-4 text-sm">
+                  <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium text-ink">
+                    <span>Dividir os grupos entre meus números</span>
+                    <input type="checkbox" checked={splitAcross} onChange={(e) => setSplitAcross(e.target.checked)} className="switch h-5 w-5 shrink-0 accent-primary" />
+                  </label>
+                  <p className="mt-1 text-muted">Cada mensagem sai por mais de um número ao mesmo tempo, e chega mais rápido em todos os grupos. Cada número envia só para os grupos em que ele está.</p>
+                  <ul className="mt-2 space-y-1">{splitPreview.shares.map((share) => <li key={share.sender_id} className="flex justify-between gap-3 rounded-lg bg-wash px-3 py-2"><span className="min-w-0 truncate">{share.label}</span><span className="shrink-0 font-medium text-ink">{share.groups === 1 ? "1 grupo" : `${share.groups} grupos`}</span></li>)}</ul>
+                </div>
+              ) : null}
             </div>
           ) : step === 3 ? (
             <div className="space-y-5">
@@ -414,6 +449,8 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                   </div>
                 )}
               </div>
+
+              <CapacityNotice message={capacityMessage} />
 
               <div className="rounded-xl border border-line p-4">
                 <label className="flex cursor-pointer items-center gap-3">
@@ -478,6 +515,8 @@ export function BulkScheduleModal({ open, onClose, onSuccess }: Props) {
                   {skipped} mensagem(ns) serão ignoradas por ultrapassarem o limite de horário.
                 </div>
               )}
+
+              {capacityMessage?.tone === "warning" ? <CapacityNotice message={capacityMessage} /> : null}
 
               {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
