@@ -1,11 +1,12 @@
 "use client";
 
 import { AppShell, LoadingState } from "@/components/ui";
-import { Camera, CreditCard, KeyRound, Loader2, Moon, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Camera, CreditCard, ImageIcon, KeyRound, Loader2, Moon, ShieldCheck, UserRound, Users } from "lucide-react";
 import { SendRulesSettings } from "@/components/send-rules-settings";
+import { OfferImageSettingsSection } from "@/components/offer-image-settings";
 import { useEffect, useState } from "react";
 
-type Tab = "account" | "users" | "sending" | "security" | "billing";
+type Tab = "account" | "users" | "sending" | "security" | "billing" | "offer-images";
 type AccountData = {
   name: string | null;
   avatarUrl: string | null;
@@ -27,6 +28,7 @@ const tabs = [
   { id: "sending" as const, label: "Envios",            icon: Moon      },
   { id: "security" as const, label: "Segurança",        icon: ShieldCheck },
   { id: "billing"  as const, label: "Planos e cobrança", icon: CreditCard  },
+  { id: "offer-images" as const, label: "Imagem das ofertas", icon: ImageIcon },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -52,6 +54,11 @@ export default function ConfiguracoesPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
+
+  // Outras telas abrem direto numa aba: /configuracoes?aba=imagem-ofertas
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("aba") === "imagem-ofertas") setTab("offer-images");
+  }, []);
 
   useEffect(() => {
     fetch("/api/account", { cache: "no-store" }).then((r) => r.json()).then((data) => {
@@ -194,6 +201,8 @@ export default function ConfiguracoesPage() {
           </form>
           {!capabilities.passwordChange ? <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Este acesso ainda usa a credencial administrativa legada. Cadastre o mesmo e-mail no novo sistema para habilitar recuperação e magic link.</div> : null}
         </section> : null}
+
+        {account && tab === "offer-images" ? <OfferImageSettingsSection /> : null}
 
         {account && tab === "billing" ? <section className="space-y-6 max-w-2xl">
           <div>

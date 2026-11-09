@@ -43,11 +43,14 @@ export async function POST(request: NextRequest) {
     if (!message.includes(affiliateUrl)) message = `${message}\n🛒 ${affiliateUrl}`;
 
     const usaImagem = imagemShopee(imageUrl);
-    const target = await resolveCatalogTarget(context.accountId, { senderId: d.senderId, groupJids: d.groupJids, imageMode: usaImagem ? "original_image" : "product_link_preview" });
+    // Cupom vai sempre com a arte do cupom. Oferta com foto segue o formato padrão da
+    // conta (Imagem ou Preview); sem foto, só o card do link.
+    const imageMode = !usaImagem ? "product_link_preview" as const : d.tipo === "cupom" ? "original_image" as const : undefined;
+    const target = await resolveCatalogTarget(context.accountId, { senderId: d.senderId, groupJids: d.groupJids, imageMode });
     const result = await createCatalogDispatch({
       accountId: context.accountId, userId: context.session.userId ?? null,
       offer: { provider: "SHOPEE", externalItemId, name, imageUrl: usaImagem ? imageUrl : undefined, affiliateUrl },
-      message, target, imageMode: usaImagem ? "original_image" : "product_link_preview"
+      message, target, imageMode
     });
     return NextResponse.json({ ok: true, total: result.total });
   } catch (error) {

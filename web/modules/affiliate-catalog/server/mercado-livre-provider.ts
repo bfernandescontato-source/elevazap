@@ -3,7 +3,7 @@ import type { AffiliateMarketplaceProvider, AffiliateOffer, CatalogCategory, Cat
 type MlSearchResult = {
   id?: string; title?: string; thumbnail?: string; price?: number; original_price?: number;
   permalink?: string; sold_quantity?: number; seller?: { id?: number; nickname?: string };
-  category_id?: string;
+  category_id?: string; shipping?: { free_shipping?: boolean };
 };
 type MlSearchResponse = { results?: MlSearchResult[]; paging?: { total?: number; offset?: number; limit?: number } };
 
@@ -32,7 +32,8 @@ export function normalizeMercadoLivreOffer(item: MlSearchResult): AffiliateOffer
     shopId: item.seller?.id ? String(item.seller.id) : undefined,
     shopName: item.seller?.nickname || undefined,
     productUrl: item.permalink,
-    categoryIds: item.category_id ? [item.category_id] : undefined
+    categoryIds: item.category_id ? [item.category_id] : undefined,
+    freeShipping: item.shipping?.free_shipping === true || undefined
   };
 }
 

@@ -21,6 +21,8 @@ export type AffiliateOffer = {
   categoryIds?: string[];
   offerStartsAt?: string;
   offerEndsAt?: string;
+  /** Só quando a loja informa frete grátis sem condição; usado no selo da foto. */
+  freeShipping?: boolean;
 };
 
 export type CatalogPage = { offers: AffiliateOffer[]; pageInfo: { page: number; limit: number; hasNextPage: boolean } };

@@ -19,10 +19,14 @@
     "./mercado-livre-session": {
       "types": "./mercado-livre-session.d.mts",
       "import": "./mercado-livre-session.mjs"
+    },
+    "./offer-badges": {
+      "types": "./offer-badges.d.mts",
+      "import": "./offer-badges.mjs"
     }
   },
   "scripts": {
-    "build": "node --check amazon.mjs && node --check offer-copy.mjs && node --check offer-hooks.mjs && node --check mercado-livre-session.mjs",
+    "build": "node --check amazon.mjs && node --check offer-copy.mjs && node --check offer-hooks.mjs && node --check offer-badges.mjs && node --check mercado-livre-session.mjs",
     "test": "node --test"
   }
 }

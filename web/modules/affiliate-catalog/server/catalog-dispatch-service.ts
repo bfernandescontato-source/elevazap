@@ -4,6 +4,9 @@ import { isConfirmedAffiliateUrl, type CatalogOfferProvider } from "../schemas";
 import type { AffiliateOffer } from "../types";
 import { daysLabel, productKey } from "@/modules/send-guard/rules";
 import { effectiveSendAt, findRepeatedGroups, getSendRules } from "@/modules/send-guard/server/send-rules-service";
+import { decideOfferBadges, type OfferBadges } from "@disparei/affiliate-links/offer-badges";
+import { getOfferImageSettings } from "@/modules/offer-images/server/offer-image-settings-service";
+import { composeOfferImageWithBadges } from "@/modules/offer-images/server/offer-image-composer";
 
 export class CatalogDispatchError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -12,7 +15,7 @@ export class CatalogDispatchError extends Error {
 type ImageMode = "original_image" | "product_link_preview";
 type Media = { bucket: string; path: string; mime: string; fileName: string; size: number };
 
-export type CatalogDispatchTarget = { senderId: string; groupJids: string[]; imageMode: ImageMode };
+export type CatalogDispatchTarget = { senderId: string; groupJids: string[]; imageMode?: ImageMode };
 type Sender = { id: string; session_name: string };
 type ResolvedTarget = { sender: Sender; groupJids: string[]; groupNames: Map<string, string | undefined> };
 
@@ -28,13 +31,16 @@ export async function resolveCatalogTarget(accountId: string, target: CatalogDis
   return { sender: sender as Sender, groupJids, groupNames: new Map((groups || []).map((group: any) => [group.group_jid, group.nome])) };
 }
 
-async function uploadOfferImage(accountId: string, offer: AffiliateOffer): Promise<Media | null> {
+async function uploadOfferImage(accountId: string, offer: AffiliateOffer, badges: OfferBadges | null): Promise<Media | null> {
   if (!offer.imageUrl) return null;
   try {
     const image = await fetch(offer.imageUrl, { signal: AbortSignal.timeout(10_000) });
-    const bytes = Buffer.from(await image.arrayBuffer());
-    const mime = image.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+    let bytes = Buffer.from(await image.arrayBuffer());
+    let mime = image.headers.get("content-type")?.split(";")[0] || "image/jpeg";
     if (!image.ok || !mime.startsWith("image/") || bytes.length > 5 * 1024 * 1024) throw new Error();
+    // Selos desenhados uma vez por envio; se o serviço falhar, a foto segue sem selo.
+    const withBadges = await composeOfferImageWithBadges(bytes, mime, badges);
+    if (withBadges) { bytes = withBadges; mime = "image/jpeg"; }
     const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
     const path = `accounts/${accountId}/catalog/${randomUUID()}.${ext}`;
     const upload = await supabaseAdmin().storage.from("whatsapp-media").upload(path, bytes, { contentType: mime, upsert: false });
@@ -51,9 +57,13 @@ async function uploadOfferImage(accountId: string, offer: AffiliateOffer): Promi
  */
 export async function createCatalogDispatch(input: {
   accountId: string; userId: string | null; offer: AffiliateOffer; message: string;
-  target: ResolvedTarget; imageMode: ImageMode; scheduledAt?: string;
+  /** Sem escolha no envio, vale o formato padrão da conta. */
+  target: ResolvedTarget; imageMode?: ImageMode; scheduledAt?: string;
 }) {
-  const { accountId, userId, offer, message, target, imageMode } = input;
+  const { accountId, userId, offer, message, target } = input;
+  const settings = await getOfferImageSettings(accountId);
+  const imageMode = input.imageMode ?? settings.defaultImageMode;
+  const badges = decideOfferBadges({ price: offer.priceMin, originalPrice: offer.originalPrice, statedDiscountPercent: offer.discountPercentage, freeShipping: offer.freeShipping }, settings);
   if (!isConfirmedAffiliateUrl(offer.provider as CatalogOfferProvider, offer.affiliateUrl) || !message.includes(offer.affiliateUrl!)) {
     throw new CatalogDispatchError("A oferta precisa conter o link afiliado confirmado.", 400);
   }
@@ -72,7 +82,7 @@ export async function createCatalogDispatch(input: {
 
   // No modo preview a URL segue no texto; não baixamos nem anexamos a imagem.
   // Assim o Baileys monta o card nativo do WhatsApp a partir do link afiliado.
-  const media = imageMode === "original_image" ? await uploadOfferImage(accountId, offer) : null;
+  const media = imageMode === "original_image" ? await uploadOfferImage(accountId, offer, badges) : null;
   const type = media ? "imagem" : "texto";
   const { sender, groupJids, groupNames } = target;
   const content = { tipo: type, texto: type === "texto" ? message : null, legenda: type === "imagem" ? message : null, media_bucket: media?.bucket, media_path: media?.path, mime_type: media?.mime, file_name: media?.fileName, file_size_bytes: media?.size };
@@ -85,7 +95,9 @@ export async function createCatalogDispatch(input: {
     await sb.from("envios_grupo_lotes").delete().eq("id", lote.id).eq("account_id", accountId);
     throw new CatalogDispatchError("Não foi possível criar os envios.", 500);
   }
-  await sb.from("affiliate_offer_deliveries").insert((jobs || []).map((job: any) => ({ account_id: accountId, user_id: userId, provider: offer.provider, external_item_id: offer.externalItemId, group_id: job.group_jid, sender_id: sender.id, group_dispatch_id: job.id, scheduled_at: when, message, affiliate_url: offer.affiliateUrl, status: input.scheduledAt ? "scheduled" : "pending" })));
+  await sb.from("affiliate_offer_deliveries").insert((jobs || []).map((job: any) => ({ account_id: accountId, user_id: userId, provider: offer.provider, external_item_id: offer.externalItemId, group_id: job.group_jid, sender_id: sender.id, group_dispatch_id: job.id, scheduled_at: when, message, affiliate_url: offer.affiliateUrl, status: input.scheduledAt ? "scheduled" : "pending",
+    // Só manda a coluna quando há selo: banco sem a migration continua aceitando o insert.
+    ...(badges ? { image_badges: badges } : {}) })));
   const { data: agendaItem, error: agendaError } = await sb.from("catalog_scheduled_offers").insert({ account_id: accountId, user_id: userId, lote_id: lote.id, provider: offer.provider, external_item_id: offer.externalItemId, product_name: offer.name.slice(0, 500), image_url: offer.imageUrl ?? null, price: offer.priceMin ?? null, original_price: offer.originalPrice ?? null, affiliate_url: offer.affiliateUrl, message, whatsapp_sender_id: sender.id, group_count: groupJids.length, scheduled_at: when }).select("id").single();
   // O envio já está na fila; a Agenda é só a vitrine dele, então uma falha aqui não desfaz o lote.
   if (agendaError) console.error({ event: "catalog_agenda_record_failed", component: "affiliate-catalog", account_id: accountId, lote_id: lote.id, code: agendaError.code });
