@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { normalizeReferralCode, withReferralSrc } from "@/modules/referrals/rules";
 
 type MockPanel = "inicio" | "numeros" | "campanhas" | "modelos" | "disparos";
 
@@ -288,8 +289,31 @@ const css = `
   }
 `;
 
+const REFERRAL_STORAGE_KEY = "disparei_ind";
+
+// Lê ?ind=CODIGO, guarda para as próximas visitas e devolve o código válido.
+function useReferralCode() {
+  const [code, setCode] = useState<string | null>(null);
+  useEffect(() => {
+    let found = normalizeReferralCode(new URLSearchParams(window.location.search).get("ind"));
+    try {
+      if (found) {
+        window.localStorage.setItem(REFERRAL_STORAGE_KEY, found);
+        document.cookie = `${REFERRAL_STORAGE_KEY}=${found}; path=/; max-age=${60 * 60 * 24 * 30}; samesite=lax`;
+      } else {
+        const fromCookie = document.cookie.split("; ").find((item) => item.startsWith(`${REFERRAL_STORAGE_KEY}=`))?.split("=")[1];
+        found = normalizeReferralCode(window.localStorage.getItem(REFERRAL_STORAGE_KEY) || fromCookie);
+      }
+    } catch { /* navegador sem armazenamento: usa só o código da URL */ }
+    setCode(found);
+  }, []);
+  return code;
+}
+
 export default function HomePage() {
   const [activePanel, setActivePanel] = useState<MockPanel>("inicio");
+  const referralCode = useReferralCode();
+  const checkout = (offerId: string) => withReferralSrc(`https://pay.hub.la/${offerId}`, referralCode);
 
   return (
     <>
@@ -520,7 +544,7 @@ export default function HomePage() {
                 <div className="row"><div className="check">✓</div> Modelos de mensagem</div>
                 <div className="row"><div className="check">✓</div> Histórico de envios (30 dias)</div>
               </div>
-              <a href="https://pay.hub.la/LI3Txcm3rWNDfrCIybVW" className="btn-secondary btn-full">Começar com o START</a>
+              <a href={checkout("LI3Txcm3rWNDfrCIybVW")} className="btn-secondary btn-full">Começar com o START</a>
             </div>
 
             <div className="price-card featured">
@@ -541,7 +565,7 @@ export default function HomePage() {
                 <div className="row"><div className="check">✓</div> Packs de carrosséis e criativos virais</div>
                 <div className="row"><div className="check">✓</div> 21 templates de páginas de captura</div>
               </div>
-              <a href="https://pay.hub.la/ILPh7mvrbMcJPrwggaB8" className="btn-primary btn-full">Quero o plano anual</a>
+              <a href={checkout("ILPh7mvrbMcJPrwggaB8")} className="btn-primary btn-full">Quero o plano anual</a>
             </div>
 
             <div className="price-card">
@@ -562,7 +586,7 @@ export default function HomePage() {
                 <div className="row"><div className="check">✓</div> Múltiplos usuários (equipe)</div>
                 <div className="row"><div className="check">✓</div> Acesso antecipado a novos recursos</div>
               </div>
-              <a href="https://pay.hub.la/3kJ87CEotVEFhsSsGCYC" className="btn-secondary btn-full">Começar com o SCALE</a>
+              <a href={checkout("3kJ87CEotVEFhsSsGCYC")} className="btn-secondary btn-full">Começar com o SCALE</a>
             </div>
           </div>
         </div>

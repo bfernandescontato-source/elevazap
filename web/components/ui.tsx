@@ -18,6 +18,7 @@ import {
   Cable,
   Cog,
   FolderOpen,
+  Gift,
   Home,
   Inbox,
   Info,
@@ -64,6 +65,7 @@ const navSections = [
   ] },
   { label: "Conta", items: [
     { href: "/configuracoes/vitrine", label: "Minha vitrine", icon: Store, badge: "NOVO" },
+    { href: "/indique", label: "Indique e ganhe", icon: Gift, badge: "NOVO" },
     { href: "/configuracoes", label: "Configurações", icon: Cog, exact: true }
   ] }
 ];
@@ -71,6 +73,7 @@ const navSections = [
 const adminNavSection = { label: "Administração", items: [
   { href: "/admin/contas", label: "Contas", icon: UserPlus },
   { href: "/admin/mercado-livre-catalog", label: "Mercado Livre", icon: ShoppingBag },
+  { href: "/admin/indicacoes", label: "Indicações", icon: Gift },
 ] };
 const officialNavSection = { label: "WhatsApp API oficial", items: [
   { href: "/admin/whatsapp-oficial", label: "Painel", icon: BarChart3, exact: true },
