@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { publicUrl } from "./lib/public-url";
 
 const protectedPaths = [
   "/dashboard",
@@ -17,12 +18,18 @@ const protectedPaths = [
   "/catalogo",
   "/comunidade",
   "/suporte",
-  "/configuracoes"
+  "/configuracoes",
+  "/indique"
 ];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname === "/grupos") return NextResponse.redirect(new URL("/campanhas", request.url));
+  // Link de indicação (https://www.disparei.pro/?ind=CODIGO) leva para a página de vendas.
+  const referral = request.nextUrl.searchParams.get("ind");
+  if (pathname === "/" && referral) {
+    return NextResponse.redirect(publicUrl(`/home?ind=${encodeURIComponent(referral.slice(0, 20))}`, request));
+  }
   const isInternalAdminPath = pathname.startsWith("/admin");
   if (!isInternalAdminPath && !protectedPaths.some((path) => pathname.startsWith(path))) return NextResponse.next();
 
@@ -43,5 +50,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/campanhas/:path*", "/disparos/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/incidentes/:path*", "/piloto-automatico/:path*", "/catalogo/:path*", "/comunidade/:path*", "/suporte/:path*", "/configuracoes/:path*", "/admin/:path*"]
+  matcher: ["/", "/dashboard/:path*", "/conexao/:path*", "/mensagem/:path*", "/grupos/:path*", "/campanhas/:path*", "/disparos/:path*", "/lotes/:path*", "/envios/:path*", "/envios-grupo/:path*", "/incertos/:path*", "/incidentes/:path*", "/piloto-automatico/:path*", "/catalogo/:path*", "/comunidade/:path*", "/suporte/:path*", "/configuracoes/:path*", "/indique/:path*", "/admin/:path*"]
 };

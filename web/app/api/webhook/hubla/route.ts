@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { getPlanFromOfferCode, getPlanLabel } from "@/lib/plans";
+import { recordHublaReferral } from "@/modules/referrals/server/referral-webhook";
 
 // Status resultante em accounts.status para cada evento da Hubla.
 // Adicione novos eventos aqui quando confirmados (ex: subscription.updated).
@@ -124,15 +125,16 @@ export async function POST(request: NextRequest) {
 
   try {
     // Busca conta existente por subscription ID ou por email
-    let account: { id: string; owner_user_id: string | null } | null = null;
+    let account: { id: string; owner_user_id: string | null; created_at?: string | null } | null = null;
+    let accountCreated = false;
     if (subscriptionId) {
-      const result = await admin.from("accounts").select("id,owner_user_id")
+      const result = await admin.from("accounts").select("id,owner_user_id,created_at")
         .eq("hubla_subscription_id", subscriptionId).maybeSingle();
       account = result.data;
     }
     if (!account) {
       const profile = await admin.from("app_users")
-        .select("account_id,accounts(id,owner_user_id)")
+        .select("account_id,accounts(id,owner_user_id,created_at)")
         .eq("email", email).maybeSingle();
       const related = Array.isArray(profile.data?.accounts)
         ? profile.data.accounts[0]
@@ -152,9 +154,10 @@ export async function POST(request: NextRequest) {
         plan: resolvedPlan,
         hubla_subscription_id: subscriptionId,
         subscription_started_at: new Date().toISOString(),
-      }).select("id,owner_user_id").single();
+      }).select("id,owner_user_id,created_at").single();
       if (createdAccount.error) throw createdAccount.error;
       account = createdAccount.data;
+      accountCreated = true;
 
       const createdUser = await admin.auth.admin.createUser({
         email,
@@ -198,6 +201,9 @@ export async function POST(request: NextRequest) {
 
     const updated = await admin.from("accounts").update(accountUpdate).eq("id", account.id);
     if (updated.error) throw updated.error;
+
+    // Indique e ganhe: nunca lança erro nem bloqueia a ativação da conta.
+    await recordHublaReferral(admin, { body, eventType, email, firstName: user.firstName, account, accountCreated, idempotencyKey });
 
     await admin.from("hubla_webhook_events").update({
       account_id: account.id,

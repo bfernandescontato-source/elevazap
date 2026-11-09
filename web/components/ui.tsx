@@ -18,6 +18,7 @@ import {
   Cable,
   Cog,
   FolderOpen,
+  Gift,
   Home,
   Inbox,
   Info,
@@ -60,6 +61,7 @@ const navSections = [
     { href: "/analytics/shopee", label: "Shopee Analytics", icon: BarChart3 }
   ] },
   { label: "Conta", items: [
+    { href: "/indique", label: "Indique e ganhe", icon: Gift },
     { href: "/configuracoes", label: "Configurações", icon: Cog }
   ] }
 ];
@@ -67,6 +69,7 @@ const navSections = [
 const adminNavSection = { label: "Administração", items: [
   { href: "/admin/contas", label: "Contas", icon: UserPlus },
   { href: "/admin/mercado-livre-catalog", label: "Mercado Livre", icon: ShoppingBag },
+  { href: "/admin/indicacoes", label: "Indicações", icon: Gift },
 ] };
 const officialNavSection = { label: "WhatsApp API oficial", items: [
   { href: "/admin/whatsapp-oficial", label: "Painel", icon: BarChart3, exact: true },
