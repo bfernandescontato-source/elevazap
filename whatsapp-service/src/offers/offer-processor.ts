@@ -11,6 +11,7 @@ import { AmazonOfferConverter } from "./amazon-conversion.js";
 import { env } from "../env.js";
 import { sharedMediaCache } from "../utils/media.js";
 import { OfferNicheResolver } from "./offer-niche-resolver.js";
+import { OfferHookResolver } from "./offer-hook-resolver.js";
 
 type Automation = {
   id: string;
@@ -35,7 +36,7 @@ function log(event: string, fields: Record<string, unknown>) {
 }
 
 export class OfferProcessor {
-  constructor(private database: SupabaseClient, private amazonConverter = new AmazonOfferConverter(database), private nicheResolver = new OfferNicheResolver(database)) {}
+  constructor(private database: SupabaseClient, private amazonConverter = new AmazonOfferConverter(database), private nicheResolver = new OfferNicheResolver(database), private hookResolver = new OfferHookResolver(database)) {}
 
   private processingLease() {
     return {
@@ -365,7 +366,8 @@ export class OfferProcessor {
           const rewritten = await new OfferAiRewriter().rewrite({
             text: processedText,
             purchaseLink: linkUsed,
-            links: parsed.links
+            links: parsed.links,
+            hookFor: (facts) => this.hookResolver.hookFor(automation.account_id, facts)
           });
           processedText = rewritten.text;
           await this.database.from("captured_offers").update({

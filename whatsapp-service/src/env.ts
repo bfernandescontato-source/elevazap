@@ -60,7 +60,12 @@ const schema = z.object({
   OBS_CRASH_DIR: z.string().default("/tmp"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.6"),
-  OPENAI_REWRITE_MODEL: z.string().default("gpt-4o-mini")
+  OPENAI_REWRITE_MODEL: z.string().default("gpt-4o-mini"),
+  // IA gratuita (OpenRouter): gancho com IA e, se configurado, a extração do
+  // "Reescrever com IA" do Piloto. Listas de modelos separados por vírgula.
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  HOOK_AI_MODELS: z.string().optional(),
+  OFFER_REWRITE_AI_MODELS: z.string().optional()
 });
 
 export const env = schema.parse(process.env);

@@ -5,6 +5,7 @@ import { AlertTriangle, CalendarClock, Check, Loader2, MessageSquareText, Search
 import { LinkGenerating } from "@/components/catalog/link-generating";
 import { buildCatalogOfferMessage, catalogMessageRandom } from "@/modules/affiliate-catalog/offer-message";
 import type { AffiliateOffer } from "@/modules/affiliate-catalog/types";
+import type { HookSettings } from "@disparei/affiliate-links/offer-hooks";
 import { addDays, brasiliaDate, brasiliaTime, everyInterval, spreadInDay } from "@/modules/affiliate-catalog/schedule-plan";
 
 type Sender = { id: string; label: string };
@@ -55,6 +56,8 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
   const [timing, setTiming] = useState<"spread" | "interval">("spread"); const [firstTime, setFirstTime] = useState("08:00"); const [interval, setIntervalMinutes] = useState(30);
   const [duplicates, setDuplicates] = useState<Set<string>>(new Set()); const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [openMessage, setOpenMessage] = useState<string | null>(null);
+  // Ganchos da conta: a prévia usa o mesmo modo que o servidor vai usar.
+  const [hookSettings, setHookSettings] = useState<HookSettings | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({}); const [running, setRunning] = useState(false); const [finished, setFinished] = useState(false); const [error, setError] = useState("");
 
   const today = brasiliaDate();
@@ -71,6 +74,13 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
       setSelectedGroups(senderId === saved.senderId ? (saved.groupJids || []).filter(jid => list.some(g => g.group_jid === jid)) : []);
     });
   }, [senderId, saved]);
+  useEffect(() => {
+    fetch("/api/ganchos", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(body => {
+      if (!body) return;
+      const hooks: Array<{ id: string; text: string }> = body.hooks || [];
+      setHookSettings({ mode: body.mode, mixSystem: body.mixSystem, hooks: hooks.map(h => h.text), fixedHook: hooks.find(h => h.id === body.fixedHookId)?.text || null });
+    }).catch(() => undefined);
+  }, []);
   useEffect(() => {
     if (!day) return;
     fetch("/api/catalogo/agendamentos", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ day, items: offers.map(o => ({ provider: o.provider, externalItemId: o.externalItemId })) }) })
@@ -148,7 +158,8 @@ export function BulkScheduleDialog({ offers, initialDay = "today", onClose, onDo
             <span className="min-w-0 flex-1"><span className="line-clamp-1">{offer.name}</span>{skipped ? <span className="text-xs text-muted">Já agendada neste dia</span> : duplicates.has(key) ? <span className="flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={12}/> Já agendada neste dia</span> : row?.detail && row.state !== "done" ? <span className={`text-xs ${row.state === "failed" ? "text-red-700" : "text-muted"}`}>{row.detail}</span> : null}</span>
             <button type="button" onClick={() => setOpenMessage(openMessage === key ? null : key)} className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs ${openMessage === key ? "border-primary bg-wash" : "border-line"}`} aria-expanded={openMessage === key}><MessageSquareText size={14}/> Mensagem</button>
             <span className="shrink-0">{row?.state === "done" ? <Check className="text-emerald-600" size={18}/> : row?.state === "failed" ? <X className="text-red-600" size={18}/> : row && row.state !== "waiting" ? <Loader2 className="animate-spin text-muted" size={18}/> : null}</span>
-          </div>{openMessage === key ? <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-[#e9f7ee] p-3 font-sans text-sm leading-6">{buildCatalogOfferMessage(offer, offer.affiliateUrl || LINK_PLACEHOLDER, catalogMessageRandom(offer, day))}</pre> : null}
+          </div>{openMessage === key ? <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-[#e9f7ee] p-3 font-sans text-sm leading-6">{buildCatalogOfferMessage(offer, offer.affiliateUrl || LINK_PLACEHOLDER, catalogMessageRandom(offer, day), { settings: hookSettings })}</pre> : null}
+          {openMessage === key && (hookSettings?.mode === "own_sequence" || hookSettings?.mode === "ai") ? <p className="mt-1 text-xs text-muted">{hookSettings.mode === "ai" ? "O gancho com IA é criado na hora de agendar. Se a IA não responder, usamos os seus ganchos." : "Os seus ganchos entram em ordem na hora de agendar."}</p> : null}
           </li>; })}</ol>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         {finished ? <div className="mobile-action-bar mt-4 space-y-2"><div className={`rounded-xl border p-4 text-sm ${doneCount ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-800"}`}><p className="flex items-center gap-2 text-base font-semibold">{doneCount ? <Check size={20}/> : <X size={20}/>}{doneCount ? `${doneCount} ${doneCount === 1 ? "produto agendado" : "produtos agendados"}!` : "Nenhum produto foi agendado."}</p>{failedCount ? <p className="mt-1">{failedCount} com erro — veja o motivo na lista acima.</p> : null}{doneCount ? <p className="mt-1">Acompanhe e ajuste os horários na aba <a href="/catalogo/agenda" className="font-medium underline">Agenda</a>.</p> : null}</div><button onClick={onClose} className="h-12 w-full rounded-lg bg-primary font-medium text-white">Fechar</button></div>

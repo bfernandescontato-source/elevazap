@@ -12,13 +12,17 @@
       "types": "./offer-copy.d.mts",
       "import": "./offer-copy.mjs"
     },
+    "./offer-hooks": {
+      "types": "./offer-hooks.d.mts",
+      "import": "./offer-hooks.mjs"
+    },
     "./mercado-livre-session": {
       "types": "./mercado-livre-session.d.mts",
       "import": "./mercado-livre-session.mjs"
     }
   },
   "scripts": {
-    "build": "node --check amazon.mjs && node --check offer-copy.mjs && node --check mercado-livre-session.mjs",
+    "build": "node --check amazon.mjs && node --check offer-copy.mjs && node --check offer-hooks.mjs && node --check mercado-livre-session.mjs",
     "test": "node --test"
   }
 }

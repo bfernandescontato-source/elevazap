@@ -77,13 +77,17 @@ function pick(items, random) {
   return items[Math.min(items.length - 1, Math.floor(random() * items.length))];
 }
 
-export function buildOfferCopy(facts, purchaseLink, random = Math.random) {
+/**
+ * `options.hook` troca o gancho sorteado pelo escolhido para a conta (ver
+ * offer-hooks.mjs); sem ele, sorteia da lista aprovada como sempre.
+ */
+export function buildOfferCopy(facts, purchaseLink, random = Math.random, options = {}) {
   const computed = discountPercent(facts.priceFromCents, facts.priceToCents);
   const statedPercent = facts.statedDiscountPercent;
   const stated = !facts.priceFromCents && facts.priceToCents && statedPercent && statedPercent >= MIN_DISCOUNT_PERCENT && statedPercent < 100
     ? statedPercent : null;
   const shownPercent = computed || stated || 0;
-  const hook = pick(shownPercent >= STRONG_DISCOUNT_HOOK_PERCENT ? [...DISCOUNT_HOOKS, ...GENERAL_HOOKS] : GENERAL_HOOKS, random);
+  const hook = (typeof options?.hook === "string" && options.hook.trim()) || pick(shownPercent >= STRONG_DISCOUNT_HOOK_PERCENT ? [...DISCOUNT_HOOKS, ...GENERAL_HOOKS] : GENERAL_HOOKS, random);
   const blocks = [hook, `🛍️ ${facts.productName}`];
 
   const condition = facts.priceCondition ? ` ${facts.priceCondition}` : "";

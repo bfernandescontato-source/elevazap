@@ -18,6 +18,10 @@ const serverEnvSchema = z.object({
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
+  // Gancho com IA: só modelos gratuitos do OpenRouter, separados por vírgula.
+  // Sem os dois, o modo IA usa os ganchos do aluno ou os do sistema.
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  HOOK_AI_MODELS: z.string().optional(),
   MERCADO_LIVRE_CLIENT_ID: z.string().min(10).optional(),
   MERCADO_LIVRE_CLIENT_SECRET: z.string().min(10).optional(),
   MERCADO_LIVRE_REDIRECT_URI: z.string().url().optional(),

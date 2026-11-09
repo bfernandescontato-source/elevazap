@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { brlAmountsInCents, buildOfferCopy, parseBrlPrice, type OfferCopyFacts } from "./offer-copy-template.js";
+import { createOpenRouterExtractionClient } from "./openrouter-extraction-client.js";
 
 const ExtractedOffer = z.object({
   product_name: z.string(),
@@ -25,6 +26,8 @@ export type RewriteInput = {
   text: string;
   purchaseLink?: string | null;
   links: string[];
+  /** Gancho escolhido para a conta (Ganchos); undefined sorteia da lista do sistema. */
+  hookFor?: (facts: OfferCopyFacts) => Promise<string | null | undefined>;
 };
 
 export type RewriteResult = { text: string; model: string };
@@ -101,6 +104,14 @@ export class OfferAiRewriter {
     client?: ResponsesClient,
     private random: () => number = Math.random
   ) {
+    // Sem crédito pago: com OPENROUTER_API_KEY e uma lista de modelos gratuitos
+    // (OFFER_REWRITE_AI_MODELS ou HOOK_AI_MODELS), a extração vai para o OpenRouter.
+    const freeModels = process.env.OFFER_REWRITE_AI_MODELS || process.env.HOOK_AI_MODELS;
+    if (!client && process.env.OPENROUTER_API_KEY && freeModels) {
+      this.client = createOpenRouterExtractionClient({ apiKey: process.env.OPENROUTER_API_KEY, models: freeModels }) as unknown as ResponsesClient;
+      this.model = "openrouter";
+      return;
+    }
     if (!apiKey && !client) throw new Error("OPENAI_API_KEY não configurada.");
     this.client = client || new OpenAI({ apiKey });
   }
@@ -155,14 +166,17 @@ export class OfferAiRewriter {
     if (response.status !== "completed" || !response.output_text) throw new Error("A OpenAI não retornou os dados da oferta.");
     const extracted = ExtractedOffer.parse(JSON.parse(response.output_text));
     const facts = verifyExtractedOffer(sanitizedText, extracted);
-    const result = buildOfferCopy(facts, purchaseLink, this.random);
+    const hook = input.hookFor ? await input.hookFor(facts).catch(() => undefined) : undefined;
+    const result = buildOfferCopy(facts, purchaseLink, this.random, { hook });
+    const model = typeof (response as { model?: unknown }).model === "string" && this.model === "openrouter" ? String((response as { model?: unknown }).model) : this.model;
 
     // Observabilidade: custo do rewrite por oferta
     const usage = (response as any).usage;
     console.info({
       event: "offer_rewrite_completed",
       feature: "offer_rewrite",
-      model: this.model,
+      model,
+      custom_hook: Boolean(hook),
       input_tokens: usage?.input_tokens ?? null,
       output_tokens: usage?.output_tokens ?? null,
       total_tokens: usage?.total_tokens ?? null,
@@ -170,6 +184,6 @@ export class OfferAiRewriter {
       extra_lines: facts.extraLines.length
     });
 
-    return { text: result, model: this.model };
+    return { text: result, model };
   }
 }

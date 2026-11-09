@@ -20,4 +20,5 @@ export function brlAmountsInCents(text: string): number[];
 export function parseBrlPrice(value: string | null | undefined): number | null;
 export function formatBrl(cents: number): string;
 export function discountPercent(fromCents: number | null, toCents: number | null): number | null;
-export function buildOfferCopy(facts: OfferCopyFacts, purchaseLink: string, random?: () => number): string;
+export type OfferCopyOptions = { hook?: string | null };
+export function buildOfferCopy(facts: OfferCopyFacts, purchaseLink: string, random?: () => number, options?: OfferCopyOptions): string;

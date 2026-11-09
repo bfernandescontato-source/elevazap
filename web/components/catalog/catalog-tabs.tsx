@@ -17,9 +17,9 @@ export function useCatalogAgendaEnabled() {
   return enabled;
 }
 
-export function CatalogTabs({ active }: { active: "catalogo" | "agenda" | "lista" }) {
+export function CatalogTabs({ active, agenda = true }: { active: "catalogo" | "agenda" | "lista" | "ganchos"; agenda?: boolean }) {
   const tab = (href: string, id: typeof active, label: string) => (
     <Link href={href} className={`shrink-0 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${active === id ? "border-primary text-ink" : "border-transparent text-muted hover:text-ink"}`}>{label}</Link>
   );
-  return <nav className="flex gap-2 overflow-x-auto border-b border-line">{tab("/catalogo", "catalogo", "Catálogo")}{tab("/catalogo/agenda", "agenda", "Agenda")}{tab("/catalogo/lista", "lista", "Lista de links")}</nav>;
+  return <nav className="flex gap-2 overflow-x-auto border-b border-line">{tab("/catalogo", "catalogo", "Catálogo")}{agenda ? tab("/catalogo/agenda", "agenda", "Agenda") : null}{tab("/catalogo/lista", "lista", "Lista de links")}{tab("/catalogo/ganchos", "ganchos", "Ganchos")}</nav>;
 }
