@@ -6,6 +6,11 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   outputFileTracingRoot: new URL("..", import.meta.url).pathname,
+  // A arte do story lê a fonte Poppins do disco; sem isto o build standalone não a copia.
+  outputFileTracingIncludes: {
+    "/api/catalogo/story": ["./assets/fonts/**"],
+    "/api/catalogo/status": ["./assets/fonts/**"]
+  },
   async headers() {
     const scriptSrc = process.env.NODE_ENV === "development"
       ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
