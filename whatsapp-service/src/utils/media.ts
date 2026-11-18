@@ -8,6 +8,7 @@ import { env } from "../env.js";
 import { dbResult } from "./db.js";
 import { withTimeout } from "./timeout.js";
 import { MediaCache } from "./media-cache.js";
+import { buildPollMessage } from "./poll.js";
 
 // One cache per service process. The documented production topology has one
 // dispatcher replica; the in-flight guard also protects concurrent queue jobs.
@@ -46,6 +47,7 @@ export async function convertVoiceToOpus(input: Buffer) {
 }
 
 export function buildBaileysMessage(item: any, media?: Buffer, mentions: string[] = []) {
+  if (item.tipo === "enquete") return buildPollMessage(item.poll);
   const caption = item.legenda || item.texto || undefined;
   if (item.tipo === "texto") return { text: item.texto || "", mentions };
   if (!media) throw new Error("Mídia ausente.");
