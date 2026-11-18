@@ -5,6 +5,7 @@ import { pino } from "pino";
 import qrcode from "qrcode";
 import { Boom } from "@hapi/boom";
 import { useSupabaseAuthState } from "../auth/supabase-auth-state.js";
+import { AUTH_KEYS_UNAVAILABLE, type AuthKeysUnavailableError } from "../auth/key-read-guard.js";
 import { env } from "../env.js";
 import { withTimeout } from "../utils/timeout.js";
 import { errorFields } from "../utils/log.js";
@@ -41,7 +42,12 @@ type GroupParticipantsHandler = (update: any, sock: any) => Promise<void>;
 type StatusHandler = (status: ReturnType<WhatsAppSession["getStatus"]>, error: string | null) => Promise<void>;
 
 export async function createWhatsAppSession(sessionId: string, onMessages: MessageHandler, onGroupParticipants?: GroupParticipantsHandler, accountId?: string, onStatus?: StatusHandler): Promise<WhatsAppSession> {
-  let auth = await useSupabaseAuthState(sessionId, accountId);
+  // Leitura de chaves esgotada (ver auth/key-read-guard.ts): fecha só este
+  // socket e reconecta depois da espera. Credenciais ficam como estão: sem
+  // logout, sem limpar chaves, sem novo QR.
+  let keyRecovery: { seq: number; cooldownMs: number } | null = null;
+  const authOptions = { onKeysUnavailable: (error: AuthKeysUnavailableError) => enterKeyRecovery(error) };
+  let auth = await useSupabaseAuthState(sessionId, accountId, authOptions);
   let sock: any = null;
   let status: ReturnType<WhatsAppSession["getStatus"]> = "idle";
   let currentQr = "";
@@ -109,6 +115,24 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
     }
   }
 
+  function enterKeyRecovery(error: AuthKeysUnavailableError) {
+    const current = sock;
+    if (stopped || !current || keyRecovery) return;
+    keyRecovery = { seq: socketSeq, cooldownMs: error.cooldownMs };
+    console.warn({ event: "whatsapp.auth_keys_recovery", component: "managed-session", session_name: sessionId, session_instance_id: instanceId,
+      socket_seq: socketSeq, attempts: error.attempts, cooldown_ms: error.cooldownMs });
+    observe(() => observer.count(sessionId, "auth_keys_recovery"));
+    // Fechar antes de a leitura rejeitar: o Baileys vê o socket fechado e não manda
+    // pedido de reenvio nem confirmação da mensagem que não conseguiu decifrar;
+    // o WhatsApp a entrega de novo na reconexão.
+    try {
+      current.end(new Boom("Leitura das chaves do WhatsApp indisponível no banco.", { statusCode: 503, data: { reason: AUTH_KEYS_UNAVAILABLE } }));
+    } catch (endError) {
+      keyRecovery = null;
+      throw endError;
+    }
+  }
+
   async function finishLogout() {
     if (!sock) return;
     const current = sock;
@@ -120,6 +144,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
   async function start(fresh = false) {
     if (stopped || starting) return;
     starting = true;
+    keyRecovery = null;
     status = "starting";
     currentQr = "";
     lastError = null;
@@ -127,7 +152,7 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
     try {
       if (fresh) {
         await auth.clearAuth();
-        auth = await useSupabaseAuthState(sessionId, accountId);
+        auth = await useSupabaseAuthState(sessionId, accountId, authOptions);
       }
       const version = await withTimeout("whatsapp.version", env.WHATSAPP_START_TIMEOUT_MS, getBaileysVersion());
       let created: any;
@@ -186,7 +211,15 @@ export async function createWhatsAppSession(sessionId: string, onMessages: Messa
           observe(() => observer.socketClosed(sessionId, instanceId, seq, code ?? null, stopped));
           // Sem este registro não dá para saber por que um número "conecta e desconecta".
           console.warn({ event: "whatsapp.connection_closed", component: "managed-session", session_name: sessionId, session_instance_id: instanceId, socket_seq: seq, code: code ?? null, message: String(update.lastDisconnect?.error?.message || "").slice(0, 200), stopped });
-          if (!stopped) {
+          // Fica marcada até o próximo start(): leituras que ainda falharem neste
+          // socket fechado não abrem outra recuperação (seriam dois sockets do mesmo número).
+          const recovery = keyRecovery?.seq === seq ? keyRecovery : null;
+          if (!stopped && recovery) {
+            status = "reconnecting";
+            lastError = "Banco indisponível ao ler as chaves do WhatsApp. Reconectando sem novo QR.";
+            void reportStatus();
+            setTimeout(() => void start().catch(() => undefined), recovery.cooldownMs);
+          } else if (!stopped) {
             // 401/403/419 = WhatsApp recusou/baniu a sessão (UNAUTHORIZED_CODES do Baileys).
             // Reconectar nesses casos é inútil e só martela o serviço (um número banido
             // chegou a 348 reconexões em 2h, derrubando a entrega dos outros números).

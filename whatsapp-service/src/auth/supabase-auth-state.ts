@@ -6,6 +6,7 @@ import { dbResult } from "../utils/db.js";
 import { observer } from "../observability/observer.js";
 import { env } from "../env.js";
 import { trimSessionRecord } from "./signal-session-retention.js";
+import { AuthKeysUnavailableError, KEY_READ_POLICY, isTemporaryKeyReadError, keyOutageCooldown, keyReadRetryDelay } from "./key-read-guard.js";
 
 function serialize(data: unknown) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
@@ -97,7 +98,12 @@ async function measureKeyOperation<T>(sessionName: string, kind: "signal_read" |
 
 observer.registerGlobalProbe("auth_queue", (sessionName) => authQueueStats(sessionName));
 
-export async function useSupabaseAuthState(sessionName = "default", requestedAccountId?: string) {
+export type AuthStateOptions = {
+  /** Chamado quando a leitura de chaves deste número esgota as tentativas. Deve pôr só este número em recuperação. */
+  onKeysUnavailable?: (error: AuthKeysUnavailableError) => void;
+};
+
+export async function useSupabaseAuthState(sessionName = "default", requestedAccountId?: string, options: AuthStateOptions = {}) {
   const data = await dbResult<{ creds: unknown; account_id: string }>(
     `auth.load:${sessionName}`,
     supabase.from("whatsapp_auth_creds").select("creds,account_id").eq("session_name", sessionName).maybeSingle()
@@ -105,6 +111,29 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
   const accountId = requestedAccountId || data?.account_id;
   let creds: AuthenticationCreds = data?.creds ? deserialize(data.creds) : initAuthCreds();
   const lockKey = `${accountId || "unknown"}:${sessionName}`;
+  // Disjuntor da leitura de chaves deste número (ver key-read-guard.ts).
+  const keyOutage = { consecutive: 0, until: 0 };
+
+  function unavailable(attempts: number, cooldownMs: number, cause?: unknown) {
+    const error = new AuthKeysUnavailableError(sessionName, attempts, cooldownMs, { cause });
+    if (options.onKeysUnavailable) {
+      try {
+        options.onKeysUnavailable(error);
+        error.recoveryRequested = true;
+      } catch (hookError) {
+        console.error({ event: "auth.keys.recovery_hook_failed", component: "auth", session_name: sessionName, message: String((hookError as Error)?.message || hookError) });
+      }
+    }
+    if (attempts) console.error({ event: "auth.keys.get.unavailable", component: "auth", session_name: sessionName, attempts, cooldown_ms: cooldownMs, recovery_requested: error.recoveryRequested });
+    return error;
+  }
+
+  function openKeyOutage(attempts: number, cause: unknown) {
+    keyOutage.consecutive += 1;
+    const cooldownMs = keyOutageCooldown(keyOutage.consecutive);
+    keyOutage.until = Date.now() + cooldownMs;
+    return unavailable(attempts, cooldownMs, cause);
+  }
 
   async function saveCreds() {
     if (!accountId) throw new Error("Conta da sessão WhatsApp não identificada.");
@@ -126,8 +155,12 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
           if (!ids.length) return {};
           const result: Record<string, any> = {};
 
+          // Número em recuperação: falha na hora, sem ir ao banco e sem fingir chave ausente.
+          if (Date.now() < keyOutage.until) throw unavailable(0, keyOutage.until - Date.now());
+          const started = Date.now();
+
           async function fetchBatch(batch: string[]): Promise<void> {
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            for (let attempt = 1; ; attempt++) {
               try {
                 const rows = await dbResult(
                   `auth.keys.get:${sessionName}`,
@@ -137,18 +170,28 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
                   const row = (rows as any[])?.find((r) => r.key_id === id);
                   if (row?.key_data) result[id] = retainSessions(sessionName, type, id, deserialize(row.key_data), "read");
                 }
+                if (attempt > 1) console.info({ event: "auth.keys.get.recovered", component: "auth", session_name: sessionName, type, attempt });
                 return;
               } catch (error) {
                 const msg = (error as Error)?.message || "";
-                const isTemporary = /fetch failed|network|econnreset|enotfound|econnrefused|excedeu o limite|timeout/i.test(msg);
-                const isBadRequest = /bad request/i.test(msg);
-                if (isTemporary && attempt < 3) {
-                  await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
-                  continue;
+                const isTemporary = isTemporaryKeyReadError(error);
+                const isBadRequest = !isTemporary && /bad request/i.test(msg);
+                if (isTemporary) {
+                  const delay = keyReadRetryDelay(attempt);
+                  const withinBudget = Date.now() - started + delay < KEY_READ_POLICY.budgetMs;
+                  console.warn({ event: "auth.keys.get.temporary_failure", component: "auth", session_name: sessionName, type, attempt,
+                    will_retry: attempt < KEY_READ_POLICY.maxAttempts && withinBudget, reason: msg.replace(/\s+/g, " ").slice(0, 120) });
+                  if (attempt < KEY_READ_POLICY.maxAttempts && withinBudget) {
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                    continue;
+                  }
+                  throw openKeyOutage(attempt, error);
                 }
-                // Bad Request with multiple keys: isolate the bad key by trying one-by-one
+                // Bad Request with multiple keys: isolate the bad key by trying one-by-one.
+                // A single key only skips on Bad Request; any other failure of it must
+                // reject the read (swallowing it here turned an outage into "missing key").
                 if (isBadRequest && batch.length > 1) {
-                  for (const id of batch) await fetchBatch([id]).catch(() => undefined);
+                  for (const id of batch) await fetchBatch([id]);
                   return;
                 }
                 // Only a malformed stored key is equivalent to a missing key.
@@ -157,15 +200,19 @@ export async function useSupabaseAuthState(sessionName = "default", requestedAcc
                   console.warn({ event: "auth.keys.get.malformed_key_skipped", sessionName, type, keys: batch.length, reason: msg });
                   return;
                 }
-                throw error;
+                // Erro não temporário (ex.: permissão): sem repetir, mas o número entra em
+                // recuperação em vez de a rejeição derrubar o processo com todos os números.
+                throw openKeyOutage(attempt, error);
               }
             }
           }
 
-          // Batch to 100 keys per request to keep URLs within server limits
+          // Batch to 100 keys per request to keep URLs within server limits.
+          // Any failed batch rejects the whole read: a partial result would look like missing keys.
           for (let i = 0; i < ids.length; i += 100) {
             await fetchBatch(ids.slice(i, i + 100));
           }
+          keyOutage.consecutive = 0;
           return result;
         }), sessionName),
         set: async (data: SignalDataSet) => withAuthOperationLock(lockKey, () => measureKeyOperation(sessionName, "signal_write", Object.values(data || {}).reduce((total, records) => total + Object.keys(records || {}).length, 0), async () => {

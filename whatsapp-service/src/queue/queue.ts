@@ -7,6 +7,7 @@ import { phoneToWhatsAppJid, validateGroupJid } from "../utils/phone.js";
 import { dbResult } from "../utils/db.js";
 import { correlationId, errorFields } from "../utils/log.js";
 import { OperationTimeoutError, withTimeout } from "../utils/timeout.js";
+import { AUTH_KEYS_UNAVAILABLE, isAuthKeysUnavailableError } from "../auth/key-read-guard.js";
 import { getSenderSock, getSenderSockById } from "../senders/runtime.js";
 import { compatibleQueueUpdate, type DatabaseCapabilities } from "../database-capabilities.js";
 import { QueueMetrics } from "./metrics.js";
@@ -304,7 +305,11 @@ export class GlobalSendQueue {
     } catch (error) {
       // Closing one socket also rejects other sends already in flight on it.
       // Their outcome is unknown too; never put those messages back for retry.
-      const potentiallyDelivered = Boolean(row.send_started);
+      // Exception: the send's own key read failed. Baileys reads every key it
+      // needs before writing the stanza (relayMessage ends in sendNode), so
+      // nothing reached WhatsApp and the job can wait for the number to recover.
+      const keysUnavailable = isAuthKeysUnavailableError(error);
+      const potentiallyDelivered = Boolean(row.send_started) && !keysUnavailable;
       const timedOut = error instanceof OperationTimeoutError;
       observeSend(row, potentiallyDelivered ? "send_timeout" : "send_fail");
       if (potentiallyDelivered) {
@@ -315,6 +320,7 @@ export class GlobalSendQueue {
       } else {
         const leaseValid = await this.hasValidLease(item);
         if (!leaseValid) await this.markUncertain(table, row, "O worker perdeu o lease durante o envio. Confirmação manual necessária.", "FENCING_TOKEN_EXPIRED");
+        else if (keysUnavailable) await this.markFailure(table, row, "Chaves do WhatsApp indisponíveis no banco antes da transmissão; nada foi enviado. Nova tentativa após a recuperação do número.", AUTH_KEYS_UNAVAILABLE);
         else await this.markFailure(table, row, error instanceof Error ? error.message : "Falha no envio.", (error as any)?.code);
         this.metrics.failure(error);
       }
@@ -887,7 +893,8 @@ export class GlobalSendQueue {
   }
 
   private async markFailure(table: QueueTableName, row: any, message: string, code = "SEND_FAILED") {
-    const disconnected = /desconectad|Nenhum número conectado|não autenticada/i.test(message);
+    // Número fora (ou em recuperação das chaves) não gasta tentativa: nada foi transmitido.
+    const disconnected = code === AUTH_KEYS_UNAVAILABLE || /desconectad|Nenhum número conectado|não autenticada/i.test(message);
     const attempts = disconnected ? (row.attempts || 0) : (row.attempts || 0) + 1;
     const delay = disconnected ? env.RETRY_BASE_DELAY_MS : retryDelay(attempts);
     await dbResult("queue.mark-failure", supabase.from(table).update(this.updateFields(table, {

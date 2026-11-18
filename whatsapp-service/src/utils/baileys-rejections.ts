@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { inspect } from "node:util";
 import { handleNoiseDecryptRejection } from "./noise-guard.js";
+import { isAuthKeysUnavailableError } from "../auth/key-read-guard.js";
 
 /**
  * Container logs keep only ~45 min (half of it libsignal noise), so the error
@@ -60,6 +61,18 @@ export function isSocketWriteErrorRejection(reason: unknown): boolean {
   return Boolean(error && error.syscall === "write" && (error.code === "EPIPE" || error.code === "ECONNRESET"));
 }
 
+/**
+ * 2026-11-11 a 18 (56 quedas): o Baileys lê chaves Signal dentro de tarefas que
+ * ninguém aguarda (pedido de reenvio em messages-recv). Com o Supabase fora
+ * (521 da Cloudflare) ou lento, a leitura rejeitava e derrubava o processo.
+ * Agora a leitura esgotada vira AuthKeysUnavailableError e a própria leitura já
+ * pôs o número dono dela em recuperação (recoveryRequested). Só esse caso é
+ * registrado sem derrubar; sem recuperação pedida, continua derrubando.
+ */
+export function isRecoveringAuthKeysRejection(reason: unknown): boolean {
+  return isAuthKeysUnavailableError(reason) && reason.recoveryRequested === true;
+}
+
 export function installBaileysRejectionGuard() {
   process.on("uncaughtExceptionMonitor", (error, origin) => {
     try {
@@ -83,6 +96,11 @@ export function installBaileysRejectionGuard() {
     }
     if (isSocketWriteErrorRejection(reason)) {
       console.warn({ event: "whatsapp.socket_write_error_ignored", component: "runtime", code: (reason as { code?: string }).code });
+      return;
+    }
+    if (isRecoveringAuthKeysRejection(reason)) {
+      const error = reason as { sessionName?: string; attempts?: number };
+      console.warn({ event: "whatsapp.auth_keys_rejection_session_recovering", component: "runtime", session_name: error.sessionName, attempts: error.attempts });
       return;
     }
     // Falha do Noise (07/10: 4 quedas): fecha só o socket afetado.
