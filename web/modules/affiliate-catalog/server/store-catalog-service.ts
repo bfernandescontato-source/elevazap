@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import type { AffiliateOffer, CatalogListing, CatalogPage } from "../types";
 import type { DailyOffer } from "../daily-import-schema";
+import { keywordOrFilter } from "./catalog-filters";
 
 type StoreProvider = "AMAZON" | "MAGALU";
 
@@ -38,11 +39,14 @@ function toOffer(row: any): AffiliateOffer {
   };
 }
 
-export async function getStoredStoreCatalog(provider: StoreProvider, input: { keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage & { categories: import("../types").CatalogCategory[] }> {
+export async function getStoredStoreCatalog(provider: StoreProvider, input: { keyword?: string; categoryId?: string; categoryIn?: string[]; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage & { categories: import("../types").CatalogCategory[] }> {
   const db = supabaseAdmin();
   let query = db.from("catalog_store_offers").select("*", { count: "exact" }).eq("provider", provider).eq("active", true);
-  if (input.keyword) query = query.ilike("name", `%${input.keyword.replace(/[%_,]/g, "")}%`);
+  // A busca acha o texto no nome ou na categoria (ex.: "Beleza").
+  const keywordFilter = keywordOrFilter(input.keyword, "name");
+  if (keywordFilter) query = query.or(keywordFilter);
   if (input.categoryId) query = query.eq("category", input.categoryId);
+  if (input.categoryIn) query = query.in("category", input.categoryIn);
   // Esconde cards genéricos de banner (ex.: "Mega Oferta Prime" da Amazon), que não são produtos.
   query = query.not("name", "ilike", "%Mega Oferta%").not("name", "ilike", "%Oferta do Dia%");
   const order = input.listing === "sold" ? "sales" : input.listing === "commission" ? "commission_value" : "last_seen_at";

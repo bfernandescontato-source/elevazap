@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import type { AffiliateOffer, CatalogCategory, CatalogListing, CatalogPage } from "../types";
 import type { MercadoLivreExtensionProduct } from "../mercado-livre-import-schema";
+import { MERCADO_LIVRE_RECENT_DAYS, distinctCategories, keywordOrFilter, recentSince } from "./catalog-filters";
 
 const number = (value: unknown) => value == null ? undefined : Number(value);
 
@@ -66,20 +67,41 @@ export async function mercadoLivreCatalogStats() {
   return { totalProducts: count || 0, lastSync: last || null };
 }
 
-export async function getStoredMercadoLivreCatalog(input: { keyword?: string; categoryId?: string; minPrice?: number; maxPrice?: number; minCommission?: number; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage & { categories: CatalogCategory[] }> {
-  const db = supabaseAdmin(); let query = db.from("mercado_livre_products").select("*", { count: "exact" }).eq("active", true);
-  if (input.keyword) query = query.ilike("product_name", `%${input.keyword.replace(/[%_,]/g, "")} %`.replace(" ", ""));
+// Lista de categorias do ML (só de produtos vistos nos últimos dias), guardada
+// por 10 min: é a mesma para todas as contas.
+let categoryCache: { expires: number; categories: CatalogCategory[] } | null = null;
+async function mercadoLivreCategories(db: ReturnType<typeof supabaseAdmin>, since: string): Promise<CatalogCategory[]> {
+  if (categoryCache && categoryCache.expires > Date.now()) return categoryCache.categories;
+  const names = await distinctCategories(async (from, to) => {
+    const { data, error } = await db.from("mercado_livre_products").select("category").eq("active", true).gte("last_seen_at", since).not("category", "is", null).order("category").order("ml_item_id").range(from, to);
+    if (error) throw error;
+    return data || [];
+  });
+  const categories = [{ id: null, label: "Todas" }, ...names.map(category => ({ id: category, label: category }))];
+  categoryCache = { expires: Date.now() + 10 * 60_000, categories };
+  return categories;
+}
+
+export async function getStoredMercadoLivreCatalog(input: { keyword?: string; categoryId?: string; categoryIn?: string[]; minPrice?: number; maxPrice?: number; minCommission?: number; listing: CatalogListing; page: number; limit: number }): Promise<CatalogPage & { categories: CatalogCategory[] }> {
+  const db = supabaseAdmin();
+  // Produto que a extensão não vê há mais de 7 dias fica fora (preço/oferta velhos).
+  const since = recentSince(MERCADO_LIVRE_RECENT_DAYS);
+  let query = db.from("mercado_livre_products").select("*", { count: "exact" }).eq("active", true).gte("last_seen_at", since);
+  const keywordFilter = keywordOrFilter(input.keyword, "product_name");
+  if (keywordFilter) query = query.or(keywordFilter);
   if (input.categoryId) query = query.eq("category", input.categoryId);
+  if (input.categoryIn) query = query.in("category", input.categoryIn);
   if (input.minPrice !== undefined) query = query.gte("price", input.minPrice);
   if (input.maxPrice !== undefined) query = query.lte("price", input.maxPrice);
   if (input.minCommission !== undefined) query = query.gte("commission_rate", input.minCommission);
   // "Melhor Performance" (top) agora ordena por mais vendidos, como a Shopee, em vez de só recência.
   const order = input.listing === "commission" ? "commission_value" : "sales";
-  const from = (input.page - 1) * input.limit; const { data, count, error } = await query.order(order, { ascending: false, nullsFirst: false }).range(from, from + input.limit - 1);
+  const from = (input.page - 1) * input.limit;
+  const [{ data, count, error }, categories] = await Promise.all([
+    query.order(order, { ascending: false, nullsFirst: false }).order("ml_item_id").range(from, from + input.limit - 1),
+    mercadoLivreCategories(db, since)
+  ]);
   if (error) throw error;
-  const { data: categoryRows, error: categoryError } = await db.from("mercado_livre_products").select("category").eq("active", true).not("category", "is", null).limit(1000);
-  if (categoryError) throw categoryError;
-  const categories = [{ id: null, label: "Todas" }, ...Array.from(new Set((categoryRows || []).map(row => row.category).filter(Boolean))).sort().map(category => ({ id: category!, label: category! }))];
   // product_link é a URL pública de origem; o link de afiliado só pode vir do
   // gerador da extensão, que devolve uma URL meli.la validada para a conta.
   const offers: AffiliateOffer[] = (data || []).map(row => ({ provider: "MERCADO_LIVRE", externalItemId: row.ml_item_id, name: row.product_name, imageUrl: row.image_url || undefined, priceMin: number(row.price), originalPrice: number(row.original_price), discountPercentage: number(row.discount_rate), commissionRate: number(row.commission_rate), commissionAmount: number(row.commission_value), extraEarnings: row.extra_earnings || undefined, extraCommissionRate: number(row.extra_commission_rate), extraCommissionAmount: number(row.extra_commission_value), badges: Array.isArray(row.badges) ? row.badges : undefined, productUrl: row.product_link || undefined, categoryIds: row.category ? [row.category] : undefined, sales: number(row.sales), rating: number(row.rating_star), shopName: row.seller_name || undefined }));

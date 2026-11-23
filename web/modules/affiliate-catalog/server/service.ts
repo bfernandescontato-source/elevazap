@@ -6,6 +6,7 @@ import { ShopeeAffiliateProvider } from "./shopee-provider";
 import { getShopeeIntegrationCredentials } from "@/modules/integrations/server/service";
 import { supabaseAdmin } from "@/lib/supabase";
 import { listNiches, shopeeCategoryIdsFor } from "./niches";
+import { nicheStoreCategories } from "./catalog-filters";
 
 type CatalogResult = CatalogPage & { categories: CatalogCategory[]; providerErrors: Partial<Record<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "MAGALU", string>> };
 const cache = new Map<string, { expires: number; value: CatalogPage | CatalogCategory[] }>();
@@ -56,13 +57,19 @@ const MIN_VISIBLE_OFFERS = 8;
 const MAX_EXTRA_PAGES = 3;
 
 export async function getCatalog(database: any, accountId: string, input: { provider: CatalogProviderFilter; keyword?: string; categoryId?: string; listing: CatalogListing; page: number; limit: number }): Promise<CatalogResult> {
-  const providers: Array<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "MAGALU"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE", "AMAZON", "MAGALU"] : [input.provider];
+  let providers: Array<"SHOPEE" | "MERCADO_LIVRE" | "AMAZON" | "MAGALU"> = input.provider === "ALL" ? ["SHOPEE", "MERCADO_LIVRE", "AMAZON", "MAGALU"] : [input.provider];
+  // Em "Todos" a categoria escolhida é um nicho da vitrine: a Shopee usa os
+  // códigos do nicho e ML/Amazon/Magalu as categorias equivalentes.
+  const nicheId = input.provider === "ALL" ? input.categoryId : undefined;
   const categoryId = input.provider === "ALL" ? undefined : input.categoryId;
   const [used, shopeeCategoryIds, niches] = await Promise.all([
     usedOfferKeys(accountId),
-    categoryId && input.provider === "SHOPEE" ? shopeeCategoryIdsFor(categoryId) : Promise.resolve([] as number[]),
+    categoryId && input.provider === "SHOPEE" ? shopeeCategoryIdsFor(categoryId) : nicheId ? shopeeCategoryIdsFor(nicheId) : Promise.resolve([] as number[]),
     listNiches().catch(() => [])
   ]);
+  const categoryIn = nicheId ? nicheStoreCategories(nicheId, niches) : undefined;
+  // Nicho sem equivalente nas outras lojas: só a Shopee (não mistura assunto).
+  if (categoryIn && !categoryIn.length) providers = ["SHOPEE"];
   const providerErrors: CatalogResult["providerErrors"] = {};
   const offers: CatalogPage["offers"] = [];
   let page = input.page;
@@ -75,10 +82,10 @@ export async function getCatalog(database: any, accountId: string, input: { prov
   // páginas (até 3 extras). A tela continua de pageInfo.page + 1.
   for (let extra = 0; extra <= MAX_EXTRA_PAGES; extra++) {
     const settled = await Promise.allSettled(providers.map(async provider => {
-      const key = JSON.stringify([provider, accountId, { ...input, categoryId, page: undefined }]);
+      const key = JSON.stringify([provider, accountId, { ...input, categoryId, nicheId, page: undefined }]);
       if (provider === "SHOPEE") return shopeePage(await shopeeProvider(database, accountId), key, input, shopeeCategoryIds, page);
-      if (provider === "AMAZON" || provider === "MAGALU") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog(provider, { keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
-      return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, listing: input.listing, page, limit: input.limit }));
+      if (provider === "AMAZON" || provider === "MAGALU") return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredStoreCatalog(provider, { keyword: input.keyword, categoryId, categoryIn, listing: input.listing, page, limit: input.limit }));
+      return cached(JSON.stringify([key, page]), (input.keyword ? 5 : 10) * 60_000, () => getStoredMercadoLivreCatalog({ keyword: input.keyword, categoryId, categoryIn, listing: input.listing, page, limit: input.limit }));
     }));
     hasNextPage = false;
     settled.forEach((result, index) => {
