@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   if (guard) return guard;
   const body = await request.json().catch(() => null) as Record<string, any> | null;
   const kind = mediaKindSchema.parse(RESPONSE_TYPE_TO_KIND[body?.responseType] || body?.responseType);
-  const valid = validateMedia(kind, body?.mime_type, Number(body?.file_size_bytes));
+  const valid = validateMedia(kind, body?.mime_type, Number(body?.file_size_bytes), "official");
   if (!valid.ok) return NextResponse.json({ error: valid.error }, { status: 400 });
   const safeName = String(body?.file_name || "arquivo").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
   const storage_path = `official/quick-reply/${randomUUID()}/${safeName}`;

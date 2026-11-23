@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { z } from "zod";
 import { modeloMensagemSchema } from "@/lib/schemas";
 import { guardAdminMutation, requireAccountContext } from "@/lib/security";
 import { supabaseAdmin } from "@/lib/supabase";
 
-function toRow(body: any) {
+function toRow(body: z.infer<typeof modeloMensagemSchema>) {
   const media = body.media || null;
+  const mentionAll = body.tipo === "audio" || body.tipo === "documento" ? false : body.mention_all;
   return {
     pasta_id: body.pasta_id || null,
     nome: body.nome,
     tipo: body.tipo,
     texto: body.texto || null,
+    ...(mentionAll === undefined ? {} : { mention_all: mentionAll }),
     media_bucket: media?.bucket || null,
     media_path: media?.storage_path || null,
     file_name: media?.file_name || null,

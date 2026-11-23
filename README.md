@@ -53,7 +53,7 @@ A fila é global, única e serial. Boas-vindas e testes têm prioridade alta; gr
 5. Crie bucket privado `whatsapp-media`.
 6. Configure allowed mime types e limite de tamanho:
    - imagens: jpg/jpeg/png/webp até 5MB;
-   - vídeo mp4 até 16MB;
+   - vídeo mp4 até 50MB no envio por QR Code (16MB na API oficial);
    - áudio mp3/m4a/wav/ogg até 16MB;
    - documentos permitidos até 100MB.
 7. Observe o limite de 100MB do plano Supabase.

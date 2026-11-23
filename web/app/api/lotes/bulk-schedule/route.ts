@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
   for (const item of schedules) {
     const modelo = modeloMap.get(item.modelo_id);
     if (!modelo) continue;
+    const mentionAll = modelo.mention_all === true;
 
     const { data: lote, error: loteError } = await sb.from("envios_grupo_lotes").insert({
       account_id: accountId,
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
       tipo: modelo.tipo,
       texto: modelo.texto || null,
       legenda: (modelo.tipo === "imagem" || modelo.tipo === "video") ? modelo.texto || null : null,
-      mention_all: false,
+      mention_all: mentionAll,
       media_bucket: modelo.media_bucket || null,
       media_path: modelo.media_path || null,
       file_name: modelo.file_name || null,
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
         tipo: modelo.tipo,
         texto: modelo.texto || null,
         legenda: (modelo.tipo === "imagem" || modelo.tipo === "video") ? modelo.texto || null : null,
-        mention_all: false,
+        mention_all: mentionAll,
         media_bucket: modelo.media_bucket || null,
         media_path: modelo.media_path || null,
         file_name: modelo.file_name || null,
