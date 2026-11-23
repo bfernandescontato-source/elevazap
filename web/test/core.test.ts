@@ -45,7 +45,19 @@ describe("webhook e mídia", () => {
   it("rejeita mídia inválida e aceita imagem dentro do limite", () => {
     expect(validateMedia("imagem", "image/png", 1024).ok).toBe(true);
     expect(validateMedia("imagem", "video/mp4", 1024).ok).toBe(false);
-    expect(validateMedia("video", "video/mp4", 30 * 1024 * 1024).ok).toBe(false);
+    expect(validateMedia("video", "video/mp4", 30 * 1024 * 1024).ok).toBe(true);
+  });
+
+  it("aceita vídeo de até 50 MB por QR Code e rejeita um byte acima", () => {
+    expect(validateMedia("video", "video/mp4", 50 * 1024 * 1024).ok).toBe(true);
+    expect(validateMedia("video", "video/mp4", 50 * 1024 * 1024 + 1).ok).toBe(false);
+    expect(validateMedia("video", "video/quicktime", 50 * 1024 * 1024).ok).toBe(false);
+  });
+
+  it("preserva o limite de 16 MB para vídeos na API oficial", () => {
+    expect(validateMedia("video", "video/mp4", 16 * 1024 * 1024, "official").ok).toBe(true);
+    expect(validateMedia("video", "video/mp4", 16 * 1024 * 1024 + 1, "official").ok).toBe(false);
+    expect(validateMedia("video", "video/mp4", 50 * 1024 * 1024, "official").ok).toBe(false);
   });
 
 });

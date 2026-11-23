@@ -5,6 +5,7 @@ import { ScheduledDispatches } from "@/components/scheduled-dispatches";
 import { BulkScheduleModal } from "@/components/bulk-schedule-modal";
 import { CalendarPlus, FolderPlus, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { pollSchema } from "@/lib/schemas";
 
 type Grupo = {
   group_jid: string;
@@ -27,6 +28,7 @@ type Modelo = {
   nome: string;
   tipo: MessageKind;
   texto?: string | null;
+  mention_all?: boolean;
   media_bucket?: string | null;
   media_path?: string | null;
   file_name?: string | null;
@@ -45,7 +47,7 @@ type Sender = {
 type Tab = "campanhas" | "disparo";
 type CampaignTarget = "all" | "single" | "manual";
 type MessageSource = "manual" | "modelo";
-type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento";
+type MessageKind = "texto" | "imagem" | "video" | "audio" | "documento" | "enquete";
 type DispatchSection = "novo" | "programados" | "agendamento-massa";
 
 const messageKindLabels: Record<MessageKind, string> = {
@@ -53,7 +55,8 @@ const messageKindLabels: Record<MessageKind, string> = {
   imagem: "Texto + imagem",
   video: "Texto + vídeo",
   audio: "Áudio",
-  documento: "Documento"
+  documento: "Documento",
+  enquete: "Enquete"
 };
 
 function formatScheduledInput(value: string) {
@@ -95,8 +98,16 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   const [selectedModeloId, setSelectedModeloId] = useState("");
   const [tipo, setTipo] = useState<MessageKind>("texto");
   const [texto, setTexto] = useState("");
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollMultiple, setPollMultiple] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [mentionAll, setMentionAll] = useState(false);
+  const [modelMentionOverride, setModelMentionOverride] = useState<boolean | null>(null);
+  const selectedModelo = modelos.find((modelo) => modelo.id === selectedModeloId);
+  const dispatchMentionAll = messageSource === "modelo"
+    ? modelMentionOverride ?? selectedModelo?.mention_all ?? false
+    : tipo !== "enquete" && mentionAll;
   const [scheduled, setScheduled] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [dispatchSection, setDispatchSection] = useState<DispatchSection>("novo");
@@ -274,7 +285,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   }
 
   async function uploadMedia(uploadFile: File, kind: MessageKind) {
-    if (kind === "texto") return null;
+    if (kind === "texto" || kind === "enquete") return null;
     const signed = await fetch("/api/upload/signed-url", {
       method: "POST",
       body: JSON.stringify({ tipo: kind, file_name: uploadFile.name, mime_type: uploadFile.type, file_size_bytes: uploadFile.size })
@@ -288,9 +299,13 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
   async function createLote() {
     const campaignTitle = selectedCampaign?.nome;
     if (!campaignTitle) throw new Error("Selecione uma campanha.");
-    const selectedModelo = modelos.find((modelo) => modelo.id === selectedModeloId);
     const activeTipo = messageSource === "modelo" && selectedModelo ? selectedModelo.tipo : tipo;
     const activeText = messageSource === "modelo" && selectedModelo ? selectedModelo.texto || "" : texto;
+    const parsedPoll = activeTipo === "enquete" ? pollSchema.safeParse({
+      name: pollQuestion, values: pollOptions, selectableCount: pollMultiple ? pollOptions.length : 1
+    }) : null;
+    if (parsedPoll && !parsedPoll.success) throw new Error(parsedPoll.error.issues[0]?.message || "Enquete inválida.");
+    const poll = parsedPoll?.success ? parsedPoll.data : undefined;
     let media = null;
 
     if (messageSource === "modelo" && selectedModelo?.media_bucket && selectedModelo.media_path) {
@@ -301,10 +316,10 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
         mime_type: selectedModelo.mime_type || "application/octet-stream",
         file_size_bytes: Number(selectedModelo.file_size_bytes || 1)
       };
-    } else if (file && activeTipo !== "texto") {
+    } else if (file && activeTipo !== "texto" && activeTipo !== "enquete") {
       media = await uploadMedia(file, activeTipo);
     }
-    if (activeTipo !== "texto" && !media) throw new Error("Selecione um arquivo para este tipo de mensagem.");
+    if (activeTipo !== "texto" && activeTipo !== "enquete" && !media) throw new Error("Selecione um arquivo para este tipo de mensagem.");
 
     const response = await fetch("/api/lotes/create", {
       method: "POST",
@@ -315,9 +330,10 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
         group_jids: selected,
         whatsapp_sender_id: selectedSenderId || selectedCampaign?.whatsapp_sender_id || undefined,
         tipo: activeTipo,
-        texto: activeText,
+        texto: poll ? poll.name : activeText,
+        poll,
         legenda: activeTipo === "imagem" || activeTipo === "video" ? activeText : undefined,
-        mention_all: mentionAll,
+        mention_all: dispatchMentionAll,
         scheduled_at: scheduled ? new Date(scheduled).toISOString() : undefined,
         media
       })
@@ -476,9 +492,20 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
               {Object.entries(messageKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
             {(tipo === "texto" || tipo === "imagem" || tipo === "video") ? <textarea placeholder="Mensagem" value={texto} onChange={(e) => setTexto(e.target.value)} rows={5} className="focus-ring w-full rounded-lg border border-line p-3 text-sm" /> : null}
-            {tipo !== "texto" ? <><FileDropzone onFile={setFile} /><MediaPreview fileName={file?.name} mimeType={file?.type} /></> : null}
+            {tipo === "enquete" ? <div className="space-y-3 rounded-lg border border-line p-4">
+              <label className="block text-sm font-medium">Pergunta<input value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} maxLength={255} placeholder="Qual horário você prefere?" className="focus-ring mt-1 h-11 w-full rounded-lg border border-line px-3 font-normal" /></label>
+              <div className="text-sm font-medium">Alternativas <span className="font-normal text-muted">({pollOptions.length}/12)</span></div>
+              {pollOptions.map((option, index) => <div key={index} className="flex gap-2">
+                <input aria-label={`Alternativa ${index + 1}`} value={option} onChange={e => setPollOptions(current => current.map((value, position) => position === index ? e.target.value : value))} maxLength={100} placeholder={`Alternativa ${index + 1}`} className="focus-ring h-11 min-w-0 flex-1 rounded-lg border border-line px-3 text-sm" />
+                <button type="button" aria-label={`Remover alternativa ${index + 1}`} disabled={pollOptions.length <= 2} onClick={() => setPollOptions(current => current.filter((_, position) => position !== index))} className="rounded-lg border border-line px-3 disabled:opacity-40"><Trash2 size={16} /></button>
+              </div>)}
+              <button type="button" disabled={pollOptions.length >= 12} onClick={() => setPollOptions(current => [...current, ""])} className="rounded-lg border border-line px-3 py-2 text-sm disabled:opacity-40">Adicionar alternativa</button>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pollMultiple} onChange={e => setPollMultiple(e.target.checked)} />Permitir várias respostas</label>
+              <p className="text-xs text-muted">A enquete será enviada no WhatsApp para os grupos selecionados. Os votos ficam disponíveis em cada grupo.</p>
+            </div> : null}
+            {tipo !== "texto" && tipo !== "enquete" ? <><FileDropzone onFile={setFile} /><MediaPreview fileName={file?.name} mimeType={file?.type} /></> : null}
           </div> : <div className="mt-4 space-y-3">
-            <select value={selectedModeloId} onChange={(e) => setSelectedModeloId(e.target.value)} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
+            <select value={selectedModeloId} onChange={(e) => { setSelectedModeloId(e.target.value); setModelMentionOverride(null); }} className="focus-ring h-11 w-full rounded-lg border border-line px-3 text-sm">
               <option value="">Selecionar modelo</option>
               {modelos.map((modelo) => <option key={modelo.id} value={modelo.id}>{modelo.nome} - {messageKindLabels[modelo.tipo]}</option>)}
             </select>
@@ -490,7 +517,7 @@ export default function GruposPage({ searchParams }: { searchParams?: { tab?: st
             <div className="mt-2 text-sm text-muted">{scheduled ? `Programado para ${formatScheduledInput(scheduled)} (horário de Brasília).` : "Deixe vazio para enviar imediatamente."}</div>
           </div>
           <label className="mt-3 flex items-start gap-2 rounded-lg border border-line bg-wash p-3 text-sm">
-            <input type="checkbox" className="mt-1" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} />
+            <input type="checkbox" className="mt-1" disabled={messageSource === "manual" && tipo === "enquete"} checked={dispatchMentionAll} onChange={(e) => messageSource === "modelo" ? setModelMentionOverride(e.target.checked) : setMentionAll(e.target.checked)} />
             <span>
               <span className="block font-medium text-ink">Mencionar todos os participantes</span>
               <span className="block text-muted">Quando ativado, cada grupo do disparo recebe a mensagem mencionando seus membros.</span>

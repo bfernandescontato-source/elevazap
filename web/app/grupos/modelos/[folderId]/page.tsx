@@ -16,6 +16,7 @@ type Modelo = {
   nome: string;
   tipo: MessageKind;
   texto?: string | null;
+  mention_all?: boolean;
   media_bucket?: string | null;
   media_path?: string | null;
   file_name?: string | null;
@@ -64,10 +65,12 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
   const [modelName, setModelName] = useState("");
   const [modelKind, setModelKind] = useState<MessageKind>("texto");
   const [modelText, setModelText] = useState("");
+  const [modelMentionAll, setModelMentionAll] = useState(false);
   const [modelFile, setModelFile] = useState<File | null>(null);
 
   // ── Import state ────────────────────────────────────────────────────────────
   const [importOpen, setImportOpen] = useState(false);
+  const [importMentionAll, setImportMentionAll] = useState(false);
   const [importStep, setImportStep] = useState<ImportStep>("idle");
   const [importDocxFile, setImportDocxFile] = useState<File | null>(null);
   const [parsedModels, setParsedModels] = useState<ParsedImportModel[]>([]);
@@ -114,6 +117,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
     setModelName("");
     setModelKind("texto");
     setModelText("");
+    setModelMentionAll(false);
     setModelFile(null);
     setShowModelModal(true);
     setTimeout(() => nameInputRef.current?.focus(), 60);
@@ -124,6 +128,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
     setModelName(modelo.nome);
     setModelKind(modelo.tipo);
     setModelText(modelo.texto || "");
+    setModelMentionAll(modelo.mention_all === true);
     setModelFile(null);
     setShowModelModal(true);
     setTimeout(() => nameInputRef.current?.focus(), 60);
@@ -197,6 +202,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
         nome: modelName.trim(),
         tipo: modelKind,
         texto: modelText || null,
+        mention_all: modelMentionAll,
         media,
       };
       const res = await fetch("/api/modelos", {
@@ -237,6 +243,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
 
   // ── Import handlers ─────────────────────────────────────────────────────────
   function openImport() {
+    setImportMentionAll(false);
     setImportOpen(true);
     setImportStep("idle");
     setImportDocxFile(null);
@@ -285,6 +292,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
             nome: m.nome,
             tipo: m.imageFile ? "imagem" : "texto",
             texto: m.texto || null,
+            mention_all: importMentionAll,
             media,
           }),
         });
@@ -396,6 +404,7 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                 )}
                 <p className="mt-3 text-xs text-muted">
                   {tipoLabels[modelo.tipo]}
+                  {modelo.mention_all ? " · Menciona todos" : ""}
                   {modelo.updated_at ? ` · ${formatModelDate(modelo.updated_at)}` : ""}
                 </p>
               </div>
@@ -482,6 +491,13 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
                     className="focus-ring mt-1 w-full resize-none rounded-lg border border-line p-3 text-sm"
                   />
                 </div>
+              )}
+
+              {modelKind !== "audio" && modelKind !== "documento" && (
+                <label className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
+                  <input type="checkbox" className="mt-1" checked={modelMentionAll} onChange={(e) => setModelMentionAll(e.target.checked)} />
+                  <span className="font-medium text-ink">Mencionar todos os participantes do grupo</span>
+                </label>
               )}
 
               {modelKind !== "texto" && (
@@ -622,6 +638,13 @@ export default function PastaPage({ params }: { params: Promise<{ folderId: stri
               {/* Step: preview — review list */}
               {importStep === "preview" && (
                 <div className="space-y-3">
+                  <label className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
+                    <input type="checkbox" className="mt-1" checked={importMentionAll} onChange={(e) => setImportMentionAll(e.target.checked)} />
+                    <span>
+                      <span className="block font-medium text-ink">Mencionar todos os participantes do grupo</span>
+                      <span className="block text-muted">Aplica a opção a todos os modelos desta importação, inclusive para agendamentos em lote.</span>
+                    </span>
+                  </label>
                   {previewWarningCount > 0 && (
                     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                       <TriangleAlert size={15} className="mt-0.5 shrink-0" />
