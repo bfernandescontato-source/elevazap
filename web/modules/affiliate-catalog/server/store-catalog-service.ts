@@ -5,8 +5,12 @@ import { keywordOrFilter } from "./catalog-filters";
 
 type StoreProvider = "AMAZON" | "MAGALU";
 
-/** Guarda as ofertas do dia coletadas pela extensão. Marca como fora de catálogo
- *  o que não apareceu nesta coleta (para não acumular oferta velha). */
+/** Oferta de Amazon/Magalu que nenhuma coleta viu nesse tempo sai do catálogo. */
+export const STORE_OFFER_TTL_HOURS = 24;
+
+/** Guarda as ofertas do dia coletadas pela extensão. As coletas de várias contas
+ *  se somam; só sai do catálogo o que ninguém viu nas últimas 24 h (antes, a
+ *  última coleta apagava tudo o que não trouxe). */
 export async function importStoreOffers(provider: StoreProvider, offers: DailyOffer[]) {
   const db = supabaseAdmin();
   const now = new Date().toISOString();
@@ -23,8 +27,9 @@ export async function importStoreOffers(provider: StoreProvider, offers: DailyOf
   }));
   const { error } = await db.from("catalog_store_offers").upsert(rows, { onConflict: "provider,external_item_id" });
   if (error) throw error;
-  // Oferta do dia é efêmera: o que não veio nesta coleta sai do catálogo.
-  await db.from("catalog_store_offers").update({ active: false }).eq("provider", provider).lt("last_seen_at", now);
+  // Oferta do dia é efêmera: o que ninguém viu nas últimas 24 h sai do catálogo.
+  const expiresBefore = new Date(Date.parse(now) - STORE_OFFER_TTL_HOURS * 3_600_000).toISOString();
+  await db.from("catalog_store_offers").update({ active: false }).eq("provider", provider).eq("active", true).lt("last_seen_at", expiresBefore);
   return { received: offers.length, stored: rows.length };
 }
 

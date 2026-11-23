@@ -44,8 +44,12 @@ function parseCard(card: any, categoryName?: string, categoryId?: string): Merca
   };
 }
 
-async function fetchHub(header: string, categoryId?: string): Promise<{ cards: any[]; categorias: Array<{ id: string; name: string }> }> {
-  const body = categoryId ? JSON.stringify({ filters: [{ id: "category", value: categoryId }] }) : "";
+async function fetchHub(header: string, categoryId?: string, offset?: number): Promise<{ cards: any[]; categorias: Array<{ id: string; name: string }>; nextOffset?: number }> {
+  // Página seguinte: a API aceita { offset } no corpo (devolve next_offset).
+  const payload: Record<string, unknown> = {};
+  if (categoryId) payload.filters = [{ id: "category", value: categoryId }];
+  if (offset) payload.offset = offset;
+  const body = Object.keys(payload).length ? JSON.stringify(payload) : "";
   let response: Response;
   try {
     response = await fetch(HUB_URL, {
@@ -54,16 +58,27 @@ async function fetchHub(header: string, categoryId?: string): Promise<{ cards: a
       body, signal: AbortSignal.timeout(10_000)
     });
   } catch { throw new Error("MERCADO_LIVRE_HUB_UNAVAILABLE"); }
+  if (response.status === 401 || response.status === 403) throw new Error("MERCADO_LIVRE_SESSION_EXPIRED");
   if (!response.ok) throw new Error("MERCADO_LIVRE_HUB_UNAVAILABLE");
   const json = await response.json().catch(() => null);
   const cards = json?.polycard_client_model?.polycards;
   if (!Array.isArray(cards)) throw new Error("MERCADO_LIVRE_HUB_UNAVAILABLE");
   const categoryFilter = (json?.filters || []).find((f: any) => f?.id === "category");
   const categorias = Array.isArray(categoryFilter?.values) ? categoryFilter.values.map((v: any) => ({ id: String(v.id), name: String(v.name) })) : [];
-  return { cards, categorias };
+  const nextOffset = typeof json?.next_offset === "number" && json.next_offset > (offset || 0) ? json.next_offset : undefined;
+  return { cards, categorias, nextOffset };
 }
 
-export async function syncMercadoLivreHub(database: any, accountId: string) {
+const hasCommission = (card: any) => Boolean(component(card, "affiliates_commission_chip"));
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const IMPORT_CHUNK = 400;
+
+/** pagesPerCategory = 1 é a coleta leve da extensão de cada aluno (como antes).
+ *  A rotina do servidor usa mais páginas por categoria, com pausa entre as
+ *  chamadas para não irritar o Mercado Livre. */
+export async function syncMercadoLivreHub(database: any, accountId: string, options: { pagesPerCategory?: number; delayMs?: number } = {}) {
+  const pages = Math.min(Math.max(1, Math.trunc(options.pagesPerCategory || 1)), 6);
+  const delayMs = Math.max(0, options.delayMs ?? 0);
   const { data, error } = await database.from("affiliate_integrations").select("encrypted_session_cookies").eq("account_id", accountId).eq("provider", "mercado_livre").maybeSingle();
   if (error) throw error;
   if (!data?.encrypted_session_cookies) throw new Error("MERCADO_LIVRE_SESSION_MISSING");
@@ -74,19 +89,38 @@ export async function syncMercadoLivreHub(database: any, accountId: string) {
 
   // 1ª chamada: produtos em destaque + a lista de categorias.
   const base = await fetchHub(header);
+  // Sem nenhuma comissão nos cards = a central respondeu como visitante (sessão vencida).
+  if (pages > 1 && base.cards.length && !base.cards.some(hasCommission)) throw new Error("MERCADO_LIVRE_SESSION_EXPIRED");
   const unique = new Map<string, MercadoLivreExtensionProduct>();
   for (const card of base.cards) { const p = parseCard(card); if (p) unique.set(p.ml_item_id, p); }
+  let calls = 1;
 
-  // Uma chamada por categoria (sequencial, para não irritar o Mercado Livre).
+  // Categoria por categoria (sequencial), até `pages` páginas cada.
   for (const categoria of base.categorias.slice(0, MAX_CATEGORIAS)) {
-    try {
-      const { cards } = await fetchHub(header, categoria.id);
-      for (const card of cards) { const p = parseCard(card, categoria.name, categoria.id); if (p && !unique.has(p.ml_item_id)) unique.set(p.ml_item_id, p); }
-    } catch { /* uma categoria que falhou não derruba o resto */ }
+    let offset: number | undefined;
+    for (let page = 0; page < pages; page++) {
+      if (delayMs) await pause(delayMs);
+      try {
+        const { cards, nextOffset } = await fetchHub(header, categoria.id, offset);
+        calls++;
+        let added = 0;
+        for (const card of cards) { const p = parseCard(card, categoria.name, categoria.id); if (p && !unique.has(p.ml_item_id)) { unique.set(p.ml_item_id, p); added++; } }
+        if (!nextOffset || !cards.length || (page > 0 && !added)) break;
+        offset = nextOffset;
+      } catch (error) {
+        if (error instanceof Error && error.message === "MERCADO_LIVRE_SESSION_EXPIRED") throw error;
+        break; /* uma categoria que falhou não derruba o resto */
+      }
+    }
   }
 
   const products = [...unique.values()];
-  if (!products.length) return { received: 0, inserted: 0, updated: 0, errors: 0, categorias: base.categorias.length };
-  const result = await importMercadoLivreExtensionProducts(products, products.length, 0);
-  return { ...result, categorias: base.categorias.length };
+  if (!products.length) return { received: 0, inserted: 0, updated: 0, errors: 0, categorias: base.categorias.length, chamadas: calls };
+  const total = { received: 0, inserted: 0, updated: 0, errors: 0 };
+  for (let index = 0; index < products.length; index += IMPORT_CHUNK) {
+    const chunk = products.slice(index, index + IMPORT_CHUNK);
+    const result = await importMercadoLivreExtensionProducts(chunk, chunk.length, 0);
+    total.received += result.received; total.inserted += result.inserted; total.updated += result.updated; total.errors += result.errors;
+  }
+  return { ...total, categorias: base.categorias.length, chamadas: calls };
 }
